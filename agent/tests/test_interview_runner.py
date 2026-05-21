@@ -103,3 +103,20 @@ async def test_runner_reaches_review_ready_state(tmp_path: Path) -> None:
     )
     await runner.run(session_id="s3")
     assert runner.state_machine.state == InterviewState.CLOSING
+
+
+async def test_runner_includes_perception_integrity_flags(tmp_path: Path) -> None:
+    voice = _simulated_voice()
+    scorer = MagicMock()
+    scorer.score.side_effect = lambda si: _confident(si.target_categories[0])
+    event_log = EventLog(session_id="s4", path=tmp_path / "events.jsonl")
+    perception = MagicMock()
+    perception.integrity_flags.return_value = ["reading_off_screen", "multiple_faces"]
+    runner = InterviewRunner(
+        rubric=RUBRIC, voice=voice, scorer=scorer,
+        probe_generator=MagicMock(), event_log=event_log,
+        clock_now=iter([float(i) for i in range(0, 4000, 5)]).__next__,
+        perception=perception,
+    )
+    assessment = await runner.run(session_id="s4")
+    assert sorted(assessment.integrity_flags) == ["multiple_faces", "reading_off_screen"]

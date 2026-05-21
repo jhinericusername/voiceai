@@ -39,12 +39,14 @@ class InterviewRunner:
         probe_generator: ProbeGenerator,
         event_log: EventLog,
         clock_now: Callable[[], float],
+        perception: object | None = None,
     ) -> None:
         self._rubric = rubric
         self._voice = voice
         self._scorer = scorer
         self._probe_generator = probe_generator
         self._event_log = event_log
+        self._perception = perception
         self.state_machine = InterviewStateMachine(
             num_questions=len(rubric.questions)
         )
@@ -80,11 +82,16 @@ class InterviewRunner:
             self.state_machine.advance_question()
 
         await self._say(_CLOSING_TEXT, "CLOSING", question_id=None)
+        integrity_flags: list[str] = (
+            self._perception.integrity_flags()  # type: ignore[attr-defined]
+            if self._perception is not None
+            else []
+        )
         return roll_up_assessment(
             session_id=session_id,
             script_version=self._rubric.script_version,
             final_assessments=final,
-            integrity_flags=[],
+            integrity_flags=integrity_flags,
             confidence_threshold=SCORING.confidence_threshold,
         )
 
