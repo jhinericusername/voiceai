@@ -60,6 +60,44 @@ async def entrypoint(
 
 async def _default_run_interview(
     ctx: InterviewJobContext, participant: Any
-) -> None:  # pragma: no cover — wired in Task 3.12
-    """Placeholder runner; replaced by the real wiring in Task 3.12."""
-    raise NotImplementedError("interview runner is wired in Task 3.12")
+) -> None:  # pragma: no cover — exercised by the live integration env
+    """Production interview runner: build the components and run the interview."""
+    import time
+    from pathlib import Path
+
+    import anthropic
+
+    from agent.controller.event_log import EventLog
+    from agent.controller.interview import InterviewRunner
+    from agent.rubric_loader import load_rubric
+    from agent.scoring.probe import ProbeGenerator
+    from agent.scoring.scorer import Scorer
+
+    repo_root = Path(__file__).parents[4]
+    rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
+    anthropic_client = anthropic.Anthropic()
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=_build_voice_agent(participant),
+        scorer=Scorer(client=anthropic_client, rubric=rubric),
+        probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
+        event_log=EventLog(
+            session_id=ctx.session_id,
+            path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
+        ),
+        clock_now=time.monotonic,
+    )
+    await runner.run(session_id=ctx.session_id)
+
+
+def _build_voice_agent(participant: Any) -> Any:  # pragma: no cover — vendor wiring
+    """Construct the cascaded VoiceAgent from LiveKit plugins for `participant`."""
+    import os
+
+    from agent.voice.cascaded import CascadedVoiceAgent
+    from agent.voice.stt import DeepgramSTT, build_deepgram_stt
+    from agent.voice.tts import CartesiaTTS, build_cartesia_tts
+
+    stt = DeepgramSTT(plugin=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]))
+    tts = CartesiaTTS(plugin=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]))
+    return CascadedVoiceAgent(stt=stt, tts=tts, room_output=participant)
