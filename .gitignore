@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+agent/.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Corpus — human-scored interview data, never committed
+corpus/**
+!corpus/.gitkeep
+
+# Local artifacts
+*.log
+.DS_Store
