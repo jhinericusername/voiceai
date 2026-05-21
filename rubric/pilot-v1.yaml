@@ -1,0 +1,89 @@
+script_version: pilot-v1
+total_cap_seconds: 1800
+bare_minimum_rule: at_least_one_4_and_problem_solving_ge_3
+
+categories:
+  - key: problem_solving
+    name: Problem Solving
+    meaning: Finds clever, elegant solutions to hard problems.
+    anchors:
+      1: Downvoted.
+      2: Found a solution alongside others.
+      3: Accepted answer on Stack Overflow.
+      4: Front page on Hacker News.
+  - key: agency
+    name: Agency
+    meaning: Stops at nothing to solve a problem.
+    anchors:
+      1: Does not meet expectations.
+      2: Does everything expected or asked.
+      3: Puts in more effort than expected.
+      4: Hacked or broke rules to solve the problem.
+  - key: competitiveness
+    name: Competitiveness
+    meaning: Gets consumed by a desire to win.
+    anchors:
+      1: Absence of competitiveness.
+      2: Does not like to lose.
+      3: Emotionally affected by losing.
+      4: Competitive to a detrimental degree in some facet of life.
+  - key: curious
+    name: Curious
+    meaning: Needs to know the why behind everything, and acts on it.
+    anchors:
+      1: Absence of curiosity.
+      2: Signs of curiosity but no action.
+      3: Very curious about something and takes action.
+      4: Obsessively curious — becomes an expert.
+
+questions:
+  - question_id: q1
+    verbatim_text: >-
+      Can you tell me about a technically complex problem you solved with a
+      clever or hacky solution?
+    rubric_categories: [problem_solving]
+    target_evidence:
+      - the problem and why it was hard
+      - the solution and why it was clever or elegant
+      - the impact and level of recognition
+    max_probes: 2
+    soft_budget_seconds: 180
+    hard_stop_behavior: acknowledge_and_move_on
+  - question_id: q2
+    verbatim_text: >-
+      Can you tell me about the time you hacked a non-computer system to your
+      advantage?
+    rubric_categories: [agency]
+    target_evidence:
+      - the system and the rules or norms in place
+      - what the candidate did and why it was unconventional
+      - the outcome and what it cost or risked
+    max_probes: 2
+    soft_budget_seconds: 180
+    hard_stop_behavior: acknowledge_and_move_on
+  - question_id: q3
+    verbatim_text: >-
+      Can you tell me about an area of your life where your competitiveness
+      became so intense that it cost you something? Maybe it was detrimental
+      physically, mentally, or emotionally?
+    rubric_categories: [competitiveness]
+    target_evidence:
+      - the area of life and what winning meant there
+      - how intense the competitiveness became
+      - the concrete cost the candidate paid
+    max_probes: 2
+    soft_budget_seconds: 180
+    hard_stop_behavior: acknowledge_and_move_on
+  - question_id: q4
+    verbatim_text: >-
+      Can you tell me about a niche or obscure topic that no one knows about
+      but you are an expert in? Meaning you are in the top 1% of this thing
+      that is extremely niche?
+    rubric_categories: [curious]
+    target_evidence:
+      - the topic and why it is niche
+      - how the candidate became an expert
+      - evidence of top-1% depth and sustained action
+    max_probes: 2
+    soft_budget_seconds: 180
+    hard_stop_behavior: acknowledge_and_move_on
