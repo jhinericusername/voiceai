@@ -74,24 +74,11 @@ cd review && pnpm dev
 ```
 
 ### Agent worker
-The worker logic exists (`agent/src/agent/worker/entrypoint.py` — `entrypoint(job)`), but a **LiveKit Agents CLI launcher is not yet wired** — a known v1 gap (see §9). To run the worker, add `agent/src/agent/worker/__main__.py`:
-
-```python
-"""Launch the Puddle interviewer worker against LiveKit Cloud."""
-from livekit.agents import WorkerOptions, cli
-from agent.worker.entrypoint import entrypoint
-
-if __name__ == "__main__":
-    cli.run_app(
-        WorkerOptions(entrypoint_fnc=entrypoint, agent_name="puddle-interviewer")
-    )
-```
-
-Then:
+The launcher is `agent/src/agent/worker/__main__.py` — it registers `entrypoint` under the agent name `puddle-interviewer` (the name `backend` dispatches to via `AgentDispatchClient.createDispatch`). Run it with a LiveKit Agents CLI subcommand — `dev` for local development, `start` for production:
 ```bash
-cd agent && uv run python -m agent.worker
+cd agent && uv run --env-file ../.env python -m agent.worker dev
 ```
-Requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`. The `agent_name` **must** be `puddle-interviewer` — that is the name `backend` dispatches to (`AgentDispatchClient.createDispatch`).
+Requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`.
 
 ## 7. Calibration (Scorer evaluation gate)
 
@@ -114,7 +101,6 @@ Needs human-scored corpus JSON under `corpus/`. See `docs/calibration/README.md`
 
 These were out of the v1 implementation plan's scope — track them before a production launch:
 
-- **Agent worker launcher** — the `cli.run_app(WorkerOptions(...))` bootstrap is not in the repo (snippet in §6).
 - **Video frame-pump** — `InterviewRunner` accepts an optional `VideoPerceptionPipeline`, but `_default_run_interview` does not construct one, and nothing samples frames from the candidate's LiveKit video track into `process_frame`. Integrity flags stay empty in a live run until this is wired. The turn-hint → turn-detector path is likewise unwired.
 - **Object storage** — the S3-style path layout exists (`backend/src/storage/layout.ts`), but no object-storage client is wired; LiveKit Egress output and artifact upload need it.
 - **No CI/CD** — tests and lint are run manually.
