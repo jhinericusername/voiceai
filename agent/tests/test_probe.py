@@ -29,7 +29,9 @@ def _request() -> ProbeRequest:
             missing_or_ambiguous=["the impact and level of recognition"],
         ),
         transcript=[
-            TranscriptTurn(turn_index=0, speaker="candidate", text="I fixed a bug.", question_id="q1"),
+            TranscriptTurn(
+                turn_index=0, speaker="candidate", text="I fixed a bug.", question_id="q1"
+            ),
         ],
         probes_used=0,
         max_probes=2,

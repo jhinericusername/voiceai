@@ -1,4 +1,3 @@
-import pytest
 
 from agent.controller.timing import HUMANE_BOUNDARY_LINE, InterviewClock
 

@@ -1,8 +1,6 @@
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
 from agent.video.sampler import SampledFrame
 from agent.video.vlm import IntegrityVLM, VlmObservation
 

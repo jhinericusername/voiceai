@@ -5,11 +5,11 @@ finalize it as a first-class workflow with retries and an explicit status.
 from __future__ import annotations
 
 import asyncio
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class RecordingStatus(str, Enum):
+class RecordingStatus(StrEnum):
     """Terminal status of the recording finalization workflow."""
 
     COMPLETE = "complete"

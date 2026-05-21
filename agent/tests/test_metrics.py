@@ -1,4 +1,4 @@
-from agent.eval.metrics import AgreementReport, compute_agreement
+from agent.eval.metrics import compute_agreement
 from agent.eval.replay import ReplayResult
 
 

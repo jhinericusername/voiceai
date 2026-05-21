@@ -1,6 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import MagicMock
 
 from agent.voice.stt import DeepgramSTT, SttTranscript
 

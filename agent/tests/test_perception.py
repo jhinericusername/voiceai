@@ -2,8 +2,6 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 from agent.audit_log import AuditLogWriter
 from agent.domain.types import IntegrityEvent
 from agent.video.perception import VideoPerceptionPipeline

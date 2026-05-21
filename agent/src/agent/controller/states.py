@@ -6,10 +6,10 @@ counters on the machine; the enum holds the state *kinds*.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class InterviewState(str, Enum):
+class InterviewState(StrEnum):
     """The kinds of state the interview can be in."""
 
     SCHEDULED = "scheduled"

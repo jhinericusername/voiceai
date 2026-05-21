@@ -1,4 +1,3 @@
-import pytest
 
 from agent.voice.turn_detector import TurnDecision, TurnDetector
 

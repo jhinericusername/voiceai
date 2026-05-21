@@ -1,4 +1,4 @@
-from agent.controller.decision import Directive, decide_next_action
+from agent.controller.decision import decide_next_action
 from agent.scoring.io_types import CategoryAssessment, ScorerOutput
 
 

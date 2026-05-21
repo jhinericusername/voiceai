@@ -29,7 +29,9 @@ def test_user_message_contains_transcript_and_target_categories() -> None:
         target_categories=["problem_solving"],
         transcript=[
             TranscriptTurn(turn_index=0, speaker="agent", text="Tell me.", question_id="q1"),
-            TranscriptTurn(turn_index=1, speaker="candidate", text="I rewrote it.", question_id="q1"),
+            TranscriptTurn(
+                turn_index=1, speaker="candidate", text="I rewrote it.", question_id="q1"
+            ),
         ],
     )
     _system, messages = build_scorer_messages(RUBRIC, si)

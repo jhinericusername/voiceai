@@ -1,8 +1,6 @@
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from agent.controller.event_log import EventLog
 from agent.controller.interview import InterviewRunner
 from agent.controller.states import InterviewState

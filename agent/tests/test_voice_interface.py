@@ -1,7 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from agent.voice.cascaded import CascadedVoiceAgent
 from agent.voice.interface import ListenResult, VoiceAgent, VoiceMode
 

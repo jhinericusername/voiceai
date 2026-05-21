@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,7 @@ class AuditLogWriter:
     def write(self, event_type: str, payload: dict[str, Any]) -> None:
         """Append one entry, chaining it to the prior entry's hash."""
         entry: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "event_type": event_type,
             "payload": payload,
             "prev_hash": self._last_hash(),

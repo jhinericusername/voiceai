@@ -3,7 +3,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from agent.eval.calibrate import run_calibration
-from agent.eval.corpus import CorpusItem
 from agent.rubric_loader import load_rubric
 from agent.scoring.io_types import CategoryAssessment, ScorerOutput
 

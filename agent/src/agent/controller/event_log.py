@@ -6,7 +6,6 @@ Each utterance is validated into an `AgentEvent` and appended to
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from pydantic import ValidationError

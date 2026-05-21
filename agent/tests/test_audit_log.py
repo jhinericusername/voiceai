@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from agent.audit_log import AuditLogWriter
 
 

@@ -1,7 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from agent.worker.recording import (
     EgressRecorder,
     RecordingStatus,
