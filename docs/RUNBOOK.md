@@ -75,11 +75,46 @@ cd review && pnpm dev
 ```
 
 ### Agent worker
-The launcher is `agent/src/agent/worker/__main__.py` — it registers `entrypoint` under the agent name `puddle-interviewer` (the name `backend` dispatches to via `AgentDispatchClient.createDispatch`). Run it with a LiveKit Agents CLI subcommand — `dev` for local development, `start` for production:
+The launcher is `agent/src/agent/worker/__main__.py` — it registers `entrypoint` under the agent name `puddle-interviewer` (the name `backend` dispatches to via `AgentDispatchClient.createDispatch`). The voice loop is **real**: on dispatch the worker joins the room and runs an `AgentSession` with **Deepgram STT + Cartesia TTS + Silero VAD + the multilingual turn detector**, drives scripted prompts verbatim via `session.say()`, runs the Interview Controller / Scorer / Probe Generator, and persists the final `Assessment` to Postgres via asyncpg. Run it with a LiveKit Agents CLI subcommand — `dev` for local development, `start` for production:
 ```bash
 cd agent && uv run --env-file ../.env python -m agent.worker dev
 ```
-Requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`.
+Requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`, `DATABASE_URL`.
+
+### Run a test interview
+
+End-to-end local loop — backend issues a candidate join token, room app self-serves a session and connects, agent worker joins on dispatch and runs the interview by voice, finalization writes the Assessment to Postgres.
+
+1. **Terminal 1 — backend API** (issues join tokens, persists sessions):
+   ```bash
+   cd backend && pnpm install && pnpm build && node --env-file=../.env dist/server.js
+   ```
+
+2. **Terminal 2 — one-time model download** (Silero VAD + multilingual turn detector weights):
+   ```bash
+   cd agent && uv sync --extra dev && uv run --env-file ../.env python -m agent.worker download-files
+   ```
+
+3. **Terminal 2 — agent worker** (registers `puddle-interviewer`, waits for dispatch):
+   ```bash
+   cd agent && uv run --env-file ../.env python -m agent.worker dev
+   ```
+
+4. **Terminal 3 — room app** (Vite dev server; reads `VITE_BACKEND_URL`, defaults to `http://localhost:8080` — only set it if the backend isn't on that origin):
+   ```bash
+   cd room && pnpm install && pnpm dev
+   ```
+
+5. **Browser** — open the URL Vite prints. Click through **Landing → Consent → Preflight → WaitingRoom**, then **Join interview**. The room app calls `POST /integration/sessions` to self-serve `{ sessionId, room, token, wsUrl }`, connects with `livekit-client`, and the worker takes the turn. Complete the interview by voice.
+
+6. **Verify in Postgres** (Supabase SQL editor, or `psql "$DATABASE_URL"`):
+   ```sql
+   select session_id, status from sessions order by created_at desc limit 1;
+   -- expect: status = 'review_ready'
+
+   select session_id, category_scores from assessments order by created_at desc limit 1;
+   -- expect: category_scores contains the four rubric categories
+   ```
 
 ## 7. Calibration (Scorer evaluation gate)
 
@@ -102,9 +137,16 @@ Needs human-scored corpus JSON under `corpus/`. See `docs/calibration/README.md`
 
 These were out of the v1 implementation plan's scope — track them before a production launch:
 
-- **Video frame-pump** — `InterviewRunner` accepts an optional `VideoPerceptionPipeline`, but `_default_run_interview` does not construct one, and nothing samples frames from the candidate's LiveKit video track into `process_frame`. Integrity flags stay empty in a live run until this is wired. The turn-hint → turn-detector path is likewise unwired.
-- **Object storage** — the S3-style path layout exists (`backend/src/storage/layout.ts`), but no object-storage client is wired; LiveKit Egress output and artifact upload need it.
+- **LiveKit Egress / S3 recording** — out of scope for v1. The S3-style path layout exists (`backend/src/storage/layout.ts`), but no object-storage client is wired and no Egress is configured; interview audio/video is not persisted to durable storage.
+- **Reviewer (`review/`) app** — UI shell only; not wired to live Assessments.
+- **Platform integration** — only the local `/integration/sessions` contract exists; no external ATS / scheduler integration.
+- **Calibration not approved for live scoring** — the calibration harness exists (§7) but the Scorer has not cleared the calibration gate; approving it for live use is a reduction-of-oversight decision requiring operator and employment-counsel sign-off.
+- **Production hosting / deploy** — out of scope for v1; §8 describes the shape but no environment is stood up.
 - **No CI/CD** — tests and lint are run manually.
+
+**Deferred by design (not gaps):**
+
+- **Video perception** — `InterviewRunner` accepts an optional `VideoPerceptionPipeline` and the integrity-flag path is wired through to the Assessment, but live video frame sampling and Gemini-backed perception are intentionally out of scope for this integration. `GEMINI_API_KEY` is left blank in `.env`; integrity flags stay empty in a live run.
 
 ### AWS backend deployment
 
