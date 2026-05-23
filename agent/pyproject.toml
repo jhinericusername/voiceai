@@ -13,6 +13,7 @@ dependencies = [
     "livekit-plugins-turn-detector>=0.4",
     "livekit-plugins-silero>=1.5.11",
     "google-genai>=0.3",
+    "asyncpg>=0.30",
 ]
 
 [project.optional-dependencies]
