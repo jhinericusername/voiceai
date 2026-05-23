@@ -1,20 +1,56 @@
+import { useEffect, useRef, useState } from "react";
+import { connectToInterview, type RoomConnection } from "../livekit.js";
+import type { JoinDetails } from "../session.js";
+
 interface InCallProps {
-  readonly remainingSeconds: number;
+  readonly join: JoinDetails;
   readonly onComplete: () => void;
 }
 
-// In-call UI: agent shown as a simple visual, candidate self-view, timer.
-export function InCall({ remainingSeconds, onComplete }: InCallProps): JSX.Element {
-  const minutes = Math.floor(remainingSeconds / 60);
-  const seconds = Math.floor(remainingSeconds % 60);
+// In-call UI: connects to the LiveKit room, attaches agent audio, shows self-view.
+export function InCall({ join, onComplete }: InCallProps): JSX.Element {
+  const selfVideoRef = useRef<HTMLVideoElement>(null);
+  const [status, setStatus] = useState<"connecting" | "live" | "ended">("connecting");
+  const connRef = useRef<RoomConnection | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    connectToInterview(
+      join.wsUrl,
+      join.token,
+      (audioEl) => document.body.appendChild(audioEl),
+      (videoTrack) => {
+        if (selfVideoRef.current) {
+          selfVideoRef.current.srcObject = new MediaStream([videoTrack]);
+        }
+      },
+    )
+      .then((conn) => {
+        if (cancelled) {
+          void conn.disconnect();
+          return;
+        }
+        connRef.current = conn;
+        setStatus("live");
+      })
+      .catch(() => setStatus("ended"));
+    return () => {
+      cancelled = true;
+      void connRef.current?.disconnect();
+    };
+  }, [join]);
+
+  const end = (): void => {
+    void connRef.current?.disconnect();
+    setStatus("ended");
+    onComplete();
+  };
+
   return (
     <main>
-      <div aria-label="interviewer">Puddle interviewer</div>
-      <video aria-label="self-view" autoPlay muted playsInline />
-      <div aria-label="timer">
-        {minutes}:{String(seconds).padStart(2, "0")}
-      </div>
-      <button onClick={onComplete}>End interview</button>
+      <div aria-label="status">{status}</div>
+      <video aria-label="self-view" ref={selfVideoRef} autoPlay muted playsInline />
+      <button onClick={end}>End interview</button>
     </main>
   );
 }
