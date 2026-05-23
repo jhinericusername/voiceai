@@ -24,16 +24,14 @@ class InterviewJobContext(BaseModel):
     room_name: str
 
 
-def build_session_context(job: Any) -> InterviewJobContext:
-    """Parse the dispatch metadata on a LiveKit job into an `InterviewJobContext`.
+def build_session_context(ctx: Any) -> InterviewJobContext:
+    """Parse the dispatch metadata on a LiveKit JobContext.
 
     Raises `ValueError` if required fields are absent — the worker must never
     join a room it cannot identify.
     """
-    try:
-        meta = json.loads(_job_metadata(job))
-    except json.JSONDecodeError as exc:
-        raise ValueError("job metadata must be valid JSON") from exc
+    raw = ctx.job.metadata if ctx.job is not None else None
+    meta = json.loads(raw) if raw else {}
     for field in ("session_id", "org_id", "script_version", "candidate_email"):
         if not meta.get(field):
             raise ValueError(f"job metadata missing required field: {field}")
@@ -42,7 +40,7 @@ def build_session_context(job: Any) -> InterviewJobContext:
         org_id=meta["org_id"],
         script_version=meta["script_version"],
         candidate_email=meta["candidate_email"],
-        room_name=job.room.name,
+        room_name=ctx.room.name,
     )
 
 
