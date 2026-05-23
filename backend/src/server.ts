@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
+import cors from "@fastify/cors";
 import { getPool } from "./db/pool.js";
 import { provisionRoom, type LiveKitConfig } from "./livekit/provision.js";
 import { registerLiveKitWebhookRoutes } from "./livekit/webhooks.js";
@@ -99,6 +100,13 @@ export async function createSession(
 // routes registered. Pure construction — no network I/O until a route is hit.
 export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   const app = Fastify({ logger: true });
+  // Local dev: the room app runs on Vite (default :5173). Production deploys
+  // override CORS_ORIGINS with a comma-separated allowlist of public origins.
+  const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  void app.register(cors, { origin: corsOrigins });
   app.addContentTypeParser(
     "application/webhook+json",
     { parseAs: "string" },
