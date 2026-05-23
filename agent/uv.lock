@@ -667,6 +667,20 @@ wheels = [
 ]
 
 [[package]]
+name = "livekit-plugins-silero"
+version = "1.5.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit-agents" },
+    { name = "numpy" },
+    { name = "onnxruntime" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/33/46/e14ef9e9d560bb8a1e71a6cef354ff60df0c030a37cb12d019064970c073/livekit_plugins_silero-1.5.11.tar.gz", hash = "sha256:c571d2dbc9f18378916252d800ef7860f58844ef40924220d645a8366f043387", size = 1955613, upload-time = "2026-05-19T17:57:36.848Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/2a/aa7d9e5a6206abf7898b2e7724464eda75b98471ec40eb4b6dfa0d5b5319/livekit_plugins_silero-1.5.11-py3-none-any.whl", hash = "sha256:212fbd50f914f3e97ac0cfb315d835719a42c41b8661b0ed2c78acc56ca5e3e8", size = 3903700, upload-time = "2026-05-19T17:57:35.075Z" },
+]
+
+[[package]]
 name = "livekit-plugins-turn-detector"
 version = "1.5.11"
 source = { registry = "https://pypi.org/simple" }
@@ -1034,6 +1048,7 @@ dependencies = [
     { name = "livekit-agents" },
     { name = "livekit-plugins-cartesia" },
     { name = "livekit-plugins-deepgram" },
+    { name = "livekit-plugins-silero" },
     { name = "livekit-plugins-turn-detector" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1053,6 +1068,7 @@ requires-dist = [
     { name = "livekit-agents", specifier = ">=0.12" },
     { name = "livekit-plugins-cartesia", specifier = ">=0.4" },
     { name = "livekit-plugins-deepgram", specifier = ">=0.7" },
+    { name = "livekit-plugins-silero", specifier = ">=1.5.11" },
     { name = "livekit-plugins-turn-detector", specifier = ">=0.4" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
