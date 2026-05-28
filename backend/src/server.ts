@@ -18,6 +18,7 @@ import {
   invitePath,
 } from "./invites/repository.js";
 import { generateInviteToken } from "./invites/tokens.js";
+import { registerInternalAuth } from "./integration/internal-auth.js";
 
 // Reads the LiveKit credentials the room-provisioning code needs from the env.
 // Throws if any are missing — the server must never start half-configured.
@@ -74,6 +75,7 @@ export async function createSession(
 // routes registered. Pure construction — no network I/O until a route is hit.
 export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   const app = Fastify({ logger: true });
+  registerInternalAuth(app);
   app.get("/healthz", async () => ({ ok: true }));
   registerSchedulerRoutes(app, liveKitConfig);
   registerIntegrationRoutes(app, (body) => createSession(liveKitConfig, body));

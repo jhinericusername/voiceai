@@ -35,6 +35,13 @@ export interface PuddleEnvConfig {
     hosting: PlatformHosting;
     imageTag?: string;
     port: number;
+    desiredCount: number;
+    cpu: number;
+    memoryMiB: number;
+    domainName?: string;
+    certificateArn?: string;
+    allowedAuthDomains: string;
+    defaultScriptVersion: string;
   };
   database: {
     external: boolean;
@@ -114,6 +121,16 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
       ),
       imageTag: readStringContext(app, 'platformImageTag'),
       port: readNumberContext(app, 'platformPort', 3000),
+      desiredCount: readNumberContext(app, 'platformDesiredCount', 1),
+      cpu: readNumberContext(app, 'platformCpu', 512),
+      memoryMiB: readNumberContext(app, 'platformMemoryMiB', 1024),
+      domainName: readStringContext(app, 'platformDomainName'),
+      certificateArn: readStringContext(app, 'platformCertificateArn'),
+      allowedAuthDomains:
+        readStringContext(app, 'platformAllowedAuthDomains') ??
+        'usepuddle.com,workweave.ai',
+      defaultScriptVersion:
+        readStringContext(app, 'platformDefaultScriptVersion') ?? 'pilot-v1',
     },
     database: {
       external: readBooleanContext(app, 'useExternalDatabase', false),

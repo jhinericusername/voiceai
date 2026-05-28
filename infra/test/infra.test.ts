@@ -13,7 +13,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 9);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
@@ -187,7 +187,7 @@ describe('InfraStack', () => {
     ).not.toThrow();
   });
 
-  test('blocks agent and platform deployment flags during the backend pass', () => {
+  test('blocks agent deployment and static platform hosting during this pass', () => {
     expect(() =>
       createStack({
         agent: {
@@ -201,10 +201,80 @@ describe('InfraStack', () => {
       createStack({
         platform: {
           ...defaultConfig().platform,
+          hosting: 'static-export',
+        },
+      }),
+    ).toThrow('Static platform hosting is not implemented yet.');
+  });
+
+  test('requires the backend service before deploying the platform container', () => {
+    expect(() =>
+      createStack({
+        platform: {
+          ...defaultConfig().platform,
           hosting: 'container',
         },
       }),
-    ).toThrow('Platform deployment is blocked');
+    ).toThrow('platformHosting=container requires deployBackendService=true.');
+  });
+
+  test('creates a public ECS platform service when enabled', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'backend-test',
+      },
+      platform: {
+        ...defaultConfig().platform,
+        hosting: 'container',
+        imageTag: 'platform-test',
+        domainName: 'app.usepuddle.com',
+        certificateArn:
+          'arn:aws:acm:us-east-1:111111111111:certificate/test-certificate',
+      },
+      liveKit: {
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 2);
+    template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 3);
+
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
+      Scheme: 'internet-facing',
+      Type: 'application',
+    });
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'platform',
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'NEXT_PUBLIC_SITE_URL',
+              Value: 'https://app.usepuddle.com',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_ALLOWED_AUTH_DOMAINS',
+              Value: 'usepuddle.com,workweave.ai',
+            }),
+          ]),
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'WORKOS_API_KEY',
+            }),
+            Match.objectLike({
+              Name: 'WORKOS_COOKIE_PASSWORD',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_BACKEND_INTERNAL_TOKEN',
+            }),
+          ]),
+        }),
+      ]),
+    });
   });
 });
 
@@ -252,6 +322,11 @@ function defaultConfig(): PuddleEnvConfig {
     platform: {
       hosting: 'disabled',
       port: 3000,
+      desiredCount: 1,
+      cpu: 512,
+      memoryMiB: 1024,
+      allowedAuthDomains: 'usepuddle.com,workweave.ai',
+      defaultScriptVersion: 'pilot-v1',
     },
     database: {
       external: false,

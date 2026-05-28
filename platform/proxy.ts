@@ -1,6 +1,9 @@
 import { authkitProxy } from "@workos-inc/authkit-nextjs";
+import { workosRedirectUri } from "@/lib/site-url";
 
-export default authkitProxy();
+export default authkitProxy({
+  redirectUri: workosRedirectUri(),
+});
 
 export const config = {
   matcher: [

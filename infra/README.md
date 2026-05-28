@@ -15,10 +15,11 @@ The default stack deploys the shared foundation resources:
 - baseline security groups
 - stack outputs for the shared resource names and ARNs
 
-The backend can now be deployed as a private ECS/Fargate service behind an
-internal ALB. Platform and agent services remain blocked by CDK guardrails until
-their Dockerfiles, hosting/commands, and runtime contracts are implemented.
-Public backend exposure is still blocked until request authentication is wired.
+The backend can be deployed as a private ECS/Fargate service behind an internal
+ALB. The platform can be deployed as a public ECS/Fargate service behind a
+public ALB while calling the backend through the internal ALB. Agent deployment
+remains blocked by CDK guardrails until Docker packaging and the production
+worker command are verified. Public backend exposure remains blocked.
 
 ## Commands
 
@@ -71,6 +72,14 @@ deployAgentService=false
 agentDesiredCount=1
 
 platformHosting=disabled|container|static-export
+platformImageTag=latest
+platformDesiredCount=1
+platformCpu=512
+platformMemoryMiB=1024
+platformDomainName=app.usepuddle.com
+platformCertificateArn=<acm-certificate-arn>
+platformAllowedAuthDomains=usepuddle.com,workweave.ai
+platformDefaultScriptVersion=pilot-v1
 
 useExternalDatabase=false
 databaseName=puddle
@@ -119,3 +128,72 @@ After the service deploys, run migrations once with the emitted
 `BackendTasksSecurityGroupId`. Then redeploy with `backendDesiredCount=1` to
 start the backend service. The backend listener health check is `GET /healthz`;
 it does not depend on Postgres or LiveKit.
+
+Current dev backend internal URL, from the healthy deployed stack on May 27,
+2026:
+
+```text
+http://internal-Puddle-Backe-B0GCD7ar4tZv-1590581178.us-west-1.elb.amazonaws.com
+```
+
+Treat this as stack-specific state. CDK wires the current
+`BackendInternalBaseUrl` into the platform ECS task automatically when both
+backend and platform services are enabled.
+
+## Platform Deployment
+
+Populate these Secrets Manager values before starting the platform service:
+
+```text
+/puddle-videoagent/platform/workos-api-key
+/puddle-videoagent/platform/workos-client-id
+/puddle-videoagent/platform/auth-secret
+/puddle-videoagent/backend/internal-token
+```
+
+Build and push a platform image to the stack-created ECR repo:
+
+```sh
+AWS_ACCOUNT_ID=<account-id>
+REGION=us-west-1
+TAG=$(git rev-parse --short HEAD)
+REPO="$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/puddle-videoagent-platform"
+
+aws ecr get-login-password --region "$REGION" \
+  | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+docker build -f platform/Dockerfile -t "$REPO:$TAG" .
+docker push "$REPO:$TAG"
+```
+
+For a first HTTP smoke test, omit `platformCertificateArn` and use the emitted
+`PlatformLoadBalancerDnsName`. For a real WorkOS production redirect, create and
+validate an ACM certificate for `app.usepuddle.com`, then deploy with the
+certificate ARN:
+
+```sh
+npm run cdk -- deploy \
+  -c envName=dev \
+  -c region="$REGION" \
+  -c deployBackendService=true \
+  -c backendImageTag="<backend-tag>" \
+  -c liveKitUrl=wss://your-livekit-host \
+  -c platformHosting=container \
+  -c platformImageTag="$TAG" \
+  -c platformDomainName=app.usepuddle.com \
+  -c platformCertificateArn="<acm-certificate-arn>"
+```
+
+After the platform ALB is created, add this DNS record in Namecheap:
+
+```text
+Type:  CNAME
+Host:  app
+Value: <PlatformLoadBalancerDnsName>
+TTL:   Automatic
+```
+
+Then add the WorkOS production redirect URI:
+
+```text
+https://app.usepuddle.com/callback
+```

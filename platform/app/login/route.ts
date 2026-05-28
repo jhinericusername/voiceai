@@ -1,6 +1,7 @@
 import { getSignInUrl } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
 import type { NextRequest } from "next/server";
+import { workosRedirectUri } from "@/lib/site-url";
 
 function safeReturnTo(value: string | null) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
@@ -12,7 +13,10 @@ function safeReturnTo(value: string | null) {
 
 export async function GET(request: NextRequest) {
   const returnTo = safeReturnTo(request.nextUrl.searchParams.get("returnTo"));
-  const signInUrl = await getSignInUrl({ returnTo });
+  const signInUrl = await getSignInUrl({
+    redirectUri: workosRedirectUri(),
+    returnTo,
+  });
 
   redirect(signInUrl);
 }

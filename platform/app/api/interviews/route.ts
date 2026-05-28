@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
+import { publicBaseUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,17 @@ function backendBaseUrl(): string {
   return (process.env.PUDDLE_BACKEND_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 }
 
-function publicOrigin(request: Request): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL ?? new URL(request.url).origin).replace(/\/$/, "");
+function publicOrigin(): string {
+  return publicBaseUrl();
+}
+
+function backendHeaders(): HeadersInit {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const token = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN?.trim();
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 function candidateEmailFromBody(body: unknown, fallback: string): string {
@@ -47,7 +57,7 @@ export async function POST(request: Request) {
   try {
     backendResponse = await fetch(`${backendBaseUrl()}/integration/sessions`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: backendHeaders(),
       body: JSON.stringify({
         orgId,
         candidateEmail,
@@ -78,7 +88,7 @@ export async function POST(request: Request) {
     {
       sessionId: session.sessionId,
       room: session.room,
-      inviteUrl: `${publicOrigin(request)}${invitePath}`,
+      inviteUrl: `${publicOrigin()}${invitePath}`,
       inviteExpiresAt: session.inviteExpiresAt,
     },
     { status: 201 },

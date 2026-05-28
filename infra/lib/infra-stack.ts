@@ -1,4 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
@@ -16,14 +17,16 @@ export interface InfraStackProps extends cdk.StackProps {
 }
 
 interface RuntimeSecrets {
-  livekitApiKey: secretsmanager.Secret;
-  livekitApiSecret: secretsmanager.Secret;
-  anthropicApiKey: secretsmanager.Secret;
-  deepgramApiKey: secretsmanager.Secret;
-  cartesiaApiKey: secretsmanager.Secret;
-  geminiApiKey: secretsmanager.Secret;
-  backendInternalToken: secretsmanager.Secret;
-  platformAuthSecret: secretsmanager.Secret;
+  livekitApiKey: secretsmanager.ISecret;
+  livekitApiSecret: secretsmanager.ISecret;
+  anthropicApiKey: secretsmanager.ISecret;
+  deepgramApiKey: secretsmanager.ISecret;
+  cartesiaApiKey: secretsmanager.ISecret;
+  geminiApiKey: secretsmanager.ISecret;
+  backendInternalToken: secretsmanager.ISecret;
+  platformAuthSecret: secretsmanager.ISecret;
+  workosApiKey: secretsmanager.ISecret;
+  workosClientId: secretsmanager.ISecret;
 }
 
 interface RuntimeRoles {
@@ -43,6 +46,14 @@ interface BackendDeployment {
   listener: elbv2.ApplicationListener;
 }
 
+interface PlatformDeployment {
+  service: ecs.FargateService;
+  taskDefinition: ecs.FargateTaskDefinition;
+  loadBalancer: elbv2.ApplicationLoadBalancer;
+  listener: elbv2.ApplicationListener;
+  publicBaseUrl: string;
+}
+
 const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   livekitApiKey: 'livekit/api-key',
   livekitApiSecret: 'livekit/api-secret',
@@ -52,6 +63,8 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   geminiApiKey: 'providers/gemini-api-key',
   backendInternalToken: 'backend/internal-token',
   platformAuthSecret: 'platform/auth-secret',
+  workosApiKey: 'platform/workos-api-key',
+  workosClientId: 'platform/workos-client-id',
 };
 
 const DATABASE_PASSWORD_EXCLUDE_CHARS = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\';
@@ -106,6 +119,16 @@ export class InfraStack extends cdk.Stack {
       runtimeRoles,
       database,
     });
+    const platformDeployment = this.createPlatformDeployment({
+      vpc,
+      cluster,
+      securityGroups,
+      repositories,
+      runtimeSecrets,
+      logGroups,
+      runtimeRoles,
+      backendDeployment,
+    });
 
     this.createOutputs({
       vpc,
@@ -121,6 +144,7 @@ export class InfraStack extends cdk.Stack {
       runtimeRoles,
       githubCiRole,
       backendDeployment,
+      platformDeployment,
     });
   }
 
@@ -212,10 +236,26 @@ export class InfraStack extends cdk.Stack {
       );
     }
 
-    if (this.cfg.platform.hosting !== 'disabled') {
-      throw new Error(
-        'Platform deployment is blocked until the container/static hosting path is implemented.',
-      );
+    if (this.cfg.platform.hosting === 'static-export') {
+      throw new Error('Static platform hosting is not implemented yet.');
+    }
+
+    if (this.cfg.platform.hosting === 'container') {
+      if (!this.cfg.backend.deployService) {
+        throw new Error('platformHosting=container requires deployBackendService=true.');
+      }
+
+      if (this.cfg.platform.port < 1 || this.cfg.platform.port > 65535) {
+        throw new Error('platformPort must be a valid TCP port.');
+      }
+
+      if (this.cfg.platform.certificateArn && !this.cfg.platform.domainName) {
+        throw new Error('platformCertificateArn requires platformDomainName.');
+      }
+
+      if (this.cfg.envName === 'prod' && !this.cfg.platform.certificateArn) {
+        throw new Error('prod platform container deploy requires platformCertificateArn.');
+      }
     }
 
     if (
@@ -284,6 +324,17 @@ export class InfraStack extends cdk.Stack {
       },
     );
 
+    const platformLoadBalancer = new ec2.SecurityGroup(
+      this,
+      'PlatformLoadBalancerSecurityGroup',
+      {
+        vpc,
+        securityGroupName: this.name('platform-alb-sg'),
+        description: 'Public platform load balancer ingress.',
+        allowAllOutbound: true,
+      },
+    );
+
     const platformTasks = new ec2.SecurityGroup(this, 'PlatformTasksSecurityGroup', {
       vpc,
       securityGroupName: this.name('platform-tasks-sg'),
@@ -341,10 +392,36 @@ export class InfraStack extends cdk.Stack {
       ec2.Port.tcp(80),
       'Backend load balancer access from agent tasks',
     );
+    platformLoadBalancer.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(80),
+      'HTTP from the internet',
+    );
+    platformLoadBalancer.addIngressRule(
+      ec2.Peer.anyIpv6(),
+      ec2.Port.tcp(80),
+      'HTTP from the internet',
+    );
+    platformLoadBalancer.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      'HTTPS from the internet',
+    );
+    platformLoadBalancer.addIngressRule(
+      ec2.Peer.anyIpv6(),
+      ec2.Port.tcp(443),
+      'HTTPS from the internet',
+    );
+    platformTasks.addIngressRule(
+      platformLoadBalancer,
+      ec2.Port.tcp(this.cfg.platform.port),
+      'Platform app traffic from the platform load balancer',
+    );
 
     return {
       backendTasks,
       backendLoadBalancer,
+      platformLoadBalancer,
       platformTasks,
       agentTasks,
       futureDatabase,
@@ -547,6 +624,16 @@ export class InfraStack extends cdk.Stack {
         RUNTIME_SECRET_PATHS.platformAuthSecret,
         removalPolicy,
       ),
+      workosApiKey: secretsmanager.Secret.fromSecretNameV2(
+        this,
+        'WorkosApiKey',
+        this.secretName(RUNTIME_SECRET_PATHS.workosApiKey),
+      ),
+      workosClientId: secretsmanager.Secret.fromSecretNameV2(
+        this,
+        'WorkosClientId',
+        this.secretName(RUNTIME_SECRET_PATHS.workosClientId),
+      ),
     };
 
     return secrets;
@@ -642,6 +729,8 @@ export class InfraStack extends cdk.Stack {
     grantSecretsRead(platformExecutionRole, [
       runtimeSecrets.backendInternalToken,
       runtimeSecrets.platformAuthSecret,
+      runtimeSecrets.workosApiKey,
+      runtimeSecrets.workosClientId,
     ]);
 
     if (database?.secret) {
@@ -733,6 +822,9 @@ export class InfraStack extends cdk.Stack {
       LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.livekitApiKey),
       LIVEKIT_API_SECRET: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.livekitApiSecret,
+      ),
+      PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.backendInternalToken,
       ),
       DATABASE_USER: ecs.Secret.fromSecretsManager(database.secret, 'username'),
       DATABASE_PASSWORD: ecs.Secret.fromSecretsManager(database.secret, 'password'),
@@ -850,6 +942,175 @@ export class InfraStack extends cdk.Stack {
     };
   }
 
+  private createPlatformDeployment(params: {
+    vpc: ec2.IVpc;
+    cluster: ecs.ICluster;
+    securityGroups: Record<string, ec2.SecurityGroup>;
+    repositories: Record<string, ecr.IRepository>;
+    runtimeSecrets: RuntimeSecrets;
+    logGroups: Record<string, logs.ILogGroup>;
+    runtimeRoles: RuntimeRoles;
+    backendDeployment?: BackendDeployment;
+  }): PlatformDeployment | undefined {
+    if (this.cfg.platform.hosting !== 'container') {
+      return undefined;
+    }
+
+    const { backendDeployment } = params;
+    if (!backendDeployment) {
+      throw new Error('Platform container deployment requires a backend deployment.');
+    }
+
+    const loadBalancer = new elbv2.ApplicationLoadBalancer(
+      this,
+      'PlatformLoadBalancer',
+      {
+        vpc: params.vpc,
+        internetFacing: true,
+        securityGroup: params.securityGroups.platformLoadBalancer,
+        vpcSubnets: {
+          subnetType: ec2.SubnetType.PUBLIC,
+        },
+      },
+    );
+    const publicBaseUrl = this.platformPublicBaseUrl(loadBalancer.loadBalancerDnsName);
+    const platformImage = ecs.ContainerImage.fromEcrRepository(
+      params.repositories.platform,
+      this.cfg.platform.imageTag ?? 'latest',
+    );
+    const containerEnvironment = {
+      NODE_ENV: 'production',
+      HOSTNAME: '0.0.0.0',
+      PORT: String(this.cfg.platform.port),
+      PUDDLE_PUBLIC_BASE_URL: publicBaseUrl,
+      PUDDLE_WORKOS_REDIRECT_URI: `${publicBaseUrl}/callback`,
+      NEXT_PUBLIC_SITE_URL: publicBaseUrl,
+      NEXT_PUBLIC_WORKOS_REDIRECT_URI: `${publicBaseUrl}/callback`,
+      PUDDLE_ALLOWED_AUTH_DOMAINS: this.cfg.platform.allowedAuthDomains,
+      PUDDLE_BACKEND_BASE_URL: `http://${backendDeployment.loadBalancer.loadBalancerDnsName}`,
+      PUDDLE_DEFAULT_SCRIPT_VERSION: this.cfg.platform.defaultScriptVersion,
+    };
+    const containerSecrets = {
+      WORKOS_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.workosApiKey),
+      WORKOS_CLIENT_ID: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.workosClientId,
+      ),
+      WORKOS_COOKIE_PASSWORD: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.platformAuthSecret,
+      ),
+      PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.backendInternalToken,
+      ),
+    };
+
+    const taskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      'PlatformTaskDefinition',
+      {
+        family: this.name('platform'),
+        cpu: this.cfg.platform.cpu,
+        memoryLimitMiB: this.cfg.platform.memoryMiB,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+        taskRole: params.runtimeRoles.platformTaskRole,
+        executionRole: params.runtimeRoles.platformExecutionRole,
+      },
+    );
+    const container = taskDefinition.addContainer('PlatformContainer', {
+      containerName: 'platform',
+      image: platformImage,
+      environment: containerEnvironment,
+      secrets: containerSecrets,
+      logging: ecs.LogDrivers.awsLogs({
+        logGroup: params.logGroups.platform,
+        streamPrefix: 'platform',
+      }),
+    });
+    container.addPortMappings({
+      containerPort: this.cfg.platform.port,
+      protocol: ecs.Protocol.TCP,
+    });
+
+    const listener = this.createPlatformListener(loadBalancer);
+    const service = new ecs.FargateService(this, 'PlatformService', {
+      cluster: params.cluster,
+      serviceName: this.name('platform-service'),
+      taskDefinition,
+      desiredCount: this.cfg.platform.desiredCount,
+      assignPublicIp: false,
+      securityGroups: [params.securityGroups.platformTasks],
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      circuitBreaker: {
+        rollback: true,
+      },
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
+      healthCheckGracePeriod: cdk.Duration.seconds(90),
+    });
+
+    listener.addTargets('PlatformTargets', {
+      targets: [service],
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      port: this.cfg.platform.port,
+      deregistrationDelay: cdk.Duration.seconds(30),
+      healthCheck: {
+        path: '/',
+        healthyHttpCodes: '200-399',
+        interval: cdk.Duration.seconds(30),
+        timeout: cdk.Duration.seconds(5),
+      },
+    });
+
+    return {
+      service,
+      taskDefinition,
+      loadBalancer,
+      listener,
+      publicBaseUrl,
+    };
+  }
+
+  private createPlatformListener(
+    loadBalancer: elbv2.ApplicationLoadBalancer,
+  ): elbv2.ApplicationListener {
+    const certificateArn = this.cfg.platform.certificateArn;
+    if (!certificateArn) {
+      return loadBalancer.addListener('PlatformHttpListener', {
+        port: 80,
+        protocol: elbv2.ApplicationProtocol.HTTP,
+        open: false,
+      });
+    }
+
+    loadBalancer.addListener('PlatformHttpRedirectListener', {
+      port: 80,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      open: false,
+      defaultAction: elbv2.ListenerAction.redirect({
+        protocol: 'HTTPS',
+        port: '443',
+        permanent: true,
+      }),
+    });
+
+    return loadBalancer.addListener('PlatformHttpsListener', {
+      port: 443,
+      protocol: elbv2.ApplicationProtocol.HTTPS,
+      certificates: [
+        acm.Certificate.fromCertificateArn(
+          this,
+          'PlatformCertificate',
+          certificateArn,
+        ),
+      ],
+      open: false,
+    });
+  }
+
   private createGithubCiRole(
     repositories: Record<string, ecr.IRepository>,
     webBuckets: Record<string, s3.IBucket>,
@@ -908,6 +1169,7 @@ export class InfraStack extends cdk.Stack {
     runtimeRoles: RuntimeRoles;
     githubCiRole?: iam.IRole;
     backendDeployment?: BackendDeployment;
+    platformDeployment?: PlatformDeployment;
   }): void {
     new cdk.CfnOutput(this, 'EnvironmentName', {
       value: this.cfg.envName,
@@ -1016,6 +1278,21 @@ export class InfraStack extends cdk.Stack {
         value: `http://${values.backendDeployment.loadBalancer.loadBalancerDnsName}`,
       });
     }
+
+    if (values.platformDeployment) {
+      new cdk.CfnOutput(this, 'PlatformServiceName', {
+        value: values.platformDeployment.service.serviceName,
+      });
+      new cdk.CfnOutput(this, 'PlatformTaskDefinitionArn', {
+        value: values.platformDeployment.taskDefinition.taskDefinitionArn,
+      });
+      new cdk.CfnOutput(this, 'PlatformLoadBalancerDnsName', {
+        value: values.platformDeployment.loadBalancer.loadBalancerDnsName,
+      });
+      new cdk.CfnOutput(this, 'PlatformPublicBaseUrl', {
+        value: values.platformDeployment.publicBaseUrl,
+      });
+    }
   }
 
   private toLogRetention(retentionDays: number): logs.RetentionDays {
@@ -1062,6 +1339,14 @@ export class InfraStack extends cdk.Stack {
 
   private name(suffix: string): string {
     return `${this.cfg.resourcePrefix}-${suffix}`;
+  }
+
+  private platformPublicBaseUrl(loadBalancerDnsName?: string): string {
+    if (this.cfg.platform.domainName) {
+      return `${this.cfg.platform.certificateArn ? 'https' : 'http'}://${this.cfg.platform.domainName}`;
+    }
+
+    return loadBalancerDnsName ? `http://${loadBalancerDnsName}` : 'http://localhost:3000';
   }
 
   private secretName(path: string): string {

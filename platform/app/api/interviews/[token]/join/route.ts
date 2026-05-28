@@ -12,6 +12,11 @@ function backendBaseUrl(): string {
   return (process.env.PUDDLE_BACKEND_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 }
 
+function backendHeaders(): HeadersInit {
+  const token = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN?.trim();
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 export async function POST(_request: Request, context: RouteContext) {
   const { token } = await context.params;
   const encodedToken = encodeURIComponent(token);
@@ -20,6 +25,7 @@ export async function POST(_request: Request, context: RouteContext) {
   try {
     backendResponse = await fetch(`${backendBaseUrl()}/candidate/invites/${encodedToken}/join`, {
       method: "POST",
+      headers: backendHeaders(),
       cache: "no-store",
     });
   } catch {
