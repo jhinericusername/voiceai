@@ -41,6 +41,9 @@ importers:
       '@workos-inc/authkit-nextjs':
         specifier: ^4.1.0
         version: 4.1.0(next@16.2.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
+      livekit-client:
+        specifier: ^2.6.0
+        version: 2.19.0(@types/dom-mediacapture-record@1.0.22)
       next:
         specifier: 16.2.6
         version: 16.2.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

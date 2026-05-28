@@ -1,4 +1,21 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Puddle Platform
+
+Next.js customer/staff platform for Puddle.
+
+## Authentication
+
+The platform uses WorkOS AuthKit hosted authentication. Public sign-up should
+stay disabled in WorkOS for closed beta access.
+
+Staff onboarding is handled through `POST /api/team-invitations`, which:
+
+- requires a signed-in WorkOS session,
+- rejects callers outside `PUDDLE_ALLOWED_AUTH_DOMAINS`,
+- rejects invitees outside `PUDDLE_ALLOWED_AUTH_DOMAINS`, and
+- sends the actual account invitation through WorkOS.
+
+The dashboard form performs the same domain validation client-side only for
+faster feedback. Server-side checks remain authoritative.
 
 ## Getting Started
 

@@ -3,7 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { CreateInterviewCard } from "./CreateInterviewCard";
-import { isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
+import { CreateTeamInvitationCard } from "./CreateTeamInvitationCard";
+import { allowedAuthDomains, isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,7 @@ export default async function DashboardPage() {
             </div>
 
             <CreateInterviewCard defaultCandidateEmail={user.email} />
+            <CreateTeamInvitationCard allowedDomains={allowedAuthDomains()} />
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white shadow-[0_30px_90px_rgba(15,23,42,0.22)]">

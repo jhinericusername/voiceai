@@ -1,3 +1,5 @@
+import { isAllowedEmailForDomains } from "./email-domain";
+
 const DEFAULT_ALLOWED_AUTH_DOMAINS = ["usepuddle.com", "workweave.ai"] as const;
 
 export function allowedAuthDomains(): readonly string[] {
@@ -14,19 +16,8 @@ export function allowedAuthDomains(): readonly string[] {
   return domains.length ? domains : DEFAULT_ALLOWED_AUTH_DOMAINS;
 }
 
-export function emailDomain(email: string | null | undefined): string | null {
-  const normalized = email?.trim().toLowerCase();
-  const atIndex = normalized?.lastIndexOf("@") ?? -1;
-  if (!normalized || atIndex < 1 || atIndex === normalized.length - 1) {
-    return null;
-  }
-
-  return normalized.slice(atIndex + 1);
-}
-
 export function isAllowedAuthEmail(email: string | null | undefined): boolean {
-  const domain = emailDomain(email);
-  return domain ? allowedAuthDomains().includes(domain) : false;
+  return isAllowedEmailForDomains(email, allowedAuthDomains());
 }
 
 export function allowedAuthDomainsLabel(): string {
