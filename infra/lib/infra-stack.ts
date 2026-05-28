@@ -1,16 +1,1095 @@
-import * as cdk from 'aws-cdk-lib/core';
+import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as rds from 'aws-cdk-lib/aws-rds';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
+import { PuddleEnvConfig } from './config';
+
+export interface InfraStackProps extends cdk.StackProps {
+  config: PuddleEnvConfig;
+}
+
+interface RuntimeSecrets {
+  livekitApiKey: secretsmanager.Secret;
+  livekitApiSecret: secretsmanager.Secret;
+  anthropicApiKey: secretsmanager.Secret;
+  deepgramApiKey: secretsmanager.Secret;
+  cartesiaApiKey: secretsmanager.Secret;
+  geminiApiKey: secretsmanager.Secret;
+  backendInternalToken: secretsmanager.Secret;
+  platformAuthSecret: secretsmanager.Secret;
+}
+
+interface RuntimeRoles {
+  backendTaskRole: iam.Role;
+  backendExecutionRole: iam.Role;
+  agentTaskRole: iam.Role;
+  agentExecutionRole: iam.Role;
+  platformTaskRole: iam.Role;
+  platformExecutionRole: iam.Role;
+}
+
+interface BackendDeployment {
+  service: ecs.FargateService;
+  taskDefinition: ecs.FargateTaskDefinition;
+  migrationTaskDefinition: ecs.FargateTaskDefinition;
+  loadBalancer: elbv2.ApplicationLoadBalancer;
+  listener: elbv2.ApplicationListener;
+}
+
+const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
+  livekitApiKey: 'livekit/api-key',
+  livekitApiSecret: 'livekit/api-secret',
+  anthropicApiKey: 'providers/anthropic-api-key',
+  deepgramApiKey: 'providers/deepgram-api-key',
+  cartesiaApiKey: 'providers/cartesia-api-key',
+  geminiApiKey: 'providers/gemini-api-key',
+  backendInternalToken: 'backend/internal-token',
+  platformAuthSecret: 'platform/auth-secret',
+};
+
+const DATABASE_PASSWORD_EXCLUDE_CHARS = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\';
 
 export class InfraStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  private readonly cfg: PuddleEnvConfig;
+
+  constructor(scope: Construct, id: string, props: InfraStackProps) {
     super(scope, id, props);
 
-    // The code that defines your stack goes here
+    this.cfg = props.config;
+    this.validateConfig();
+    this.applyTags();
 
-    // example resource
-    // const queue = new sqs.Queue(this, 'InfraQueue', {
-    //   visibilityTimeout: cdk.Duration.seconds(300)
-    // });
+    const logRetention = this.toLogRetention(this.cfg.logs.retentionDays);
+    const removalPolicy = this.removalPolicy();
+    const autoDeleteObjects = this.cfg.envName === 'dev';
+
+    const accessLogsBucket = this.createAccessLogsBucket(removalPolicy, autoDeleteObjects);
+    const artifactsBucket = this.createArtifactsBucket(
+      accessLogsBucket,
+      removalPolicy,
+      autoDeleteObjects,
+    );
+    const webBuckets = this.createWebBuckets(
+      accessLogsBucket,
+      removalPolicy,
+      autoDeleteObjects,
+    );
+    const repositories = this.createRepositories();
+    const runtimeSecrets = this.createRuntimeSecrets(removalPolicy);
+    const logGroups = this.createLogGroups(logRetention, removalPolicy);
+
+    const vpc = this.createVpc();
+    const securityGroups = this.createSecurityGroups(vpc);
+    const database = this.createDatabase(vpc, securityGroups.futureDatabase, removalPolicy);
+    const cluster = new ecs.Cluster(this, 'Cluster', {
+      clusterName: this.name('cluster'),
+      containerInsightsV2: ecs.ContainerInsights.ENABLED,
+      vpc,
+    });
+
+    const runtimeRoles = this.createRuntimeRoles(runtimeSecrets, artifactsBucket, database);
+    const githubCiRole = this.createGithubCiRole(repositories, webBuckets);
+    const backendDeployment = this.createBackendDeployment({
+      vpc,
+      cluster,
+      securityGroups,
+      repositories,
+      runtimeSecrets,
+      logGroups,
+      runtimeRoles,
+      database,
+    });
+
+    this.createOutputs({
+      vpc,
+      securityGroups,
+      cluster,
+      accessLogsBucket,
+      artifactsBucket,
+      webBuckets,
+      repositories,
+      runtimeSecrets,
+      database,
+      logGroups,
+      runtimeRoles,
+      githubCiRole,
+      backendDeployment,
+    });
+  }
+
+  private validateConfig(): void {
+    if (this.cfg.networkMode !== 'private-tasks-public-alb') {
+      throw new Error(`Unsupported networkMode: ${this.cfg.networkMode}`);
+    }
+
+    if (this.cfg.vpc.maxAzs < 2) {
+      throw new Error('VPC maxAzs must be at least 2 for the foundation stack.');
+    }
+
+    if (this.cfg.vpc.natGateways < 1) {
+      throw new Error('At least one NAT gateway is required for private ECS task egress.');
+    }
+
+    if (this.cfg.vpc.natGateways > this.cfg.vpc.maxAzs) {
+      throw new Error('natGateways cannot exceed maxAzs.');
+    }
+
+    if (!this.cfg.database.external) {
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(this.cfg.database.name)) {
+        throw new Error(
+          'databaseName must start with a letter and contain only letters, numbers, or underscores.',
+        );
+      }
+
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(this.cfg.database.username)) {
+        throw new Error(
+          'databaseUsername must start with a letter and contain only letters, numbers, or underscores.',
+        );
+      }
+
+      if (this.cfg.database.allocatedStorageGb < 20) {
+        throw new Error('databaseAllocatedStorageGb must be at least 20.');
+      }
+
+      if (this.cfg.database.maxAllocatedStorageGb < this.cfg.database.allocatedStorageGb) {
+        throw new Error(
+          'databaseMaxAllocatedStorageGb must be greater than or equal to databaseAllocatedStorageGb.',
+        );
+      }
+    }
+
+    if (this.cfg.backend.exposePublicly && !this.cfg.backend.requireAuth) {
+      throw new Error('Refusing to deploy public backend without backend auth enabled.');
+    }
+
+    if (this.cfg.backend.exposePublicly) {
+      throw new Error(
+        'Public backend exposure is blocked until request authentication is implemented.',
+      );
+    }
+
+    if (this.cfg.backend.deployService) {
+      if (this.cfg.database.external) {
+        throw new Error('deployBackendService currently requires the CDK-managed database.');
+      }
+
+      if (!this.cfg.liveKit.url) {
+        throw new Error('deployBackendService requires a liveKitUrl CDK context value.');
+      }
+
+      if (this.cfg.backend.port < 1 || this.cfg.backend.port > 65535) {
+        throw new Error('backendPort must be a valid TCP port.');
+      }
+
+    }
+
+    const candidateDataServicesEnabled =
+      this.cfg.backend.deployService ||
+      this.cfg.agent.deployService ||
+      this.cfg.platform.hosting !== 'disabled';
+
+    if (
+      this.cfg.envName === 'prod' &&
+      candidateDataServicesEnabled &&
+      this.cfg.database.external &&
+      !this.cfg.database.allowRealCandidateDataExternal
+    ) {
+      throw new Error(
+        'Refusing prod deploy with external database unless explicitly approved.',
+      );
+    }
+
+    if (this.cfg.agent.deployService) {
+      throw new Error(
+        'Agent service deployment is blocked until Docker packaging and the production start command are verified.',
+      );
+    }
+
+    if (this.cfg.platform.hosting !== 'disabled') {
+      throw new Error(
+        'Platform deployment is blocked until the container/static hosting path is implemented.',
+      );
+    }
+
+    if (
+      this.cfg.githubOidc.enabled &&
+      (!this.cfg.githubOidc.owner || !this.cfg.githubOidc.repo)
+    ) {
+      throw new Error(
+        'enableGithubOidc requires githubOwner and githubRepo CDK context values.',
+      );
+    }
+  }
+
+  private applyTags(): void {
+    cdk.Tags.of(this).add('Project', 'PuddleVoiceAI');
+    cdk.Tags.of(this).add('Environment', this.cfg.envName);
+    cdk.Tags.of(this).add('ManagedBy', 'AWS CDK');
+  }
+
+  private createVpc(): ec2.Vpc {
+    return new ec2.Vpc(this, 'Vpc', {
+      vpcName: this.name('vpc'),
+      maxAzs: this.cfg.vpc.maxAzs,
+      natGateways: this.cfg.vpc.natGateways,
+      restrictDefaultSecurityGroup: true,
+      subnetConfiguration: [
+        {
+          name: 'public-ingress',
+          subnetType: ec2.SubnetType.PUBLIC,
+          cidrMask: 24,
+        },
+        {
+          name: 'private-app',
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+          cidrMask: 24,
+        },
+        {
+          name: 'isolated-data',
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          cidrMask: 28,
+        },
+      ],
+      gatewayEndpoints: {
+        S3: {
+          service: ec2.GatewayVpcEndpointAwsService.S3,
+        },
+      },
+    });
+  }
+
+  private createSecurityGroups(vpc: ec2.IVpc): Record<string, ec2.SecurityGroup> {
+    const backendTasks = new ec2.SecurityGroup(this, 'BackendTasksSecurityGroup', {
+      vpc,
+      securityGroupName: this.name('backend-tasks-sg'),
+      description: 'Backend ECS tasks. No public ingress.',
+      allowAllOutbound: true,
+    });
+
+    const backendLoadBalancer = new ec2.SecurityGroup(
+      this,
+      'BackendLoadBalancerSecurityGroup',
+      {
+        vpc,
+        securityGroupName: this.name('backend-alb-sg'),
+        description: 'Internal backend load balancer ingress from application tasks.',
+        allowAllOutbound: true,
+      },
+    );
+
+    const platformTasks = new ec2.SecurityGroup(this, 'PlatformTasksSecurityGroup', {
+      vpc,
+      securityGroupName: this.name('platform-tasks-sg'),
+      description: 'Platform ECS tasks. No public ingress.',
+      allowAllOutbound: true,
+    });
+
+    const agentTasks = new ec2.SecurityGroup(this, 'AgentTasksSecurityGroup', {
+      vpc,
+      securityGroupName: this.name('agent-tasks-sg'),
+      description: 'Agent ECS tasks. No inbound access.',
+      allowAllOutbound: true,
+    });
+
+    const futureDatabase = new ec2.SecurityGroup(this, 'FutureDatabaseSecurityGroup', {
+      vpc,
+      securityGroupName: this.name('data-sg'),
+      description: 'Future RDS/Aurora ingress from application tasks only.',
+      allowAllOutbound: false,
+    });
+
+    futureDatabase.addIngressRule(
+      backendTasks,
+      ec2.Port.tcp(5432),
+      'Postgres from backend tasks',
+    );
+    futureDatabase.addIngressRule(
+      platformTasks,
+      ec2.Port.tcp(5432),
+      'Postgres from platform tasks',
+    );
+    futureDatabase.addIngressRule(
+      agentTasks,
+      ec2.Port.tcp(5432),
+      'Postgres from agent tasks',
+    );
+
+    backendTasks.addIngressRule(
+      platformTasks,
+      ec2.Port.tcp(this.cfg.backend.port),
+      'Backend API access from platform tasks',
+    );
+    backendTasks.addIngressRule(
+      backendLoadBalancer,
+      ec2.Port.tcp(this.cfg.backend.port),
+      'Backend API access from the backend load balancer',
+    );
+    backendLoadBalancer.addIngressRule(
+      platformTasks,
+      ec2.Port.tcp(80),
+      'Backend load balancer access from platform tasks',
+    );
+    backendLoadBalancer.addIngressRule(
+      agentTasks,
+      ec2.Port.tcp(80),
+      'Backend load balancer access from agent tasks',
+    );
+
+    return {
+      backendTasks,
+      backendLoadBalancer,
+      platformTasks,
+      agentTasks,
+      futureDatabase,
+    };
+  }
+
+  private createAccessLogsBucket(
+    removalPolicy: cdk.RemovalPolicy,
+    autoDeleteObjects: boolean,
+  ): s3.Bucket {
+    return new s3.Bucket(this, 'AccessLogsBucket', {
+      bucketName: this.physicalName('access-logs'),
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      objectOwnership: s3.ObjectOwnership.OBJECT_WRITER,
+      versioned: false,
+      removalPolicy,
+      autoDeleteObjects,
+      lifecycleRules: [
+        {
+          id: 'ExpireAccessLogs',
+          expiration: cdk.Duration.days(this.cfg.envName === 'prod' ? 365 : 90),
+        },
+      ],
+    });
+  }
+
+  private createArtifactsBucket(
+    accessLogsBucket: s3.IBucket,
+    removalPolicy: cdk.RemovalPolicy,
+    autoDeleteObjects: boolean,
+  ): s3.Bucket {
+    return new s3.Bucket(this, 'ArtifactsBucket', {
+      bucketName: this.physicalName('artifacts'),
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      versioned: true,
+      serverAccessLogsBucket: accessLogsBucket,
+      serverAccessLogsPrefix: 'artifacts/',
+      removalPolicy,
+      autoDeleteObjects,
+      lifecycleRules: [
+        {
+          id: 'AbortIncompleteMultipartUploads',
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(7),
+        },
+        {
+          id: 'ExpireNoncurrentVersions',
+          noncurrentVersionExpiration: cdk.Duration.days(90),
+        },
+      ],
+    });
+  }
+
+  private createWebBuckets(
+    accessLogsBucket: s3.IBucket,
+    removalPolicy: cdk.RemovalPolicy,
+    autoDeleteObjects: boolean,
+  ): Record<string, s3.Bucket> {
+    const apps = ['platform', 'room', 'review'] as const;
+    return Object.fromEntries(
+      apps.map((appName) => [
+        appName,
+        new s3.Bucket(this, `${this.toPascalCase(appName)}WebBucket`, {
+          bucketName: this.physicalName(`${appName}-web`),
+          blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+          encryption: s3.BucketEncryption.S3_MANAGED,
+          enforceSSL: true,
+          objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+          versioned: true,
+          serverAccessLogsBucket: accessLogsBucket,
+          serverAccessLogsPrefix: `web/${appName}/`,
+          removalPolicy,
+          autoDeleteObjects,
+          lifecycleRules: [
+            {
+              id: 'ExpireOldAssetVersions',
+              noncurrentVersionExpiration: cdk.Duration.days(30),
+            },
+          ],
+        }),
+      ]),
+    ) as Record<string, s3.Bucket>;
+  }
+
+  private createRepositories(): Record<string, ecr.Repository> {
+    const services = ['backend', 'agent', 'platform'] as const;
+    return Object.fromEntries(
+      services.map((service) => [
+        service,
+        new ecr.Repository(this, `${this.toPascalCase(service)}Repository`, {
+          repositoryName: this.name(service),
+          encryption: ecr.RepositoryEncryption.AES_256,
+          imageScanOnPush: true,
+          imageTagMutability:
+            this.cfg.envName === 'prod'
+              ? ecr.TagMutability.IMMUTABLE
+              : ecr.TagMutability.MUTABLE,
+          removalPolicy: this.cfg.envName === 'prod'
+            ? cdk.RemovalPolicy.RETAIN
+            : cdk.RemovalPolicy.DESTROY,
+          emptyOnDelete: this.cfg.envName !== 'prod',
+          lifecycleRules: [
+            {
+              description: 'Remove untagged images after two weeks.',
+              tagStatus: ecr.TagStatus.UNTAGGED,
+              maxImageAge: cdk.Duration.days(14),
+            },
+            {
+              description: 'Keep the most recent tagged images.',
+              maxImageCount: this.cfg.envName === 'prod' ? 100 : 30,
+            },
+          ],
+        }),
+      ]),
+    ) as Record<string, ecr.Repository>;
+  }
+
+  private createDatabase(
+    vpc: ec2.IVpc,
+    securityGroup: ec2.ISecurityGroup,
+    removalPolicy: cdk.RemovalPolicy,
+  ): rds.DatabaseInstance | undefined {
+    if (this.cfg.database.external) {
+      return undefined;
+    }
+
+    return new rds.DatabaseInstance(this, 'PostgresDatabase', {
+      instanceIdentifier: this.name('postgres'),
+      databaseName: this.cfg.database.name,
+      engine: rds.DatabaseInstanceEngine.postgres({
+        version: rds.PostgresEngineVersion.VER_16,
+      }),
+      credentials: rds.Credentials.fromGeneratedSecret(this.cfg.database.username, {
+        secretName: this.secretName('database/credentials'),
+        excludeCharacters: DATABASE_PASSWORD_EXCLUDE_CHARS,
+      }),
+      vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+      },
+      securityGroups: [securityGroup],
+      publiclyAccessible: false,
+      instanceType: new ec2.InstanceType(this.cfg.database.instanceType),
+      multiAz: this.cfg.database.multiAz,
+      allocatedStorage: this.cfg.database.allocatedStorageGb,
+      maxAllocatedStorage: this.cfg.database.maxAllocatedStorageGb,
+      storageType: rds.StorageType.GP3,
+      storageEncrypted: true,
+      backupRetention: cdk.Duration.days(this.cfg.database.backupRetentionDays),
+      deleteAutomatedBackups: this.cfg.envName !== 'prod',
+      deletionProtection: this.cfg.database.deletionProtection,
+      removalPolicy,
+      autoMinorVersionUpgrade: true,
+    });
+  }
+
+  private createRuntimeSecrets(removalPolicy: cdk.RemovalPolicy): RuntimeSecrets {
+    const secrets = {
+      livekitApiKey: this.createSecret(
+        'LiveKitApiKey',
+        RUNTIME_SECRET_PATHS.livekitApiKey,
+        removalPolicy,
+      ),
+      livekitApiSecret: this.createSecret(
+        'LiveKitApiSecret',
+        RUNTIME_SECRET_PATHS.livekitApiSecret,
+        removalPolicy,
+      ),
+      anthropicApiKey: this.createSecret(
+        'AnthropicApiKey',
+        RUNTIME_SECRET_PATHS.anthropicApiKey,
+        removalPolicy,
+      ),
+      deepgramApiKey: this.createSecret(
+        'DeepgramApiKey',
+        RUNTIME_SECRET_PATHS.deepgramApiKey,
+        removalPolicy,
+      ),
+      cartesiaApiKey: this.createSecret(
+        'CartesiaApiKey',
+        RUNTIME_SECRET_PATHS.cartesiaApiKey,
+        removalPolicy,
+      ),
+      geminiApiKey: this.createSecret(
+        'GeminiApiKey',
+        RUNTIME_SECRET_PATHS.geminiApiKey,
+        removalPolicy,
+      ),
+      backendInternalToken: this.createSecret(
+        'BackendInternalToken',
+        RUNTIME_SECRET_PATHS.backendInternalToken,
+        removalPolicy,
+      ),
+      platformAuthSecret: this.createSecret(
+        'PlatformAuthSecret',
+        RUNTIME_SECRET_PATHS.platformAuthSecret,
+        removalPolicy,
+      ),
+    };
+
+    return secrets;
+  }
+
+  private createSecret(
+    constructId: string,
+    path: string,
+    removalPolicy: cdk.RemovalPolicy,
+  ): secretsmanager.Secret {
+    const secret = new secretsmanager.Secret(this, constructId, {
+      secretName: this.secretName(path),
+      description: `${this.cfg.envName} ${path} runtime secret placeholder.`,
+      generateSecretString: {
+        passwordLength: 40,
+        excludePunctuation: true,
+      },
+    });
+    secret.applyRemovalPolicy(removalPolicy);
+    return secret;
+  }
+
+  private createLogGroups(
+    retention: logs.RetentionDays,
+    removalPolicy: cdk.RemovalPolicy,
+  ): Record<string, logs.LogGroup> {
+    const names = ['backend', 'agent', 'platform', 'migrations'] as const;
+    return Object.fromEntries(
+      names.map((name) => [
+        name,
+        new logs.LogGroup(this, `${this.toPascalCase(name)}LogGroup`, {
+          logGroupName: `/aws/ecs/${this.cfg.resourcePrefix}/${name}`,
+          retention,
+          removalPolicy,
+        }),
+      ]),
+    ) as Record<string, logs.LogGroup>;
+  }
+
+  private createRuntimeRoles(
+    runtimeSecrets: RuntimeSecrets,
+    artifactsBucket: s3.IBucket,
+    database: rds.DatabaseInstance | undefined,
+  ): RuntimeRoles {
+    const backendTaskRole = this.createTaskRole(
+      'BackendTaskRole',
+      'backend task role',
+      'backend-task-role',
+    );
+    const backendExecutionRole = this.createExecutionRole(
+      'BackendExecutionRole',
+      'backend task execution role',
+      'backend-execution-role',
+    );
+    const agentTaskRole = this.createTaskRole(
+      'AgentTaskRole',
+      'agent task role',
+      'agent-task-role',
+    );
+    const agentExecutionRole = this.createExecutionRole(
+      'AgentExecutionRole',
+      'agent task execution role',
+      'agent-execution-role',
+    );
+    const platformTaskRole = this.createTaskRole(
+      'PlatformTaskRole',
+      'platform task role',
+      'platform-task-role',
+    );
+    const platformExecutionRole = this.createExecutionRole(
+      'PlatformExecutionRole',
+      'platform task execution role',
+      'platform-execution-role',
+    );
+
+    artifactsBucket.grantReadWrite(backendTaskRole);
+    artifactsBucket.grantReadWrite(agentTaskRole);
+    artifactsBucket.grantRead(platformTaskRole);
+
+    grantSecretsRead(backendExecutionRole, [
+      runtimeSecrets.livekitApiKey,
+      runtimeSecrets.livekitApiSecret,
+      runtimeSecrets.backendInternalToken,
+    ]);
+    grantSecretsRead(agentExecutionRole, [
+      runtimeSecrets.livekitApiKey,
+      runtimeSecrets.livekitApiSecret,
+      runtimeSecrets.anthropicApiKey,
+      runtimeSecrets.deepgramApiKey,
+      runtimeSecrets.cartesiaApiKey,
+      runtimeSecrets.geminiApiKey,
+    ]);
+    grantSecretsRead(platformExecutionRole, [
+      runtimeSecrets.backendInternalToken,
+      runtimeSecrets.platformAuthSecret,
+    ]);
+
+    if (database?.secret) {
+      database.secret.grantRead(backendExecutionRole);
+      database.secret.grantRead(agentExecutionRole);
+    }
+
+    return {
+      backendTaskRole,
+      backendExecutionRole,
+      agentTaskRole,
+      agentExecutionRole,
+      platformTaskRole,
+      platformExecutionRole,
+    };
+  }
+
+  private createTaskRole(
+    constructId: string,
+    description: string,
+    roleNameSuffix: string,
+  ): iam.Role {
+    return new iam.Role(this, constructId, {
+      roleName: this.name(roleNameSuffix),
+      description: `${this.cfg.envName} ${description}.`,
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+    });
+  }
+
+  private createExecutionRole(
+    constructId: string,
+    description: string,
+    roleNameSuffix: string,
+  ): iam.Role {
+    const role = new iam.Role(this, constructId, {
+      roleName: this.name(roleNameSuffix),
+      description: `${this.cfg.envName} ${description}.`,
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+          'service-role/AmazonECSTaskExecutionRolePolicy',
+        ),
+      ],
+    });
+
+    return role;
+  }
+
+  private createBackendDeployment(params: {
+    vpc: ec2.IVpc;
+    cluster: ecs.ICluster;
+    securityGroups: Record<string, ec2.ISecurityGroup>;
+    repositories: Record<string, ecr.IRepository>;
+    runtimeSecrets: RuntimeSecrets;
+    logGroups: Record<string, logs.ILogGroup>;
+    runtimeRoles: RuntimeRoles;
+    database?: rds.DatabaseInstance;
+  }): BackendDeployment | undefined {
+    if (!this.cfg.backend.deployService) {
+      return undefined;
+    }
+
+    const { database } = params;
+    if (!database?.secret) {
+      throw new Error('Backend service deployment requires database credentials.');
+    }
+
+    const liveKitUrl = this.cfg.liveKit.url;
+    if (!liveKitUrl) {
+      throw new Error('Backend service deployment requires liveKitUrl.');
+    }
+
+    const backendImage = ecs.ContainerImage.fromEcrRepository(
+      params.repositories.backend,
+      this.cfg.backend.imageTag ?? 'latest',
+    );
+    const containerEnvironment = {
+      NODE_ENV: 'production',
+      HOST: '0.0.0.0',
+      PORT: String(this.cfg.backend.port),
+      LIVEKIT_URL: liveKitUrl,
+      DATABASE_HOST: database.dbInstanceEndpointAddress,
+      DATABASE_PORT: database.dbInstanceEndpointPort,
+      DATABASE_NAME: this.cfg.database.name,
+      DATABASE_SSL: 'true',
+      DATABASE_SSL_REJECT_UNAUTHORIZED: 'false',
+    };
+    const containerSecrets = {
+      LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.livekitApiKey),
+      LIVEKIT_API_SECRET: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.livekitApiSecret,
+      ),
+      DATABASE_USER: ecs.Secret.fromSecretsManager(database.secret, 'username'),
+      DATABASE_PASSWORD: ecs.Secret.fromSecretsManager(database.secret, 'password'),
+    };
+
+    const taskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      'BackendTaskDefinition',
+      {
+        family: this.name('backend'),
+        cpu: this.cfg.backend.cpu,
+        memoryLimitMiB: this.cfg.backend.memoryMiB,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+        taskRole: params.runtimeRoles.backendTaskRole,
+        executionRole: params.runtimeRoles.backendExecutionRole,
+      },
+    );
+    const backendContainer = taskDefinition.addContainer('BackendContainer', {
+      containerName: 'backend',
+      image: backendImage,
+      environment: containerEnvironment,
+      secrets: containerSecrets,
+      logging: ecs.LogDrivers.awsLogs({
+        logGroup: params.logGroups.backend,
+        streamPrefix: 'backend',
+      }),
+    });
+    backendContainer.addPortMappings({
+      containerPort: this.cfg.backend.port,
+      protocol: ecs.Protocol.TCP,
+    });
+
+    const migrationTaskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      'BackendMigrationTaskDefinition',
+      {
+        family: this.name('backend-migrations'),
+        cpu: this.cfg.backend.cpu,
+        memoryLimitMiB: this.cfg.backend.memoryMiB,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+        taskRole: params.runtimeRoles.backendTaskRole,
+        executionRole: params.runtimeRoles.backendExecutionRole,
+      },
+    );
+    migrationTaskDefinition.addContainer('BackendMigrationContainer', {
+      containerName: 'backend-migrations',
+      image: backendImage,
+      command: ['node', 'dist/db/migrate.js'],
+      environment: containerEnvironment,
+      secrets: containerSecrets,
+      logging: ecs.LogDrivers.awsLogs({
+        logGroup: params.logGroups.migrations,
+        streamPrefix: 'backend',
+      }),
+    });
+
+    const loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'BackendLoadBalancer', {
+      vpc: params.vpc,
+      internetFacing: false,
+      securityGroup: params.securityGroups.backendLoadBalancer,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+    });
+
+    const listener = loadBalancer.addListener('BackendHttpListener', {
+      port: 80,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      open: false,
+    });
+
+    const service = new ecs.FargateService(this, 'BackendService', {
+      cluster: params.cluster,
+      serviceName: this.name('backend-service'),
+      taskDefinition,
+      desiredCount: this.cfg.backend.desiredCount,
+      assignPublicIp: false,
+      securityGroups: [params.securityGroups.backendTasks],
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      circuitBreaker: {
+        rollback: true,
+      },
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
+      healthCheckGracePeriod: cdk.Duration.seconds(60),
+    });
+
+    listener.addTargets('BackendTargets', {
+      targets: [service],
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      port: this.cfg.backend.port,
+      deregistrationDelay: cdk.Duration.seconds(30),
+      healthCheck: {
+        path: '/healthz',
+        healthyHttpCodes: '200',
+        interval: cdk.Duration.seconds(30),
+        timeout: cdk.Duration.seconds(5),
+      },
+    });
+
+    return {
+      service,
+      taskDefinition,
+      migrationTaskDefinition,
+      loadBalancer,
+      listener,
+    };
+  }
+
+  private createGithubCiRole(
+    repositories: Record<string, ecr.IRepository>,
+    webBuckets: Record<string, s3.IBucket>,
+  ): iam.Role | undefined {
+    if (!this.cfg.githubOidc.enabled) {
+      return undefined;
+    }
+
+    const provider = this.cfg.githubOidc.providerArn
+      ? iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
+          this,
+          'GitHubOidcProvider',
+          this.cfg.githubOidc.providerArn,
+        )
+      : new iam.OpenIdConnectProvider(this, 'GitHubOidcProvider', {
+          url: 'https://token.actions.githubusercontent.com',
+          clientIds: ['sts.amazonaws.com'],
+        });
+
+    const role = new iam.Role(this, 'GitHubCiRole', {
+      roleName: this.name('github-ci-role'),
+      description: `${this.cfg.envName} GitHub Actions image/static asset publishing role.`,
+      assumedBy: new iam.OpenIdConnectPrincipal(provider).withConditions({
+        StringEquals: {
+          'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+        },
+        StringLike: {
+          'token.actions.githubusercontent.com:sub': `repo:${this.cfg.githubOidc.owner}/${this.cfg.githubOidc.repo}:*`,
+        },
+      }),
+    });
+
+    for (const repository of Object.values(repositories)) {
+      repository.grantPullPush(role);
+    }
+
+    for (const bucket of Object.values(webBuckets)) {
+      bucket.grantReadWrite(role);
+      bucket.grantDelete(role);
+    }
+
+    return role;
+  }
+
+  private createOutputs(values: {
+    vpc: ec2.IVpc;
+    securityGroups: Record<string, ec2.ISecurityGroup>;
+    cluster: ecs.ICluster;
+    accessLogsBucket: s3.IBucket;
+    artifactsBucket: s3.IBucket;
+    webBuckets: Record<string, s3.IBucket>;
+    repositories: Record<string, ecr.IRepository>;
+    runtimeSecrets: RuntimeSecrets;
+    database?: rds.DatabaseInstance;
+    logGroups: Record<string, logs.ILogGroup>;
+    runtimeRoles: RuntimeRoles;
+    githubCiRole?: iam.IRole;
+    backendDeployment?: BackendDeployment;
+  }): void {
+    new cdk.CfnOutput(this, 'EnvironmentName', {
+      value: this.cfg.envName,
+    });
+    new cdk.CfnOutput(this, 'VpcId', {
+      value: values.vpc.vpcId,
+    });
+    new cdk.CfnOutput(this, 'PublicSubnetIds', {
+      value: cdk.Fn.join(',', values.vpc.publicSubnets.map((subnet) => subnet.subnetId)),
+    });
+    new cdk.CfnOutput(this, 'PrivateSubnetIds', {
+      value: cdk.Fn.join(
+        ',',
+        values.vpc.privateSubnets.map((subnet) => subnet.subnetId),
+      ),
+    });
+    new cdk.CfnOutput(this, 'IsolatedSubnetIds', {
+      value: cdk.Fn.join(
+        ',',
+        values.vpc.isolatedSubnets.map((subnet) => subnet.subnetId),
+      ),
+    });
+    new cdk.CfnOutput(this, 'ClusterName', {
+      value: values.cluster.clusterName,
+    });
+    new cdk.CfnOutput(this, 'AccessLogsBucketName', {
+      value: values.accessLogsBucket.bucketName,
+    });
+    new cdk.CfnOutput(this, 'ArtifactsBucketName', {
+      value: values.artifactsBucket.bucketName,
+    });
+
+    if (values.database) {
+      new cdk.CfnOutput(this, 'DatabaseInstanceEndpointAddress', {
+        value: values.database.dbInstanceEndpointAddress,
+      });
+      new cdk.CfnOutput(this, 'DatabaseInstanceEndpointPort', {
+        value: values.database.dbInstanceEndpointPort,
+      });
+      new cdk.CfnOutput(this, 'DatabaseName', {
+        value: this.cfg.database.name,
+      });
+      if (values.database.secret) {
+        new cdk.CfnOutput(this, 'DatabaseCredentialsSecretName', {
+          value: this.secretName('database/credentials'),
+        });
+      }
+    }
+
+    for (const [name, bucket] of Object.entries(values.webBuckets)) {
+      new cdk.CfnOutput(this, `${this.toPascalCase(name)}WebBucketName`, {
+        value: bucket.bucketName,
+      });
+    }
+
+    for (const [name, repository] of Object.entries(values.repositories)) {
+      new cdk.CfnOutput(this, `${this.toPascalCase(name)}RepositoryUri`, {
+        value: repository.repositoryUri,
+      });
+    }
+
+    for (const name of Object.keys(values.runtimeSecrets) as Array<keyof RuntimeSecrets>) {
+      new cdk.CfnOutput(this, `${this.toPascalCase(name)}SecretName`, {
+        value: this.secretName(RUNTIME_SECRET_PATHS[name]),
+      });
+    }
+
+    for (const [name, logGroup] of Object.entries(values.logGroups)) {
+      new cdk.CfnOutput(this, `${this.toPascalCase(name)}LogGroupName`, {
+        value: logGroup.logGroupName,
+      });
+    }
+
+    for (const [name, securityGroup] of Object.entries(values.securityGroups)) {
+      new cdk.CfnOutput(this, `${this.toPascalCase(name)}SecurityGroupId`, {
+        value: securityGroup.securityGroupId,
+      });
+    }
+
+    for (const [name, role] of Object.entries(values.runtimeRoles)) {
+      new cdk.CfnOutput(this, `${this.toPascalCase(name)}Arn`, {
+        value: role.roleArn,
+      });
+    }
+
+    if (values.githubCiRole) {
+      new cdk.CfnOutput(this, 'GitHubCiRoleArn', {
+        value: values.githubCiRole.roleArn,
+      });
+    }
+
+    if (values.backendDeployment) {
+      new cdk.CfnOutput(this, 'BackendServiceName', {
+        value: values.backendDeployment.service.serviceName,
+      });
+      new cdk.CfnOutput(this, 'BackendTaskDefinitionArn', {
+        value: values.backendDeployment.taskDefinition.taskDefinitionArn,
+      });
+      new cdk.CfnOutput(this, 'BackendMigrationTaskDefinitionArn', {
+        value: values.backendDeployment.migrationTaskDefinition.taskDefinitionArn,
+      });
+      new cdk.CfnOutput(this, 'BackendLoadBalancerDnsName', {
+        value: values.backendDeployment.loadBalancer.loadBalancerDnsName,
+      });
+      new cdk.CfnOutput(this, 'BackendInternalBaseUrl', {
+        value: `http://${values.backendDeployment.loadBalancer.loadBalancerDnsName}`,
+      });
+    }
+  }
+
+  private toLogRetention(retentionDays: number): logs.RetentionDays {
+    const retentionMap = new Map<number, logs.RetentionDays>([
+      [1, logs.RetentionDays.ONE_DAY],
+      [3, logs.RetentionDays.THREE_DAYS],
+      [5, logs.RetentionDays.FIVE_DAYS],
+      [7, logs.RetentionDays.ONE_WEEK],
+      [14, logs.RetentionDays.TWO_WEEKS],
+      [30, logs.RetentionDays.ONE_MONTH],
+      [60, logs.RetentionDays.TWO_MONTHS],
+      [90, logs.RetentionDays.THREE_MONTHS],
+      [120, logs.RetentionDays.FOUR_MONTHS],
+      [150, logs.RetentionDays.FIVE_MONTHS],
+      [180, logs.RetentionDays.SIX_MONTHS],
+      [365, logs.RetentionDays.ONE_YEAR],
+      [400, logs.RetentionDays.THIRTEEN_MONTHS],
+      [545, logs.RetentionDays.EIGHTEEN_MONTHS],
+      [731, logs.RetentionDays.TWO_YEARS],
+      [1096, logs.RetentionDays.THREE_YEARS],
+      [1827, logs.RetentionDays.FIVE_YEARS],
+      [2192, logs.RetentionDays.SIX_YEARS],
+      [2557, logs.RetentionDays.SEVEN_YEARS],
+      [2922, logs.RetentionDays.EIGHT_YEARS],
+      [3288, logs.RetentionDays.NINE_YEARS],
+      [3653, logs.RetentionDays.TEN_YEARS],
+    ]);
+
+    const retention = retentionMap.get(retentionDays);
+    if (!retention) {
+      throw new Error(
+        `Unsupported logRetentionDays value: ${retentionDays}. Use an AWS CloudWatch Logs retention preset.`,
+      );
+    }
+
+    return retention;
+  }
+
+  private removalPolicy(): cdk.RemovalPolicy {
+    return this.cfg.envName === 'prod'
+      ? cdk.RemovalPolicy.RETAIN
+      : cdk.RemovalPolicy.DESTROY;
+  }
+
+  private name(suffix: string): string {
+    return `${this.cfg.resourcePrefix}-${suffix}`;
+  }
+
+  private secretName(path: string): string {
+    return `/${this.cfg.resourcePrefix}/${path}`;
+  }
+
+  private physicalName(suffix: string): string | undefined {
+    const account = cdk.Stack.of(this).account;
+    const region = cdk.Stack.of(this).region;
+
+    if (cdk.Token.isUnresolved(account) || cdk.Token.isUnresolved(region)) {
+      return undefined;
+    }
+
+    return `${this.name(suffix)}-${account}-${region}`.toLowerCase();
+  }
+
+  private toPascalCase(value: string): string {
+    return value
+      .split(/[^a-zA-Z0-9]/)
+      .filter(Boolean)
+      .map((part) => `${part[0].toUpperCase()}${part.slice(1)}`)
+      .join('');
+  }
+}
+
+function grantSecretsRead(grantee: iam.IGrantable, secrets: secretsmanager.ISecret[]): void {
+  for (const secret of secrets) {
+    secret.grantRead(grantee);
   }
 }

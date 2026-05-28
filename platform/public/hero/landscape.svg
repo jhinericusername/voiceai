@@ -1,0 +1,66 @@
+<svg width="1600" height="600" viewBox="0 0 1600 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="layer-1" x1="0" y1="0" x2="1600" y2="0">
+      <stop offset="0%" stop-color="#1c2850"/>
+      <stop offset="100%" stop-color="#101b37"/>
+    </linearGradient>
+    <linearGradient id="layer-2" x1="0" y1="0" x2="1600" y2="0">
+      <stop offset="0%" stop-color="#1a2d5a"/>
+      <stop offset="100%" stop-color="#101c38"/>
+    </linearGradient>
+    <linearGradient id="layer-3" x1="0" y1="0" x2="1600" y2="0">
+      <stop offset="0%" stop-color="#15284f"/>
+      <stop offset="100%" stop-color="#0d1832"/>
+    </linearGradient>
+    <linearGradient id="layer-4" x1="0" y1="0" x2="1600" y2="0">
+      <stop offset="0%" stop-color="#1f3268"/>
+      <stop offset="100%" stop-color="#122245"/>
+    </linearGradient>
+    <linearGradient id="layer-5" x1="0" y1="0" x2="1600" y2="0">
+      <stop offset="0%" stop-color="#1b2f5f"/>
+      <stop offset="100%" stop-color="#0f1c38"/>
+    </linearGradient>
+    <linearGradient id="ridge-a" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#24386f"/>
+      <stop offset="100%" stop-color="#121e3c"/>
+    </linearGradient>
+    <linearGradient id="ridge-b" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#223462"/>
+      <stop offset="100%" stop-color="#0f1a33"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="600" fill="none"/>
+  <polygon
+    points="0,405 120,340 240,370 380,330 520,380 680,340 820,390 980,350 1120,400 1300,360 1460,390 1600,420 1600,600 0,600"
+    fill="url(#layer-1)"
+  />
+  <polygon
+    points="0,440 110,400 220,430 360,390 520,445 700,405 820,455 980,420 1120,470 1300,430 1460,455 1600,475 1600,600 0,600"
+    fill="url(#ridge-a)"
+  />
+  <polygon
+    points="0,470 160,420 320,460 480,410 640,470 820,430 980,485 1140,445 1320,495 1480,455 1600,480 1600,600 0,600"
+    fill="url(#layer-2)"
+  />
+  <polygon
+    points="0,510 160,490 300,520 460,480 620,535 800,495 980,545 1160,510 1340,560 1500,535 1600,550 1600,600 0,600"
+    fill="url(#layer-3)"
+  />
+  <polygon
+    points="0,540 140,535 300,560 480,525 620,565 820,540 980,575 1140,550 1320,590 1500,560 1600,575 1600,600 0,600"
+    fill="url(#ridge-b)"
+  />
+  <polygon
+    points="0,560 200,565 380,595 560,560 760,598 960,570 1180,600 1400,575 1600,590 1600,600 0,600"
+    fill="url(#layer-4)"
+  />
+  <polygon
+    points="0,585 180,600 460,585 680,600 980,585 1200,600 1400,590 1600,600 1600,600 0,600"
+    fill="url(#layer-5)"
+  />
+  <polygon
+    points="0,515 120,500 220,520 300,495 380,520 500,490 620,520 720,495 820,525 940,500 1080,530 1200,505 1320,530 1460,510 1600,525 1600,600 0,600"
+    fill="#0b142a"
+    opacity="0.35"
+  />
+</svg>

@@ -19,6 +19,7 @@
     "inlineSourceMap": true,
     "inlineSources": true,
     "experimentalDecorators": true,
+    "isolatedModules": true,
     "strictPropertyInitialization": false,
     "skipLibCheck": true,
     "typeRoots": [

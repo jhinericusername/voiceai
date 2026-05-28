@@ -10,6 +10,7 @@ describe("buildDeletionPlan", () => {
       "audit_log",
       "assessments",
       "consent_records",
+      "candidate_invites",
       "sessions",
     ]);
     expect(plan.statements.every((s) => s.params[0] === "sess1")).toBe(true);

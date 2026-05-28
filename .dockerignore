@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/coverage
+infra/cdk.out
+*.log
+.DS_Store

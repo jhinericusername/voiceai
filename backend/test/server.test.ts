@@ -19,6 +19,17 @@ describe("liveKitConfigFromEnv", () => {
 });
 
 describe("buildServer", () => {
+  it("serves a lightweight health check", async () => {
+    const app = buildServer(FAKE_LK);
+    const res = await app.inject({
+      method: "GET",
+      url: "/healthz",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    await app.close();
+  });
+
   it("rejects an invalid platform create-session request with 400", async () => {
     const app = buildServer(FAKE_LK);
     const res = await app.inject({

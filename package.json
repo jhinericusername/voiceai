@@ -5,6 +5,10 @@
   "packageManager": "pnpm@9.12.0",
   "engines": { "node": ">=20" },
   "scripts": {
+    "dev": "corepack pnpm@9.12.0 --filter @puddle/platform dev",
+    "dev:backend": "corepack pnpm@9.12.0 --filter @puddle/backend dev",
+    "dev:platform": "corepack pnpm@9.12.0 --filter @puddle/platform dev",
+    "migrate:backend": "corepack pnpm@9.12.0 --filter @puddle/backend migrate",
     "build": "pnpm -r build",
     "test": "pnpm -r test"
   }

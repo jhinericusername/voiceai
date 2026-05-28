@@ -51,8 +51,3 @@ CREATE TABLE audit_log (
 );
 
 CREATE INDEX audit_log_session_idx ON audit_log(session_id);
-
-CREATE TABLE schema_migrations (
-  version    TEXT PRIMARY KEY,
-  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);

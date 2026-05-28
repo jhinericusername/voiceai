@@ -7,6 +7,15 @@ export interface CreateSessionRequest {
   readonly candidateEmail: string;
   readonly scriptVersion: string;
   readonly scheduledAt: string;
+  readonly inviteTtlSeconds?: number;
+}
+
+export interface CreateSessionResponse {
+  readonly sessionId: string;
+  readonly room: string;
+  readonly inviteToken: string;
+  readonly invitePath: string;
+  readonly inviteExpiresAt: string;
 }
 
 export type ContractValidation = { ok: true } | { ok: false; reason: string };
@@ -24,6 +33,12 @@ export function validateCreateSessionRequest(
     if (!body[field] || !String(body[field]).trim()) {
       return { ok: false, reason: `missing required field: ${field}` };
     }
+  }
+  if (
+    body.inviteTtlSeconds !== undefined &&
+    (!Number.isFinite(body.inviteTtlSeconds) || body.inviteTtlSeconds < 60)
+  ) {
+    return { ok: false, reason: "inviteTtlSeconds must be at least 60 seconds" };
   }
   return { ok: true };
 }

@@ -40,7 +40,7 @@ Fill in every value — `.env.example` documents each variable and where to obta
 The schema (`backend/migrations/001_init.sql` — 6 tables) is **already applied** to the Supabase project via the Supabase MCP. For any fresh environment:
 
 ```bash
-cd backend && DATABASE_URL=postgresql://… pnpm migrate
+corepack pnpm@9.12.0 migrate:backend
 ```
 
 Use exactly **one** migration path per environment — the Supabase MCP `apply_migration` **or** `pnpm migrate`, never both (the second run fails on "table already exists").
@@ -57,11 +57,12 @@ cd agent && uv run ruff check .    # Python lint
 
 ### Backend API server
 ```bash
-cd backend
-pnpm build
-node dist/server.js
+corepack pnpm@9.12.0 dev:backend
 ```
-Requires `DATABASE_URL`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`; optional `HOST` (default `0.0.0.0`), `PORT` (default `8080`). Endpoints: `POST /sessions` (internal scheduler), `POST /integration/sessions` (platform contract).
+Local backend scripts load `../.env.local` from the repo root. Requires `DATABASE_URL`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`; optional `HOST` (default `0.0.0.0`), `PORT` (default `8080`). Endpoints: `POST /sessions` (internal scheduler), `POST /integration/sessions` (platform contract), `POST /candidate/invites/:token/join` (candidate invite join).
+
+Health checks use `GET /healthz`; it returns 200 without touching Postgres,
+LiveKit, or provider APIs.
 
 ### Candidate room app
 ```bash
@@ -104,3 +105,15 @@ These were out of the v1 implementation plan's scope — track them before a pro
 - **Video frame-pump** — `InterviewRunner` accepts an optional `VideoPerceptionPipeline`, but `_default_run_interview` does not construct one, and nothing samples frames from the candidate's LiveKit video track into `process_frame`. Integrity flags stay empty in a live run until this is wired. The turn-hint → turn-detector path is likewise unwired.
 - **Object storage** — the S3-style path layout exists (`backend/src/storage/layout.ts`), but no object-storage client is wired; LiveKit Egress output and artifact upload need it.
 - **No CI/CD** — tests and lint are run manually.
+
+### AWS backend deployment
+
+The CDK app can deploy the backend as a private Fargate service behind an
+internal ALB once a backend image has been pushed to the stack-created ECR repo.
+Deploy fresh environments first with `deployBackendService=true`,
+`backendDesiredCount=0`, `backendImageTag=<tag>`, and `liveKitUrl=<wss://...>`.
+Public backend exposure remains blocked until request auth is implemented.
+
+Run database migrations as a one-off ECS task from the emitted
+`BackendMigrationTaskDefinitionArn`, then redeploy with `backendDesiredCount=1`
+before sending real traffic to the backend.

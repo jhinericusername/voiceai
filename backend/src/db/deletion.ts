@@ -14,7 +14,14 @@ export interface DeletionPlan {
 }
 
 // Children before parent so foreign keys are never violated.
-const DELETION_ORDER = ["events", "audit_log", "assessments", "consent_records", "sessions"];
+const DELETION_ORDER = [
+  "events",
+  "audit_log",
+  "assessments",
+  "consent_records",
+  "candidate_invites",
+  "sessions",
+];
 
 export function buildDeletionPlan(sessionId: string, orgId?: string): DeletionPlan {
   const statements = DELETION_ORDER.map((table) => ({

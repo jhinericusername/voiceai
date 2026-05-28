@@ -10,7 +10,14 @@ import {
   buildWorkerDispatchMetadata,
 } from "./scheduler/sessions.js";
 import { registerIntegrationRoutes } from "./integration/routes.js";
-import type { CreateSessionRequest } from "./integration/contract.js";
+import type { CreateSessionRequest, CreateSessionResponse } from "./integration/contract.js";
+import { registerCandidateInviteRoutes } from "./invites/routes.js";
+import {
+  buildCandidateInviteRecord,
+  createCandidateInviteInsert,
+  invitePath,
+} from "./invites/repository.js";
+import { generateInviteToken } from "./invites/tokens.js";
 
 // Reads the LiveKit credentials the room-provisioning code needs from the env.
 // Throws if any are missing — the server must never start half-configured.
@@ -34,24 +41,43 @@ export function liveKitConfigFromEnv(
 export async function createSession(
   liveKitConfig: LiveKitConfig,
   input: CreateSessionRequest,
-): Promise<{ sessionId: string; room: string }> {
+): Promise<CreateSessionResponse> {
   const record = buildSessionRecord({ ...input, sessionId: randomUUID() });
   const insert = createSessionInsert(record);
-  await getPool().query(insert.sql, [...insert.params]);
+  const pool = getPool();
+  await pool.query(insert.sql, [...insert.params]);
   const { room } = await provisionRoom(
     liveKitConfig,
     record.sessionId,
     buildWorkerDispatchMetadata(record),
   );
-  return { sessionId: record.sessionId, room };
+  const inviteToken = generateInviteToken();
+  const invite = buildCandidateInviteRecord({
+    sessionId: record.sessionId,
+    candidateEmail: record.candidateEmail,
+    token: inviteToken,
+    ttlSeconds: input.inviteTtlSeconds,
+  });
+  const inviteInsert = createCandidateInviteInsert(invite);
+  await pool.query(inviteInsert.sql, [...inviteInsert.params]);
+
+  return {
+    sessionId: record.sessionId,
+    room,
+    inviteToken,
+    invitePath: invitePath(inviteToken),
+    inviteExpiresAt: invite.expiresAt,
+  };
 }
 
 // Builds the Fastify app with the Scheduler/API and platform-integration
 // routes registered. Pure construction — no network I/O until a route is hit.
 export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   const app = Fastify({ logger: true });
+  app.get("/healthz", async () => ({ ok: true }));
   registerSchedulerRoutes(app, liveKitConfig);
   registerIntegrationRoutes(app, (body) => createSession(liveKitConfig, body));
+  registerCandidateInviteRoutes(app, liveKitConfig);
   return app;
 }
 

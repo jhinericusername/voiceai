@@ -31,6 +31,18 @@ describe("integration contract", () => {
     if (!result.ok) expect(result.reason).toContain("candidateEmail");
   });
 
+  it("rejects a create-session request with an unusably short invite TTL", () => {
+    const result = validateCreateSessionRequest({
+      orgId: "org1",
+      candidateEmail: "c@example.com",
+      scriptVersion: "pilot-v1",
+      scheduledAt: "2026-05-21T15:00:00Z",
+      inviteTtlSeconds: 30,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("inviteTtlSeconds");
+  });
+
   it("maps an internal assessment to the platform response shape", () => {
     const response = toAssessmentResponse({
       sessionId: "sess1",

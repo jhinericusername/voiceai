@@ -2,13 +2,14 @@ import type { FastifyInstance } from "fastify";
 import {
   validateCreateSessionRequest,
   type CreateSessionRequest,
+  type CreateSessionResponse,
 } from "./contract.js";
 
 // The platform-facing REST surface. Session creation is delegated to the
 // Scheduler routes; this validates the contract before handing off.
 export function registerIntegrationRoutes(
   app: FastifyInstance,
-  onValidRequest: (body: CreateSessionRequest) => Promise<{ sessionId: string }>,
+  onValidRequest: (body: CreateSessionRequest) => Promise<CreateSessionResponse>,
 ): void {
   app.post<{ Body: CreateSessionRequest }>(
     "/integration/sessions",
