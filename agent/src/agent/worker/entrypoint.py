@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class InterviewJobContext(BaseModel):
@@ -27,7 +30,10 @@ def build_session_context(job: Any) -> InterviewJobContext:
     Raises `ValueError` if required fields are absent — the worker must never
     join a room it cannot identify.
     """
-    meta = json.loads(job.metadata) if job.metadata else {}
+    try:
+        meta = json.loads(_job_metadata(job))
+    except json.JSONDecodeError as exc:
+        raise ValueError("job metadata must be valid JSON") from exc
     for field in ("session_id", "org_id", "script_version", "candidate_email"):
         if not meta.get(field):
             raise ValueError(f"job metadata missing required field: {field}")
@@ -38,6 +44,14 @@ def build_session_context(job: Any) -> InterviewJobContext:
         candidate_email=meta["candidate_email"],
         room_name=job.room.name,
     )
+
+
+def _job_metadata(job: Any) -> str:
+    """Read dispatch metadata from supported LiveKit job object shapes."""
+    metadata = getattr(job, "metadata", None)
+    if metadata is None:
+        metadata = getattr(getattr(job, "job", None), "metadata", None)
+    return metadata or "{}"
 
 
 RunInterview = Callable[[InterviewJobContext, Any], Awaitable[None]]
@@ -52,14 +66,21 @@ async def entrypoint(
     interview runner wired in Task 3.12.
     """
     ctx = build_session_context(job)
-    await job.connect()
-    participant = await job.wait_for_participant()
-    runner = _run_interview or _default_run_interview
-    await runner(ctx, participant)
+    if _run_interview is not None:
+        await job.connect()
+        participant = await job.wait_for_participant()
+        await _run_interview(ctx, participant)
+        return
+
+    voice = await _build_livekit_voice_agent(job)
+    try:
+        await _default_run_interview(ctx, voice)
+    finally:
+        await voice.aclose()
 
 
 async def _default_run_interview(
-    ctx: InterviewJobContext, participant: Any
+    ctx: InterviewJobContext, voice: Any
 ) -> None:  # pragma: no cover — exercised by the live integration env
     """Production interview runner: build the components and run the interview."""
     import time
@@ -72,13 +93,14 @@ async def _default_run_interview(
     from agent.rubric_loader import load_rubric
     from agent.scoring.probe import ProbeGenerator
     from agent.scoring.scorer import Scorer
+    from agent.voice.livekit_session import ParticipantDisconnectedError
 
     repo_root = Path(__file__).parents[4]
     rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
     anthropic_client = anthropic.Anthropic()
     runner = InterviewRunner(
         rubric=rubric,
-        voice=_build_voice_agent(participant),
+        voice=voice,
         scorer=Scorer(client=anthropic_client, rubric=rubric),
         probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
         event_log=EventLog(
@@ -87,17 +109,34 @@ async def _default_run_interview(
         ),
         clock_now=time.monotonic,
     )
-    await runner.run(session_id=ctx.session_id)
+    logger.info(
+        "starting interview runner",
+        extra={"session_id": ctx.session_id, "room": ctx.room_name},
+    )
+    try:
+        await runner.run(session_id=ctx.session_id)
+    except ParticipantDisconnectedError:
+        logger.info(
+            "ending interview after participant reconnect grace expired",
+            extra={"session_id": ctx.session_id, "room": ctx.room_name},
+        )
+    else:
+        logger.info(
+            "interview runner completed",
+            extra={"session_id": ctx.session_id, "room": ctx.room_name},
+        )
 
 
-def _build_voice_agent(participant: Any) -> Any:  # pragma: no cover — vendor wiring
-    """Construct the cascaded VoiceAgent from LiveKit plugins for `participant`."""
+async def _build_livekit_voice_agent(job: Any) -> Any:  # pragma: no cover — vendor wiring
+    """Construct and start the LiveKit-backed VoiceAgent for the room."""
     import os
 
-    from agent.voice.cascaded import CascadedVoiceAgent
-    from agent.voice.stt import DeepgramSTT, build_deepgram_stt
-    from agent.voice.tts import CartesiaTTS, build_cartesia_tts
+    from agent.voice.livekit_session import LiveKitSessionVoiceAgent
+    from agent.voice.stt import build_deepgram_stt
+    from agent.voice.tts import build_cartesia_tts
 
-    stt = DeepgramSTT(plugin=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]))
-    tts = CartesiaTTS(plugin=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]))
-    return CascadedVoiceAgent(stt=stt, tts=tts, room_output=participant)
+    return await LiveKitSessionVoiceAgent.start(
+        job,
+        stt=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]),
+        tts=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]),
+    )

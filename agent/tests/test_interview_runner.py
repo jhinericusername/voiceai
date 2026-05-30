@@ -1,6 +1,8 @@
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+from agent.controller import interview as interview_module
 from agent.controller.event_log import EventLog
 from agent.controller.interview import InterviewRunner
 from agent.controller.states import InterviewState
@@ -89,6 +91,47 @@ async def test_runner_probes_when_scorer_low_confidence(tmp_path: Path) -> None:
     assert "SCRIPTED_QUESTION" in reason_codes
     assert reason_codes[0] == "INTRO"
     assert reason_codes[-1] == "CLOSING"
+
+
+async def test_runner_prompts_after_silent_candidate_turn(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    monkeypatch.setattr(interview_module, "_LISTEN_INITIAL_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(interview_module, "_LISTEN_REPAIR_TIMEOUT_SECONDS", 0.01)
+    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    voice = MagicMock()
+    voice.speak = AsyncMock()
+    listen_calls = {"count": 0}
+
+    async def listen() -> ListenResult:
+        listen_calls["count"] += 1
+        if listen_calls["count"] == 1:
+            await asyncio.sleep(60)
+        return ListenResult(transcript="A full answer.", end_of_turn=True)
+
+    voice.listen = listen
+    scorer = MagicMock()
+    scorer.score.side_effect = lambda si: _confident(si.target_categories[0])
+    event_log = EventLog(session_id="s-silent", path=tmp_path / "events.jsonl")
+    runner = InterviewRunner(
+        rubric=rubric, voice=voice, scorer=scorer,
+        probe_generator=MagicMock(), event_log=event_log,
+        clock_now=iter([float(i) for i in range(0, 4000, 5)]).__next__,
+    )
+
+    await runner.run(session_id="s-silent")
+
+    spoken = [c.args[0] for c in voice.speak.await_args_list]
+    assert "I'm listening. Please answer out loud when you're ready." in spoken
+    repair_call = next(
+        c
+        for c in voice.speak.await_args_list
+        if c.args[0] == "I'm listening. Please answer out loud when you're ready."
+    )
+    assert repair_call.kwargs["mode"] == "repair"
+    assert "AUDIO_REPAIR" in [e.reason_code for e in event_log.events()]
+    assert listen_calls["count"] == 2
 
 
 async def test_runner_reaches_review_ready_state(tmp_path: Path) -> None:

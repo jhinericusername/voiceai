@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 
@@ -26,4 +27,19 @@ class CartesiaTTS:
         """Synthesize `text` to audio bytes. Raises `ValueError` on empty text."""
         if not text.strip():
             raise ValueError("cannot synthesize empty text")
-        return await self._plugin.synthesize(text)
+        result = self._plugin.synthesize(text)
+        if inspect.isawaitable(result):
+            return await result
+
+        if hasattr(result, "collect"):
+            if hasattr(result, "__aenter__"):
+                async with result:
+                    frame = await result.collect()
+            else:
+                frame = await result.collect()
+            return bytes(frame.data)
+
+        chunks: list[bytes] = []
+        async for event in result:
+            chunks.append(bytes(event.frame.data))
+        return b"".join(chunks)

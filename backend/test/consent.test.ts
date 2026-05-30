@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { validateConsent, consentInsertStatement } from "../src/consent/repository.js";
+import {
+  consentInsertStatement,
+  consentUpsertStatement,
+  validateConsent,
+} from "../src/consent/repository.js";
 
 describe("validateConsent", () => {
   it("accepts a fully acknowledged, consented record", () => {
@@ -51,6 +55,26 @@ describe("consentInsertStatement", () => {
     expect(stmt.params).toEqual([
       "sess1",
       "c@example.com",
+      true,
+      true,
+      "2026-05-20T10:00:00Z",
+    ]);
+  });
+});
+
+describe("consentUpsertStatement", () => {
+  it("makes consent persistence idempotent by session", () => {
+    const stmt = consentUpsertStatement({
+      sessionId: "sess1",
+      candidateEmail: "candidate@example.com",
+      aiDisclosureAcknowledged: true,
+      recordingConsented: true,
+      consentedAt: "2026-05-20T10:00:00Z",
+    });
+    expect(stmt.sql).toContain("ON CONFLICT (session_id)");
+    expect(stmt.params).toEqual([
+      "sess1",
+      "candidate@example.com",
       true,
       true,
       "2026-05-20T10:00:00Z",

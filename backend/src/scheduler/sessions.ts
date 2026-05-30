@@ -33,6 +33,28 @@ export function createSessionInsert(record: SessionRecord): SqlStatement {
   };
 }
 
+export function sessionRoomUpdateStatement(sessionId: string, roomName: string): SqlStatement {
+  return {
+    sql: "UPDATE sessions SET room_name = $2, updated_at = now() WHERE session_id = $1",
+    params: [sessionId, roomName],
+  };
+}
+
+export function sessionStatusUpdateStatement(
+  sessionId: string,
+  status: string,
+  options: { readonly startedAt?: string; readonly endedAt?: string } = {},
+): SqlStatement {
+  return {
+    sql:
+      "UPDATE sessions SET status = $2, " +
+      "started_at = COALESCE($3::timestamptz, started_at), " +
+      "ended_at = COALESCE($4::timestamptz, ended_at), updated_at = now() " +
+      "WHERE session_id = $1",
+    params: [sessionId, status, options.startedAt ?? null, options.endedAt ?? null],
+  };
+}
+
 // Mirrors `InterviewJobContext` in agent/src/agent/worker/entrypoint.py —
 // the agent worker parses exactly these snake_case keys.
 export function buildWorkerDispatchMetadata(record: SessionRecord): string {

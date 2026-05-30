@@ -6,7 +6,9 @@ import {
   findCandidateInviteByTokenStatement,
   invitePath,
   isInviteUsable,
+  type CandidateInviteRow,
 } from "../src/invites/repository.js";
+import { consentInputFromCandidateJoin } from "../src/invites/routes.js";
 import { generateInviteToken, hashInviteToken } from "../src/invites/tokens.js";
 import { buildCandidateJoinToken } from "../src/livekit/token.js";
 
@@ -69,6 +71,60 @@ describe("candidate invite repository", () => {
     expect(isInviteUsable(active, new Date("2026-05-25T13:00:01Z"))).toEqual({
       ok: false,
       reason: "expired",
+    });
+  });
+});
+
+describe("candidate join consent", () => {
+  const invite: CandidateInviteRow = {
+    invite_id: "invite1",
+    session_id: "sess1",
+    candidate_email: "candidate@example.com",
+    status: "active",
+    not_before: "2026-05-25T12:00:00Z",
+    expires_at: "2026-05-25T13:00:00Z",
+    revoked_at: null,
+    join_count: 0,
+  };
+
+  it("builds consent persistence input from the candidate join body", () => {
+    const result = consentInputFromCandidateJoin(
+      invite,
+      {
+        consent: {
+          aiDisclosureAcknowledged: true,
+          recordingConsented: true,
+          dataUseAcknowledged: true,
+          consentedAt: "2026-05-29T10:00:00Z",
+        },
+      },
+      new Date("2026-05-29T10:00:01Z"),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.input).toEqual({
+        sessionId: "sess1",
+        candidateEmail: "candidate@example.com",
+        aiDisclosureAcknowledged: true,
+        recordingConsented: true,
+        consentedAt: "2026-05-29T10:00:00Z",
+      });
+    }
+  });
+
+  it("rejects joins that have not acknowledged recording and data use", () => {
+    expect(consentInputFromCandidateJoin(invite, undefined).ok).toBe(false);
+    const result = consentInputFromCandidateJoin(invite, {
+      consent: {
+        aiDisclosureAcknowledged: true,
+        recordingConsented: false,
+        dataUseAcknowledged: true,
+      },
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: "recording consent is required before recording",
     });
   });
 });

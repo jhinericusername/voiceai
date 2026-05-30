@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   buildSessionRecord,
-  createSessionInsert,
   buildWorkerDispatchMetadata,
+  createSessionInsert,
+  sessionRoomUpdateStatement,
+  sessionStatusUpdateStatement,
 } from "../src/scheduler/sessions.js";
 
 describe("buildSessionRecord", () => {
@@ -58,5 +60,21 @@ describe("buildWorkerDispatchMetadata", () => {
     expect(parsed.org_id).toBe("org1");
     expect(parsed.script_version).toBe("pilot-v1");
     expect(parsed.candidate_email).toBe("c@example.com");
+  });
+});
+
+describe("session update statements", () => {
+  it("persists the LiveKit room name after provisioning", () => {
+    const stmt = sessionRoomUpdateStatement("sess1", "interview-sess1");
+    expect(stmt.sql).toContain("room_name = $2");
+    expect(stmt.params).toEqual(["sess1", "interview-sess1"]);
+  });
+
+  it("updates dashboard-facing session status and timestamps", () => {
+    const stmt = sessionStatusUpdateStatement("sess1", "in_progress", {
+      startedAt: "2026-05-29T10:00:00Z",
+    });
+    expect(stmt.sql).toContain("status = $2");
+    expect(stmt.params).toEqual(["sess1", "in_progress", "2026-05-29T10:00:00Z", null]);
   });
 });

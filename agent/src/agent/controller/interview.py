@@ -7,6 +7,9 @@ drives the state machine, and acts on the Scorer's confidence.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
 from collections.abc import Callable
 
 from agent.config import SCORING
@@ -26,6 +29,40 @@ _INTRO_TEXT = (
     "may follow up on your answers. Let's begin."
 )
 _CLOSING_TEXT = "That's everything I wanted to cover. Thank you for your time."
+
+logger = logging.getLogger(__name__)
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("invalid float environment value", extra={"env_var": name})
+        return default
+    if value <= 0:
+        logger.warning("non-positive float environment value", extra={"env_var": name})
+        return default
+    return value
+
+
+_LISTEN_INITIAL_TIMEOUT_SECONDS = _positive_float_env(
+    "PUDDLE_LISTEN_INITIAL_TIMEOUT_SECONDS",
+    8.0,
+)
+_LISTEN_REPAIR_TIMEOUT_SECONDS = _positive_float_env(
+    "PUDDLE_LISTEN_REPAIR_TIMEOUT_SECONDS",
+    12.0,
+)
+_AUDIO_REPAIR_LINES = (
+    "I'm listening. Please answer out loud when you're ready.",
+    (
+        "I still can't hear a response. Please check that your microphone is "
+        "unmuted, then continue."
+    ),
+)
 
 
 class InterviewRunner:
@@ -58,6 +95,7 @@ class InterviewRunner:
 
     async def run(self, session_id: str) -> Assessment:
         """Conduct the interview and return the rolled-up `Assessment`."""
+        logger.info("interview run started", extra={"session_id": session_id})
         self._clock.start()
         self.state_machine.transition(InterviewState.CANDIDATE_JOINED)
         self.state_machine.transition(InterviewState.PREFLIGHT_COMPLETE)
@@ -67,6 +105,10 @@ class InterviewRunner:
 
         final: dict[str, CategoryAssessment] = {}
         for question in self._rubric.questions:
+            logger.info(
+                "starting interview question",
+                extra={"session_id": session_id, "question_id": question.question_id},
+            )
             # First question: transition from INTRO → QUESTION_ASKING.
             # Subsequent questions: advance_question() already set QUESTION_ASKING.
             if self.state_machine.state != InterviewState.QUESTION_ASKING:
@@ -82,6 +124,7 @@ class InterviewRunner:
             self.state_machine.advance_question()
 
         await self._say(_CLOSING_TEXT, "CLOSING", question_id=None)
+        logger.info("interview run closing", extra={"session_id": session_id})
         integrity_flags: list[str] = (
             self._perception.integrity_flags()  # type: ignore[attr-defined]
             if self._perception is not None
@@ -104,6 +147,10 @@ class InterviewRunner:
             self.state_machine.transition(InterviewState.QUESTION_ANSWERING)
             await self._listen(question.question_id)  # type: ignore[attr-defined]
             self.state_machine.transition(InterviewState.QUESTION_SCORING)
+            logger.info(
+                "scoring candidate answer",
+                extra={"question_id": question.question_id},  # type: ignore[attr-defined]
+            )
             output = self._scorer.score(
                 ScorerInput(
                     script_version=self._rubric.script_version,
@@ -133,6 +180,13 @@ class InterviewRunner:
                 return latest
 
             self.state_machine.transition(InterviewState.QUESTION_PROBING)
+            logger.info(
+                "generating probe",
+                extra={
+                    "question_id": question.question_id,  # type: ignore[attr-defined]
+                    "category": directive.probe_category,
+                },
+            )
             probe_text = self._probe_generator.generate(
                 ProbeRequest(
                     category_assessment=latest[directive.probe_category],  # type: ignore[index]
@@ -160,6 +214,16 @@ class InterviewRunner:
     ) -> None:
         """Speak controller-supplied text and log it with its reason code."""
         mode = "closing" if reason_code == "CLOSING" else "scripted"
+        if reason_code == "AUDIO_REPAIR":
+            mode = "repair"
+        logger.info(
+            "controller speaking",
+            extra={
+                "reason_code": reason_code,
+                "question_id": question_id,
+                "characters": len(text),
+            },
+        )
         await self._voice.speak(text, mode=mode)  # type: ignore[attr-defined]
         self._event_log.record_utterance(
             utterance=text,
@@ -180,7 +244,43 @@ class InterviewRunner:
 
     async def _listen(self, question_id: str) -> None:
         """Capture one candidate turn into the transcript."""
-        result = await self._voice.listen()  # type: ignore[attr-defined]
+        repair_attempts = 0
+        timeout_seconds = _LISTEN_INITIAL_TIMEOUT_SECONDS
+        while True:
+            logger.info(
+                "controller listening",
+                extra={
+                    "question_id": question_id,
+                    "timeout_seconds": timeout_seconds,
+                    "repair_attempts": repair_attempts,
+                },
+            )
+            try:
+                result = await asyncio.wait_for(
+                    self._voice.listen(),  # type: ignore[attr-defined]
+                    timeout=timeout_seconds,
+                )
+                break
+            except TimeoutError:
+                repair_text = _AUDIO_REPAIR_LINES[
+                    min(repair_attempts, len(_AUDIO_REPAIR_LINES) - 1)
+                ]
+                repair_attempts += 1
+                logger.info(
+                    "candidate silence timeout; speaking audio repair",
+                    extra={
+                        "question_id": question_id,
+                        "repair_attempts": repair_attempts,
+                        "timeout_seconds": timeout_seconds,
+                    },
+                )
+                await self._say(repair_text, "AUDIO_REPAIR", question_id)
+                timeout_seconds = _LISTEN_REPAIR_TIMEOUT_SECONDS
+
+        logger.info(
+            "controller received candidate turn",
+            extra={"question_id": question_id, "characters": len(result.transcript)},
+        )
         self._transcript.append(
             TranscriptTurn(
                 turn_index=self._turn_index,

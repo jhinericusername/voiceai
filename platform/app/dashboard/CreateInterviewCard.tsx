@@ -19,8 +19,9 @@ export function CreateInterviewCard({
   const [candidateEmail, setCandidateEmail] = useState(defaultCandidateEmail);
   const [result, setResult] = useState<CreateInterviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"create" | "join" | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const isCreating = pendingAction !== null;
 
   const expiryLabel = result?.inviteExpiresAt
     ? new Intl.DateTimeFormat(undefined, {
@@ -29,8 +30,8 @@ export function CreateInterviewCard({
       }).format(new Date(result.inviteExpiresAt))
     : null;
 
-  async function createInterview(): Promise<void> {
-    setIsCreating(true);
+  async function createInterview(action: "create" | "join" = "create"): Promise<void> {
+    setPendingAction(action);
     setError(null);
     setResult(null);
     setCopyState("idle");
@@ -48,11 +49,16 @@ export function CreateInterviewCard({
         return;
       }
 
-      setResult(payload);
+      const createdInvite = payload as CreateInterviewResponse;
+      setResult(createdInvite);
+
+      if (action === "join") {
+        window.location.assign(createdInvite.inviteUrl);
+      }
     } catch {
       setError("Could not reach the interview API.");
     } finally {
-      setIsCreating(false);
+      setPendingAction(null);
     }
   }
 
@@ -93,14 +99,24 @@ export function CreateInterviewCard({
           />
         </label>
 
-        <button
-          type="button"
-          onClick={createInterview}
-          disabled={isCreating || !candidateEmail.trim()}
-          className="self-end rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold !text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-        >
-          {isCreating ? "Creating..." : "Create room"}
-        </button>
+        <div className="flex flex-col gap-2 self-end sm:flex-row">
+          <button
+            type="button"
+            onClick={() => createInterview("create")}
+            disabled={isCreating || !candidateEmail.trim()}
+            className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+          >
+            {pendingAction === "create" ? "Creating..." : "Create room"}
+          </button>
+          <button
+            type="button"
+            onClick={() => createInterview("join")}
+            disabled={isCreating || !candidateEmail.trim()}
+            className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold !text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {pendingAction === "join" ? "Opening..." : "Create and join"}
+          </button>
+        </div>
       </div>
 
       {error ? (

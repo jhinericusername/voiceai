@@ -15,6 +15,9 @@ export interface DeletionPlan {
 
 // Children before parent so foreign keys are never violated.
 const DELETION_ORDER = [
+  "recording_artifacts",
+  "recordings",
+  "transcript_turns",
   "events",
   "audit_log",
   "assessments",

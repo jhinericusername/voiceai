@@ -20,7 +20,7 @@ export function validateConsent(input: ConsentInput): ConsentValidation {
 
 export interface SqlStatement {
   readonly sql: string;
-  readonly params: readonly (string | boolean)[];
+  readonly params: readonly (string | number | boolean | null)[];
 }
 
 export function consentInsertStatement(input: ConsentInput): SqlStatement {
@@ -29,6 +29,27 @@ export function consentInsertStatement(input: ConsentInput): SqlStatement {
       "INSERT INTO consent_records " +
       "(session_id, candidate_email, ai_disclosure_acknowledged, " +
       "recording_consented, consented_at) VALUES ($1, $2, $3, $4, $5)",
+    params: [
+      input.sessionId,
+      input.candidateEmail,
+      input.aiDisclosureAcknowledged,
+      input.recordingConsented,
+      input.consentedAt,
+    ],
+  };
+}
+
+export function consentUpsertStatement(input: ConsentInput): SqlStatement {
+  return {
+    sql:
+      "INSERT INTO consent_records " +
+      "(session_id, candidate_email, ai_disclosure_acknowledged, " +
+      "recording_consented, consented_at) VALUES ($1, $2, $3, $4, $5) " +
+      "ON CONFLICT (session_id) DO UPDATE SET " +
+      "candidate_email = EXCLUDED.candidate_email, " +
+      "ai_disclosure_acknowledged = EXCLUDED.ai_disclosure_acknowledged, " +
+      "recording_consented = EXCLUDED.recording_consented, " +
+      "consented_at = EXCLUDED.consented_at",
     params: [
       input.sessionId,
       input.candidateEmail,

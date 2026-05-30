@@ -5,8 +5,14 @@ import {
   buildSessionRecord,
   createSessionInsert,
   buildWorkerDispatchMetadata,
+  sessionRoomUpdateStatement,
   type SessionInput,
 } from "./sessions.js";
+import {
+  expectedRecordingArtifacts,
+  recordingArtifactUpsertStatement,
+  recordingUpsertStatement,
+} from "../recordings/repository.js";
 
 // POST /sessions — create a session, provision the room, dispatch the worker.
 export function registerSchedulerRoutes(
@@ -22,6 +28,18 @@ export function registerSchedulerRoutes(
       record.sessionId,
       buildWorkerDispatchMetadata(record),
     );
+    const pool = getPool();
+    const roomUpdate = sessionRoomUpdateStatement(record.sessionId, room);
+    await pool.query(roomUpdate.sql, [...roomUpdate.params]);
+    const recording = recordingUpsertStatement({
+      sessionId: record.sessionId,
+      status: "pending",
+    });
+    await pool.query(recording.sql, [...recording.params]);
+    for (const artifact of expectedRecordingArtifacts(record.orgId, record.sessionId)) {
+      const stmt = recordingArtifactUpsertStatement(artifact);
+      await pool.query(stmt.sql, [...stmt.params]);
+    }
     return reply.code(201).send({ sessionId: record.sessionId, room });
   });
 }

@@ -13,7 +13,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 9);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
@@ -187,7 +187,7 @@ describe('InfraStack', () => {
     ).not.toThrow();
   });
 
-  test('blocks agent deployment and static platform hosting during this pass', () => {
+  test('requires LiveKit URL before deploying the agent service', () => {
     expect(() =>
       createStack({
         agent: {
@@ -195,8 +195,10 @@ describe('InfraStack', () => {
           deployService: true,
         },
       }),
-    ).toThrow('Agent service deployment is blocked');
+    ).toThrow('deployAgentService requires a liveKitUrl CDK context value.');
+  });
 
+  test('blocks static platform hosting during this pass', () => {
     expect(() =>
       createStack({
         platform: {
@@ -205,6 +207,67 @@ describe('InfraStack', () => {
         },
       }),
     ).toThrow('Static platform hosting is not implemented yet.');
+  });
+
+  test('creates a private ECS agent service when enabled', () => {
+    const stack = createStack({
+      agent: {
+        ...defaultConfig().agent,
+        deployService: true,
+        imageTag: 'agent-test',
+      },
+      liveKit: {
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::ECS::Service', 1);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 1);
+    template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 0);
+
+    template.hasResourceProperties('AWS::ECS::Service', {
+      ServiceName: 'puddle-videoagent-agent-service',
+      DesiredCount: 1,
+    });
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'puddle-videoagent-agent',
+      Cpu: '1024',
+      Memory: '2048',
+      RuntimePlatform: {
+        CpuArchitecture: 'ARM64',
+        OperatingSystemFamily: 'LINUX',
+      },
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'agent',
+          Command: ['python', '-m', 'agent.worker', 'start'],
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'LIVEKIT_URL',
+              Value: 'wss://livekit.example',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_ARTIFACTS_BUCKET',
+            }),
+          ]),
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'LIVEKIT_API_KEY',
+            }),
+            Match.objectLike({
+              Name: 'ANTHROPIC_API_KEY',
+            }),
+            Match.objectLike({
+              Name: 'DEEPGRAM_API_KEY',
+            }),
+            Match.objectLike({
+              Name: 'CARTESIA_API_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
   });
 
   test('requires the backend service before deploying the platform container', () => {
@@ -246,6 +309,16 @@ describe('InfraStack', () => {
     template.hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
       Scheme: 'internet-facing',
       Type: 'application',
+      LoadBalancerAttributes: Match.arrayWith([
+        Match.objectLike({
+          Key: 'access_logs.s3.enabled',
+          Value: 'true',
+        }),
+        Match.objectLike({
+          Key: 'access_logs.s3.prefix',
+          Value: 'platform-alb',
+        }),
+      ]),
     });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       ContainerDefinitions: Match.arrayWith([
@@ -318,6 +391,8 @@ function defaultConfig(): PuddleEnvConfig {
     agent: {
       deployService: false,
       desiredCount: 1,
+      cpu: 1024,
+      memoryMiB: 2048,
     },
     platform: {
       hosting: 'disabled',

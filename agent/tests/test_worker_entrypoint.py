@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,6 +12,24 @@ def test_build_session_context_extracts_metadata() -> None:
     job.metadata = (
         '{"session_id": "sess1", "org_id": "org1", '
         '"script_version": "pilot-v1", "candidate_email": "c@example.com"}'
+    )
+    ctx = build_session_context(job)
+    assert isinstance(ctx, InterviewJobContext)
+    assert ctx.session_id == "sess1"
+    assert ctx.org_id == "org1"
+    assert ctx.script_version == "pilot-v1"
+    assert ctx.room_name == "interview-sess1"
+
+
+def test_build_session_context_extracts_livekit_job_metadata() -> None:
+    job = SimpleNamespace(
+        job=SimpleNamespace(
+            metadata=(
+                '{"session_id": "sess1", "org_id": "org1", '
+                '"script_version": "pilot-v1", "candidate_email": "c@example.com"}'
+            )
+        ),
+        room=SimpleNamespace(name="interview-sess1"),
     )
     ctx = build_session_context(job)
     assert isinstance(ctx, InterviewJobContext)

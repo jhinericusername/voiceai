@@ -8,7 +8,13 @@ import {
   buildSessionRecord,
   createSessionInsert,
   buildWorkerDispatchMetadata,
+  sessionRoomUpdateStatement,
 } from "./scheduler/sessions.js";
+import {
+  expectedRecordingArtifacts,
+  recordingArtifactUpsertStatement,
+  recordingUpsertStatement,
+} from "./recordings/repository.js";
 import { registerIntegrationRoutes } from "./integration/routes.js";
 import type { CreateSessionRequest, CreateSessionResponse } from "./integration/contract.js";
 import { registerCandidateInviteRoutes } from "./invites/routes.js";
@@ -52,6 +58,19 @@ export async function createSession(
     record.sessionId,
     buildWorkerDispatchMetadata(record),
   );
+  const roomUpdate = sessionRoomUpdateStatement(record.sessionId, room);
+  await pool.query(roomUpdate.sql, [...roomUpdate.params]);
+
+  const recording = recordingUpsertStatement({
+    sessionId: record.sessionId,
+    status: "pending",
+  });
+  await pool.query(recording.sql, [...recording.params]);
+  for (const artifact of expectedRecordingArtifacts(record.orgId, record.sessionId)) {
+    const stmt = recordingArtifactUpsertStatement(artifact);
+    await pool.query(stmt.sql, [...stmt.params]);
+  }
+
   const inviteToken = generateInviteToken();
   const invite = buildCandidateInviteRecord({
     sessionId: record.sessionId,

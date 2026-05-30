@@ -1,0 +1,218 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - navigation "Global" [ref=e3]:
+      - generic [ref=e5]:
+        - link "Puddle home" [ref=e6] [cursor=pointer]:
+          - /url: "#top"
+          - generic [ref=e7]: Puddle
+        - button "Open menu" [ref=e8]
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]: Live AI voice interview platform
+        - heading "Run live AI voice interviews that produce review-ready evidence." [level=1] [ref=e18]
+        - paragraph [ref=e19]: Invite candidates into a guided video room, let a controlled voice interviewer run the screen, and give reviewers transcripts, timing, probes, and scoring context in one packet.
+        - generic [ref=e20]:
+          - link "Book a pilot" [ref=e21] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "See the candidate flow" [ref=e22] [cursor=pointer]:
+            - /url: "#candidate-flow"
+      - generic [ref=e25]:
+        - generic [ref=e31]: puddle interview session
+        - generic [ref=e32]:
+          - generic [ref=e34]:
+            - generic [ref=e35]:
+              - generic [ref=e36]: Interview active
+              - generic [ref=e37]: 12:04 elapsed
+            - generic [ref=e39]:
+              - generic [ref=e40]: P
+              - generic [ref=e41]: Question 2
+              - paragraph [ref=e42]: Tell me about a time you had to recover a project when the first plan stopped working.
+              - generic [ref=e43]:
+                - generic [ref=e44]:
+                  - generic [ref=e45]: Candidate final turn
+                  - generic [ref=e46]: Captured
+                - paragraph [ref=e47]: I owned the launch plan and worked with support to recover the timeline.
+          - generic [ref=e64]:
+            - generic [ref=e65]:
+              - generic [ref=e66]: Review packet
+              - heading "Evidence, not vibes." [level=2] [ref=e67]
+              - paragraph [ref=e68]: Transcript turns, rubric scores, probe events, and status updates land together.
+            - generic [ref=e69]:
+              - generic [ref=e71]:
+                - generic [ref=e72]: Answer evidence
+                - generic [ref=e73]: 88%
+              - generic [ref=e77]:
+                - generic [ref=e78]: Probe recovery
+                - generic [ref=e79]: 76%
+              - generic [ref=e83]:
+                - generic [ref=e84]: Session coverage
+                - generic [ref=e85]: 94%
+            - generic [ref=e88]:
+              - generic [ref=e89]:
+                - generic [ref=e90]: Recommendation
+                - generic [ref=e91]: Advance
+              - paragraph [ref=e92]: Strong example, complete answer, handled one clarification probe.
+    - generic [ref=e94]:
+      - generic [ref=e95]:
+        - paragraph [ref=e96]: Trusted by the next generation of companies.
+        - generic [ref=e97]:
+          - generic [ref=e98]: Backed by
+          - img "Afore Capital" [ref=e99]
+      - generic [ref=e100]:
+        - img "Y Combinator" [ref=e102]
+        - img "Pioneer Fund" [ref=e104]
+        - img "Pear VC" [ref=e106]
+        - img "Nestora" [ref=e108]
+        - img "Telora" [ref=e110]
+    - generic [ref=e112]:
+      - generic [ref=e113]:
+        - text: Candidate flow
+        - heading "The candidate experience is a controlled room, not a chat window." [level=2] [ref=e114]
+        - paragraph [ref=e115]: Puddle moves each candidate through the same observable states before the AI interviewer starts asking questions.
+        - generic [ref=e116]:
+          - button "Invite 01 Create a candidate room" [ref=e117]:
+            - generic [ref=e118]:
+              - generic [ref=e119]: Invite
+              - generic [ref=e120]: "01"
+            - paragraph [ref=e121]: Create a candidate room
+          - button "Consent 02 Confirm the AI interview terms" [ref=e122]:
+            - generic [ref=e123]:
+              - generic [ref=e124]: Consent
+              - generic [ref=e125]: "02"
+            - paragraph [ref=e126]: Confirm the AI interview terms
+          - button "Preflight 03 Check camera and microphone" [ref=e127]:
+            - generic [ref=e128]:
+              - generic [ref=e129]: Preflight
+              - generic [ref=e130]: "03"
+            - paragraph [ref=e131]: Check camera and microphone
+          - button "Live room 04 Run the structured voice screen" [ref=e132]:
+            - generic [ref=e133]:
+              - generic [ref=e134]: Live room
+              - generic [ref=e135]: "04"
+            - paragraph [ref=e136]: Run the structured voice screen
+      - generic [ref=e138]:
+        - generic [ref=e139]:
+          - generic [ref=e140]: Puddle interview room
+          - generic [ref=e141]: Candidate waiting room
+        - generic [ref=e142]:
+          - generic [ref=e143]:
+            - generic [ref=e144]:
+              - generic [ref=e145]: Invite
+              - generic [ref=e146]: Invite ready
+            - generic [ref=e148]:
+              - generic [ref=e149]: P
+              - heading "Create a candidate room" [level=3] [ref=e150]
+              - paragraph [ref=e151]: Staff enter an email, generate an expiring invite, and send the candidate into the right room.
+            - generic [ref=e152]:
+              - generic [ref=e153]: Mic clear
+              - generic [ref=e154]: Camera on
+              - generic [ref=e155]: Room ready
+          - generic [ref=e156]:
+            - generic [ref=e157]:
+              - generic [ref=e158]: State
+              - generic [ref=e159]: Invite ready
+              - paragraph [ref=e160]: Staff enter an email, generate an expiring invite, and send the candidate into the right room.
+            - generic [ref=e161]:
+              - generic [ref=e162]: Session timeline
+              - generic [ref=e163]:
+                - generic [ref=e166]:
+                  - generic [ref=e167]: Invite
+                  - generic [ref=e168]: Invite ready
+                - generic [ref=e171]:
+                  - generic [ref=e172]: Consent
+                  - generic [ref=e173]: Consent complete
+                - generic [ref=e176]:
+                  - generic [ref=e177]: Preflight
+                  - generic [ref=e178]: Devices passed
+                - generic [ref=e181]:
+                  - generic [ref=e182]: Live room
+                  - generic [ref=e183]: Interview active
+    - generic [ref=e185]:
+      - generic [ref=e186]:
+        - generic [ref=e187]:
+          - generic [ref=e188]:
+            - generic [ref=e189]: Assessment packet
+            - heading "Reviewer handoff" [level=3] [ref=e190]
+          - generic [ref=e191]:
+            - generic [ref=e192]: Status
+            - generic [ref=e193]: complete
+        - generic [ref=e194]:
+          - generic [ref=e195]:
+            - generic [ref=e196]: Recommendation
+            - generic [ref=e197]: Advance
+            - paragraph [ref=e198]: Clear answers, strong recovery after follow-up questions, and complete session coverage.
+          - generic [ref=e199]:
+            - generic [ref=e201]:
+              - generic [ref=e202]: Answer evidence
+              - generic [ref=e203]: 88%
+            - generic [ref=e207]:
+              - generic [ref=e208]: Communication clarity
+              - generic [ref=e209]: 91%
+            - generic [ref=e213]:
+              - generic [ref=e214]: Probe recovery
+              - generic [ref=e215]: 76%
+            - generic [ref=e219]:
+              - generic [ref=e220]: Session completeness
+              - generic [ref=e221]: 94%
+        - generic [ref=e224]:
+          - generic [ref=e225]:
+            - generic [ref=e226]: Transcript excerpt
+            - paragraph [ref=e227]: Candidate gave a specific ownership example, named the recovery action, and explained the impact.
+          - generic [ref=e228]:
+            - generic [ref=e229]: Probe history
+            - paragraph [ref=e230]: One clarification probe was used after the first answer missed the measurable outcome.
+      - generic [ref=e231]:
+        - text: Evidence
+        - heading "Hiring teams get the answer and the trail behind it." [level=2] [ref=e232]
+        - paragraph [ref=e233]: Puddle is designed for teams that need faster first-round screens without losing the ability to inspect how a recommendation was formed.
+        - generic [ref=e234]:
+          - generic [ref=e235]: Final answer turns
+          - generic [ref=e236]: Question-level scoring
+          - generic [ref=e237]: Timing events
+          - generic [ref=e238]: Reviewer notes
+    - generic [ref=e240]:
+      - generic [ref=e241]:
+        - generic [ref=e242]:
+          - text: Controls
+          - heading "Built for structured screens, not black-box interviews." [level=2] [ref=e243]
+        - paragraph [ref=e244]: Candidates know what is happening, the interviewer stays inside policy, and reviewers can audit the resulting packet.
+      - generic [ref=e245]:
+        - article [ref=e246]:
+          - generic [ref=e247]: "01"
+          - heading "Every session starts with consent" [level=3] [ref=e248]
+          - paragraph [ref=e249]: The candidate sees explicit AI interviewer, recording, and data-use acknowledgements before device access.
+        - article [ref=e250]:
+          - generic [ref=e251]: "02"
+          - heading "Video is separated from scoring" [level=3] [ref=e252]
+          - paragraph [ref=e253]: Camera state supports integrity and room quality while the assessment stays anchored to answers and rubric evidence.
+        - article [ref=e254]:
+          - generic [ref=e255]: "03"
+          - heading "The interviewer is bounded" [level=3] [ref=e256]
+          - paragraph [ref=e257]: Questions, timing, follow-ups, and probes are controlled by the assigned script instead of an open-ended chat.
+        - article [ref=e258]:
+          - generic [ref=e259]: "04"
+          - heading "Reviewers can inspect the trail" [level=3] [ref=e260]
+          - paragraph [ref=e261]: Transcript turns, probe history, status events, and scoring context stay together for later review.
+    - generic [ref=e262]:
+      - generic [ref=e263]:
+        - generic [ref=e264]:
+          - generic [ref=e266]: Puddle
+          - heading "Start with one pilot cohort and inspect every interview packet." [level=2] [ref=e267]
+          - paragraph [ref=e268]: We will help configure the room flow, interviewer script, and review packet around your first hiring screen.
+        - generic [ref=e269]:
+          - link "Book a pilot" [ref=e270] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Staff sign in" [ref=e271] [cursor=pointer]:
+            - /url: /dashboard
+      - generic [ref=e272]:
+        - generic [ref=e273]: 2026 Puddle. AI voice interview infrastructure.
+        - generic [ref=e274]:
+          - link "Contact" [ref=e275] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Candidate flow" [ref=e276] [cursor=pointer]:
+            - /url: "#candidate-flow"
+          - link "Evidence" [ref=e277] [cursor=pointer]:
+            - /url: "#evidence"
+  - button "Open Next.js Dev Tools" [ref=e283] [cursor=pointer]:
+    - img [ref=e284]
+  - alert [ref=e287]

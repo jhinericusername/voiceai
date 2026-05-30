@@ -46,6 +46,11 @@ interface BackendDeployment {
   listener: elbv2.ApplicationListener;
 }
 
+interface AgentDeployment {
+  service: ecs.FargateService;
+  taskDefinition: ecs.FargateTaskDefinition;
+}
+
 interface PlatformDeployment {
   service: ecs.FargateService;
   taskDefinition: ecs.FargateTaskDefinition;
@@ -119,10 +124,21 @@ export class InfraStack extends cdk.Stack {
       runtimeRoles,
       database,
     });
+    const agentDeployment = this.createAgentDeployment({
+      vpc,
+      cluster,
+      securityGroups,
+      repositories,
+      runtimeSecrets,
+      logGroups,
+      runtimeRoles,
+      artifactsBucket,
+    });
     const platformDeployment = this.createPlatformDeployment({
       vpc,
       cluster,
       securityGroups,
+      accessLogsBucket,
       repositories,
       runtimeSecrets,
       logGroups,
@@ -144,6 +160,7 @@ export class InfraStack extends cdk.Stack {
       runtimeRoles,
       githubCiRole,
       backendDeployment,
+      agentDeployment,
       platformDeployment,
     });
   }
@@ -231,9 +248,9 @@ export class InfraStack extends cdk.Stack {
     }
 
     if (this.cfg.agent.deployService) {
-      throw new Error(
-        'Agent service deployment is blocked until Docker packaging and the production start command are verified.',
-      );
+      if (!this.cfg.liveKit.url) {
+        throw new Error('deployAgentService requires a liveKitUrl CDK context value.');
+      }
     }
 
     if (this.cfg.platform.hosting === 'static-export') {
@@ -942,10 +959,104 @@ export class InfraStack extends cdk.Stack {
     };
   }
 
+  private createAgentDeployment(params: {
+    vpc: ec2.IVpc;
+    cluster: ecs.ICluster;
+    securityGroups: Record<string, ec2.ISecurityGroup>;
+    repositories: Record<string, ecr.IRepository>;
+    runtimeSecrets: RuntimeSecrets;
+    logGroups: Record<string, logs.ILogGroup>;
+    runtimeRoles: RuntimeRoles;
+    artifactsBucket: s3.IBucket;
+  }): AgentDeployment | undefined {
+    if (!this.cfg.agent.deployService) {
+      return undefined;
+    }
+
+    const liveKitUrl = this.cfg.liveKit.url;
+    if (!liveKitUrl) {
+      throw new Error('Agent service deployment requires liveKitUrl.');
+    }
+
+    const agentImage = ecs.ContainerImage.fromEcrRepository(
+      params.repositories.agent,
+      this.cfg.agent.imageTag ?? 'latest',
+    );
+    const containerEnvironment = {
+      LIVEKIT_URL: liveKitUrl,
+      PUDDLE_ENV_NAME: this.cfg.envName,
+      PUDDLE_ARTIFACTS_BUCKET: params.artifactsBucket.bucketName,
+      AWS_REGION: cdk.Stack.of(this).region,
+      PYTHONUNBUFFERED: '1',
+    };
+    const containerSecrets = {
+      LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.livekitApiKey),
+      LIVEKIT_API_SECRET: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.livekitApiSecret,
+      ),
+      ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.anthropicApiKey,
+      ),
+      DEEPGRAM_API_KEY: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.deepgramApiKey,
+      ),
+      CARTESIA_API_KEY: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.cartesiaApiKey,
+      ),
+      GEMINI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.geminiApiKey),
+    };
+
+    const taskDefinition = new ecs.FargateTaskDefinition(this, 'AgentTaskDefinition', {
+      family: this.name('agent'),
+      cpu: this.cfg.agent.cpu,
+      memoryLimitMiB: this.cfg.agent.memoryMiB,
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
+      taskRole: params.runtimeRoles.agentTaskRole,
+      executionRole: params.runtimeRoles.agentExecutionRole,
+    });
+    taskDefinition.addContainer('AgentContainer', {
+      containerName: 'agent',
+      image: agentImage,
+      command: ['python', '-m', 'agent.worker', 'start'],
+      environment: containerEnvironment,
+      secrets: containerSecrets,
+      logging: ecs.LogDrivers.awsLogs({
+        logGroup: params.logGroups.agent,
+        streamPrefix: 'agent',
+      }),
+    });
+
+    const service = new ecs.FargateService(this, 'AgentService', {
+      cluster: params.cluster,
+      serviceName: this.name('agent-service'),
+      taskDefinition,
+      desiredCount: this.cfg.agent.desiredCount,
+      assignPublicIp: false,
+      securityGroups: [params.securityGroups.agentTasks],
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      circuitBreaker: {
+        rollback: true,
+      },
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
+    });
+
+    return {
+      service,
+      taskDefinition,
+    };
+  }
+
   private createPlatformDeployment(params: {
     vpc: ec2.IVpc;
     cluster: ecs.ICluster;
     securityGroups: Record<string, ec2.SecurityGroup>;
+    accessLogsBucket: s3.IBucket;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
     logGroups: Record<string, logs.ILogGroup>;
@@ -973,6 +1084,8 @@ export class InfraStack extends cdk.Stack {
         },
       },
     );
+    loadBalancer.logAccessLogs(params.accessLogsBucket, 'platform-alb');
+
     const publicBaseUrl = this.platformPublicBaseUrl(loadBalancer.loadBalancerDnsName);
     const platformImage = ecs.ContainerImage.fromEcrRepository(
       params.repositories.platform,
@@ -1169,6 +1282,7 @@ export class InfraStack extends cdk.Stack {
     runtimeRoles: RuntimeRoles;
     githubCiRole?: iam.IRole;
     backendDeployment?: BackendDeployment;
+    agentDeployment?: AgentDeployment;
     platformDeployment?: PlatformDeployment;
   }): void {
     new cdk.CfnOutput(this, 'EnvironmentName', {
@@ -1276,6 +1390,15 @@ export class InfraStack extends cdk.Stack {
       });
       new cdk.CfnOutput(this, 'BackendInternalBaseUrl', {
         value: `http://${values.backendDeployment.loadBalancer.loadBalancerDnsName}`,
+      });
+    }
+
+    if (values.agentDeployment) {
+      new cdk.CfnOutput(this, 'AgentServiceName', {
+        value: values.agentDeployment.service.serviceName,
+      });
+      new cdk.CfnOutput(this, 'AgentTaskDefinitionArn', {
+        value: values.agentDeployment.taskDefinition.taskDefinitionArn,
       });
     }
 

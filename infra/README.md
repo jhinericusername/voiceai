@@ -17,9 +17,9 @@ The default stack deploys the shared foundation resources:
 
 The backend can be deployed as a private ECS/Fargate service behind an internal
 ALB. The platform can be deployed as a public ECS/Fargate service behind a
-public ALB while calling the backend through the internal ALB. Agent deployment
-remains blocked by CDK guardrails until Docker packaging and the production
-worker command are verified. Public backend exposure remains blocked.
+public ALB while calling the backend through the internal ALB. The LiveKit
+interviewer agent can be deployed as a private ECS/Fargate worker service with
+no public listener. Public backend exposure remains blocked.
 
 ## Commands
 
@@ -69,7 +69,10 @@ backendMemoryMiB=512
 liveKitUrl=wss://...
 
 deployAgentService=false
+agentImageTag=latest
 agentDesiredCount=1
+agentCpu=1024
+agentMemoryMiB=2048
 
 platformHosting=disabled|container|static-export
 platformImageTag=latest
@@ -139,6 +142,44 @@ http://internal-Puddle-Backe-B0GCD7ar4tZv-1590581178.us-west-1.elb.amazonaws.com
 Treat this as stack-specific state. CDK wires the current
 `BackendInternalBaseUrl` into the platform ECS task automatically when both
 backend and platform services are enabled.
+
+## Agent Image Build
+
+Build the LiveKit worker image from the repository root so Docker can include
+both the Python package and `rubric/`:
+
+```sh
+AWS_ACCOUNT_ID=<account-id>
+REGION=us-west-1
+TAG=$(git rev-parse --short HEAD)
+REPO="$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/puddle-videoagent-agent"
+
+aws ecr get-login-password --region "$REGION" \
+  | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+docker build --platform linux/arm64 -f agent/Dockerfile -t "$REPO:$TAG" .
+docker push "$REPO:$TAG"
+```
+
+The image command is `python -m agent.worker start`. The CDK stack already
+creates the ECR repository, log group, task roles, and provider secret grants.
+Deploy the private worker service after the image is pushed:
+
+```sh
+npm run cdk -- deploy \
+  -c envName=dev \
+  -c region="$REGION" \
+  -c deployBackendService=true \
+  -c backendImageTag="<backend-tag>" \
+  -c liveKitUrl=wss://your-livekit-host \
+  -c platformHosting=container \
+  -c platformImageTag="<platform-tag>" \
+  -c deployAgentService=true \
+  -c agentImageTag="$TAG"
+```
+
+The agent service has no load balancer. It registers with LiveKit as
+`puddle-interviewer`, waits for dispatches from the backend-created rooms, and
+pulls runtime credentials from Secrets Manager.
 
 ## Platform Deployment
 

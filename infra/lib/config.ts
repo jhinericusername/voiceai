@@ -30,6 +30,8 @@ export interface PuddleEnvConfig {
     deployService: boolean;
     imageTag?: string;
     desiredCount: number;
+    cpu: number;
+    memoryMiB: number;
   };
   platform: {
     hosting: PlatformHosting;
@@ -111,6 +113,8 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
       deployService: readBooleanContext(app, 'deployAgentService', false),
       imageTag: readStringContext(app, 'agentImageTag'),
       desiredCount: readNumberContext(app, 'agentDesiredCount', 1),
+      cpu: readNumberContext(app, 'agentCpu', 1024),
+      memoryMiB: readNumberContext(app, 'agentMemoryMiB', 2048),
     },
     platform: {
       hosting: readEnumContext(
