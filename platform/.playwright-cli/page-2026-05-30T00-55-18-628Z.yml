@@ -1,0 +1,53 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - link "Puddle home" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - generic [ref=e6]:
+        - generic [ref=e7]: Puddle
+        - generic [ref=e8]: Interview room
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - generic "Camera preview" [ref=e12]
+        - generic [ref=e14]:
+          - generic [ref=e15]: You
+          - generic [ref=e16]: Camera and microphone are off
+        - generic [ref=e17]: Camera preview
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - button "Mute microphone" [ref=e20]:
+              - img [ref=e21]
+            - button "Turn camera off" [ref=e24]:
+              - img [ref=e25]
+          - button "Allow camera and microphone" [ref=e28]
+      - complementary [ref=e29]:
+        - generic [ref=e30]:
+          - paragraph [ref=e31]: Puddle interview room
+          - heading "Ready to join?" [level=1] [ref=e32]
+          - paragraph [ref=e33]: Check your camera and microphone, then enter the live interview.
+          - generic [ref=e34]:
+            - generic [ref=e35]:
+              - generic [ref=e36]: Camera
+              - generic [ref=e37]: Not checked
+            - generic [ref=e38]:
+              - generic [ref=e39]: Microphone
+              - generic [ref=e40]: Not checked
+            - generic [ref=e41]:
+              - generic [ref=e42]: Permissions
+              - generic [ref=e43]: Required
+          - generic [ref=e44]:
+            - button "Join interview" [disabled] [ref=e45]
+            - generic [ref=e46]: Accept the required permissions
+        - generic [ref=e47]:
+          - generic [ref=e48] [cursor=pointer]:
+            - checkbox "Accept all required interview permissions" [ref=e49]
+            - generic [ref=e50]: Accept all required interview permissions
+          - generic [ref=e51]:
+            - generic [ref=e52] [cursor=pointer]:
+              - checkbox "AI interviewer" [ref=e53]
+              - generic [ref=e54]: AI interviewer
+            - generic [ref=e55] [cursor=pointer]:
+              - checkbox "Audio and video processing" [ref=e56]
+              - generic [ref=e57]: Audio and video processing
+            - generic [ref=e58] [cursor=pointer]:
+              - checkbox "Integrity signals" [ref=e59]
+              - generic [ref=e60]: Integrity signals

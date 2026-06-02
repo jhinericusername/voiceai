@@ -43,8 +43,19 @@ export function sessionRoomUpdateStatement(sessionId: string, roomName: string):
 export function sessionStatusUpdateStatement(
   sessionId: string,
   status: string,
-  options: { readonly startedAt?: string; readonly endedAt?: string } = {},
+  options: {
+    readonly startedAt?: string;
+    readonly endedAt?: string;
+    readonly includeTimelineColumns?: boolean;
+  } = {},
 ): SqlStatement {
+  if (options.includeTimelineColumns === false) {
+    return {
+      sql: "UPDATE sessions SET status = $2, updated_at = now() WHERE session_id = $1",
+      params: [sessionId, status],
+    };
+  }
+
   return {
     sql:
       "UPDATE sessions SET status = $2, " +

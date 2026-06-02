@@ -65,6 +65,7 @@ describe('InfraStack', () => {
           requireAuth: true,
         },
         liveKit: {
+          recordingsEnabled: false,
           url: 'wss://livekit.example',
         },
       }),
@@ -82,6 +83,17 @@ describe('InfraStack', () => {
     ).toThrow('deployBackendService requires a liveKitUrl CDK context value.');
   });
 
+  test('requires an assume-role ARN when an egress external ID is configured', () => {
+    expect(() =>
+      createStack({
+        liveKit: {
+          recordingsEnabled: true,
+          egressAssumeRoleExternalId: 'external-id',
+        },
+      }),
+    ).toThrow('liveKitEgressAssumeRoleExternalId requires liveKitEgressAssumeRoleArn.');
+  });
+
   test('creates an internal ECS backend service when enabled', () => {
     const stack = createStack({
       backend: {
@@ -90,6 +102,7 @@ describe('InfraStack', () => {
         imageTag: 'test',
       },
       liveKit: {
+        recordingsEnabled: false,
         url: 'wss://livekit.example',
       },
     });
@@ -124,6 +137,10 @@ describe('InfraStack', () => {
               Value: 'wss://livekit.example',
             }),
             Match.objectLike({
+              Name: 'PUDDLE_RECORDINGS_ENABLED',
+              Value: 'false',
+            }),
+            Match.objectLike({
               Name: 'DATABASE_NAME',
               Value: 'puddle',
             }),
@@ -141,6 +158,58 @@ describe('InfraStack', () => {
           ]),
         }),
       ]),
+    });
+    template.resourceCountIs('AWS::IAM::User', 0);
+  });
+
+  test('creates LiveKit Egress S3 credentials only when recordings are enabled', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'test',
+      },
+      liveKit: {
+        recordingsEnabled: true,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_RECORDINGS_ENABLED',
+              Value: 'true',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_ARTIFACTS_BUCKET',
+            }),
+          ]),
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_EGRESS_S3_ACCESS_KEY_ID',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_EGRESS_S3_SECRET_ACCESS_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+    template.hasResourceProperties('AWS::IAM::User', {
+      UserName: 'puddle-videoagent-livekit-egress-upload-user',
+    });
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(['s3:PutObject']),
+          }),
+        ]),
+      },
     });
   });
 
@@ -217,6 +286,7 @@ describe('InfraStack', () => {
         imageTag: 'agent-test',
       },
       liveKit: {
+        recordingsEnabled: false,
         url: 'wss://livekit.example',
       },
     });
@@ -249,6 +319,10 @@ describe('InfraStack', () => {
             }),
             Match.objectLike({
               Name: 'PUDDLE_ARTIFACTS_BUCKET',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS',
+              Value: '300',
             }),
           ]),
           Secrets: Match.arrayWith([
@@ -297,6 +371,7 @@ describe('InfraStack', () => {
           'arn:aws:acm:us-east-1:111111111111:certificate/test-certificate',
       },
       liveKit: {
+        recordingsEnabled: false,
         url: 'wss://livekit.example',
       },
     });
@@ -393,6 +468,7 @@ function defaultConfig(): PuddleEnvConfig {
       desiredCount: 1,
       cpu: 1024,
       memoryMiB: 2048,
+      participantReconnectGraceSeconds: 300,
     },
     platform: {
       hosting: 'disabled',
@@ -415,7 +491,9 @@ function defaultConfig(): PuddleEnvConfig {
       deletionProtection: false,
       allowRealCandidateDataExternal: false,
     },
-    liveKit: {},
+    liveKit: {
+      recordingsEnabled: false,
+    },
     logs: {
       retentionDays: 30,
     },

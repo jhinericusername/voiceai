@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import Link from "next/link";
 import {
   Room,
   RoomEvent,
@@ -23,7 +24,7 @@ interface JoinResponse {
   readonly token: string;
 }
 
-type RoomStage = "intro" | "consent" | "preflight" | "waiting" | "connecting" | "live" | "complete";
+type RoomStage = "waiting" | "connecting" | "live" | "complete";
 type CheckStatus = "idle" | "checking" | "passed" | "failed";
 
 interface ConsentState {
@@ -32,27 +33,41 @@ interface ConsentState {
   readonly dataUse: boolean;
 }
 
-const CONSENT_COPY = [
-  "I understand this interview is conducted by an AI interviewer.",
-  "I consent to audio and video processing for the interview session.",
-  "I understand video is used for integrity signals, not scoring.",
-] as const;
+const EMPTY_CONSENT: ConsentState = {
+  aiDisclosure: false,
+  recording: false,
+  dataUse: false,
+};
 
-const STEPS: readonly { id: RoomStage; label: string }[] = [
-  { id: "intro", label: "Invite" },
-  { id: "consent", label: "Consent" },
-  { id: "preflight", label: "Device check" },
-  { id: "waiting", label: "Waiting room" },
-  { id: "live", label: "Interview" },
+const FULL_CONSENT: ConsentState = {
+  aiDisclosure: true,
+  recording: true,
+  dataUse: true,
+};
+
+const CONSENT_COPY: readonly { id: keyof ConsentState; label: string; detail: string }[] = [
+  {
+    id: "aiDisclosure",
+    label: "I understand this interview is conducted by an AI interviewer.",
+    detail:
+      "The interviewer asks structured, role-related questions and may create rubric scores, rankings, recommendations, and review materials for human reviewers.",
+  },
+  {
+    id: "recording",
+    label: "I consent to audio, video, transcript, and interview-data processing.",
+    detail: "Puddle records and transcribes the session so the hiring team can review the interview record against its rubric.",
+  },
+  {
+    id: "dataUse",
+    label: "I understand Puddle creates AI-assisted review outputs.",
+    detail:
+      "Puddle may generate rubric scores, rankings, and recommendations, but the hiring company is responsible for review and employment decisions. Review should be based on job-related answers, not appearance, emotion, age, race, gender, disability, accent, or facial expression.",
+  },
 ];
 
 export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
-  const [stage, setStage] = useState<RoomStage>("intro");
-  const [consent, setConsent] = useState<ConsentState>({
-    aiDisclosure: false,
-    recording: false,
-    dataUse: false,
-  });
+  const [stage, setStage] = useState<RoomStage>("waiting");
+  const [consent, setConsent] = useState<ConsentState>(EMPTY_CONSENT);
   const [preflightStatus, setPreflightStatus] = useState<CheckStatus>("idle");
   const [join, setJoin] = useState<JoinResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +79,7 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   const [isPreviewMicEnabled, setIsPreviewMicEnabled] = useState(true);
   const [isPreviewCameraEnabled, setIsPreviewCameraEnabled] = useState(true);
   const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack | null>(null);
+  const [remoteVideoTrack, setRemoteVideoTrack] = useState<RemoteTrack | null>(null);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
 
@@ -73,9 +89,10 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   const previewStreamRef = useRef<MediaStream | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const callVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLDivElement | null>(null);
 
-  const consentComplete = consent.aiDisclosure && consent.recording && consent.dataUse;
+  const consentComplete = isConsentComplete(consent);
   const canEnterRoom = consentComplete && preflightStatus === "passed" && !isJoining;
   const elapsedLabel = useMemo(() => formatDuration(elapsedSeconds), [elapsedSeconds]);
 
@@ -96,10 +113,14 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
     localVideoTrackRef.current?.stop();
     localVideoTrackRef.current = null;
     setLocalVideoTrack(null);
+    setRemoteVideoTrack(null);
     setIsMicEnabled(true);
     setIsCameraEnabled(true);
     liveKitRoomRef.current?.disconnect();
     liveKitRoomRef.current = null;
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
     if (remoteAudioRef.current) {
       remoteAudioRef.current.replaceChildren();
     }
@@ -118,7 +139,6 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
     }
 
     const startedAt = Date.now();
-
     const interval = window.setInterval(() => {
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     }, 1000);
@@ -139,8 +159,23 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   }, [localVideoTrack, stage]);
 
   useEffect(() => {
+    const video = remoteVideoRef.current;
+    if (!video || !remoteVideoTrack || stage !== "live") {
+      return;
+    }
+
+    remoteVideoTrack.attach(video);
+    void video.play().catch(() => {
+      setError("Interviewer video was blocked by the browser. Click Leave, then rejoin the interview.");
+    });
+    return () => {
+      remoteVideoTrack.detach(video);
+    };
+  }, [remoteVideoTrack, stage]);
+
+  useEffect(() => {
     const video = previewVideoRef.current;
-    if (!video || !previewStream || (stage !== "preflight" && stage !== "waiting")) {
+    if (!video || !previewStream || stage !== "waiting") {
       return;
     }
 
@@ -300,9 +335,15 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   }
 
   function attachRemoteTrack(track: RemoteTrack): void {
+    if (track.kind === Track.Kind.Video) {
+      setRemoteVideoTrack(track);
+      return;
+    }
+
     if (track.kind !== Track.Kind.Audio || !remoteAudioRef.current) {
       return;
     }
+
     const element = track.attach();
     element.autoplay = true;
     element.dataset.puddleRemoteAudio = "true";
@@ -313,6 +354,11 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   }
 
   function detachRemoteTrack(track: RemoteTrack): void {
+    if (track.kind === Track.Kind.Video) {
+      setRemoteVideoTrack((currentTrack) => (currentTrack === track ? null : currentTrack));
+      return;
+    }
+
     for (const element of track.detach()) {
       element.remove();
     }
@@ -325,383 +371,136 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   }
 
   return (
-    <section
-      className={`mt-6 min-h-[620px] overflow-hidden rounded-lg shadow-[0_22px_70px_rgba(15,23,42,0.14)] ${
-        stage === "live" || stage === "connecting" ? "bg-slate-950" : "border border-slate-200 bg-white"
-      }`}
-    >
-      {stage !== "live" && stage !== "connecting" ? (
-        <header className="border-b border-slate-200 bg-white/90 px-5 py-4 sm:px-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-slate-950">Puddle interview room</div>
-              <div className="mt-1 text-sm text-slate-500">Candidate waiting room</div>
-            </div>
-            <StepPills current={stage} />
-          </div>
-        </header>
+    <section className="overflow-hidden rounded-[28px] bg-white shadow-[0_22px_70px_rgba(60,64,67,0.14)]">
+      <div ref={remoteAudioRef} aria-hidden="true" className="fixed h-0 w-0 overflow-hidden" />
+
+      {stage === "waiting" ? (
+        <WaitingPanel
+          consent={consent}
+          status={preflightStatus}
+          error={error}
+          previewVideoRef={previewVideoRef}
+          canEnterRoom={canEnterRoom}
+          isJoining={isJoining}
+          roomStatus={roomStatus}
+          isMicEnabled={isPreviewMicEnabled}
+          isCameraEnabled={isPreviewCameraEnabled}
+          onConsentChange={setConsent}
+          onRunPreflight={runPreflight}
+          onToggleMic={togglePreviewMic}
+          onToggleCamera={togglePreviewCamera}
+          onJoin={enterRoom}
+        />
       ) : null}
 
-        <div ref={remoteAudioRef} aria-hidden="true" className="fixed h-0 w-0 overflow-hidden" />
+      {stage === "connecting" ? <ConnectingPanel roomStatus={roomStatus} /> : null}
 
-        {stage === "intro" ? (
-          <IntroPanel onContinue={() => setStage("consent")} />
-        ) : null}
+      {stage === "live" ? (
+        <LivePanel
+          join={join}
+          roomStatus={roomStatus}
+          elapsedLabel={elapsedLabel}
+          remoteParticipants={remoteParticipants}
+          callVideoRef={callVideoRef}
+          remoteVideoRef={remoteVideoRef}
+          hasRemoteVideo={remoteVideoTrack !== null}
+          isMicEnabled={isMicEnabled}
+          isCameraEnabled={isCameraEnabled}
+          onToggleMic={() => {
+            const next = !isMicEnabled;
+            void setLocalTrackEnabled(localAudioTrackRef.current, next);
+            setIsMicEnabled(next);
+          }}
+          onToggleCamera={() => {
+            const next = !isCameraEnabled;
+            void setLocalTrackEnabled(localVideoTrackRef.current, next);
+            setIsCameraEnabled(next);
+          }}
+          onEnd={endInterview}
+        />
+      ) : null}
 
-        {stage === "consent" ? (
-          <ConsentPanel
-            consent={consent}
-            onChange={setConsent}
-            onBack={() => setStage("intro")}
-            onContinue={() => setStage("preflight")}
-          />
-        ) : null}
-
-        {stage === "preflight" ? (
-          <PreflightPanel
-            status={preflightStatus}
-            error={error}
-            previewVideoRef={previewVideoRef}
-            canEnterRoom={canEnterRoom}
-            isJoining={isJoining}
-            onBack={() => setStage("consent")}
-            onRunPreflight={runPreflight}
-            onEnterWaitingRoom={() => setStage("waiting")}
-          />
-        ) : null}
-
-        {stage === "waiting" ? (
-          <WaitingPanel
-            error={error}
-            previewVideoRef={previewVideoRef}
-            isJoining={isJoining}
-            roomStatus={roomStatus}
-            isMicEnabled={isPreviewMicEnabled}
-            isCameraEnabled={isPreviewCameraEnabled}
-            onToggleMic={togglePreviewMic}
-            onToggleCamera={togglePreviewCamera}
-            onBack={() => setStage("preflight")}
-            onJoin={enterRoom}
-          />
-        ) : null}
-
-        {stage === "connecting" ? (
-          <ConnectingPanel roomStatus={roomStatus} />
-        ) : null}
-
-        {stage === "live" ? (
-          <LivePanel
-            join={join}
-            roomStatus={roomStatus}
-            elapsedLabel={elapsedLabel}
-            remoteParticipants={remoteParticipants}
-            callVideoRef={callVideoRef}
-            isMicEnabled={isMicEnabled}
-            isCameraEnabled={isCameraEnabled}
-            onToggleMic={() => {
-              const next = !isMicEnabled;
-              void setLocalTrackEnabled(localAudioTrackRef.current, next);
-              setIsMicEnabled(next);
-            }}
-            onToggleCamera={() => {
-              const next = !isCameraEnabled;
-              void setLocalTrackEnabled(localVideoTrackRef.current, next);
-              setIsCameraEnabled(next);
-            }}
-            onEnd={endInterview}
-          />
-        ) : null}
-
-        {stage === "complete" ? <CompletePanel /> : null}
+      {stage === "complete" ? <CompletePanel /> : null}
     </section>
   );
 }
 
-function IntroPanel({ onContinue }: { readonly onContinue: () => void }) {
-  return (
-    <div className="grid min-h-[620px] gap-6 bg-[#f8fbff] p-5 sm:p-6 lg:grid-cols-[minmax(0,1.25fr)_340px]">
-      <div className="relative overflow-hidden rounded-lg bg-slate-950 shadow-[0_24px_70px_rgba(15,23,42,0.2)]">
-        <div className="absolute left-4 top-4 z-10 rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur">
-          Puddle waiting room
-        </div>
-        <div className="grid min-h-[460px] place-items-center px-6 text-center text-white">
-          <div>
-            <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-sky-300 text-5xl font-semibold text-slate-950 shadow-[0_18px_55px_rgba(56,189,248,0.25)]">
-              P
-            </div>
-            <h1 className="mt-6 text-3xl font-semibold leading-tight md:text-5xl">
-              Your interview is ready.
-            </h1>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-300">
-              Check in, preview your devices, then join the live room.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <aside className="flex min-h-[460px] flex-col justify-between rounded-lg border border-slate-200 bg-white p-5">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Invite</div>
-          <h2 className="mt-3 text-2xl font-semibold text-slate-950">Join with Puddle</h2>
-          <dl className="mt-6 grid gap-4 text-sm">
-            <InfoRow label="Estimated time" value="30 minutes" />
-            <InfoRow label="Devices" value="Camera and microphone" />
-            <InfoRow label="Room" value="Live AI interviewer" />
-          </dl>
-        </div>
-        <button
-          type="button"
-          onClick={onContinue}
-          className="mt-7 w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold !text-white transition hover:bg-slate-800"
-        >
-          Continue
-        </button>
-      </aside>
-    </div>
-  );
-}
-
-function ConsentPanel({
+function WaitingPanel({
   consent,
-  onChange,
-  onBack,
-  onContinue,
-}: {
-  readonly consent: ConsentState;
-  readonly onChange: (consent: ConsentState) => void;
-  readonly onBack: () => void;
-  readonly onContinue: () => void;
-}) {
-  const complete = consent.aiDisclosure && consent.recording && consent.dataUse;
-
-  return (
-    <div className="grid min-h-[620px] gap-6 bg-[#f8fbff] p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="rounded-lg border border-slate-200 bg-white p-5 sm:p-7">
-        <div className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Consent</div>
-        <h2 className="mt-3 text-2xl font-semibold text-slate-950 sm:text-3xl">Before we begin</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-          Puddle uses a live AI interviewer and records the session so the hiring team can review the interview.
-        </p>
-
-        <div className="mt-6 grid gap-3">
-          <ConsentCheck
-            checked={consent.aiDisclosure}
-            label={CONSENT_COPY[0]}
-            onChange={(checked) => onChange({ ...consent, aiDisclosure: checked })}
-          />
-          <ConsentCheck
-            checked={consent.recording}
-            label={CONSENT_COPY[1]}
-            onChange={(checked) => onChange({ ...consent, recording: checked })}
-          />
-          <ConsentCheck
-            checked={consent.dataUse}
-            label={CONSENT_COPY[2]}
-            onChange={(checked) => onChange({ ...consent, dataUse: checked })}
-          />
-        </div>
-
-        <div className="mt-8 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            onClick={onContinue}
-            disabled={!complete}
-            className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold !text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            Continue
-          </button>
-        </div>
-      </div>
-
-      <aside className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white">
-        <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200/80">Puddle policy</div>
-        <div className="mt-4 grid gap-3 text-sm text-slate-200">
-          <div className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
-            The interviewer follows the assigned script.
-          </div>
-          <div className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
-            Video integrity signals stay separate from scoring.
-          </div>
-          <div className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
-            The session is saved for recruiter review.
-          </div>
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-function PreflightPanel({
   status,
   error,
   previewVideoRef,
   canEnterRoom,
   isJoining,
-  onBack,
+  roomStatus,
+  isMicEnabled,
+  isCameraEnabled,
+  onConsentChange,
   onRunPreflight,
-  onEnterWaitingRoom,
+  onToggleMic,
+  onToggleCamera,
+  onJoin,
 }: {
+  readonly consent: ConsentState;
   readonly status: CheckStatus;
   readonly error: string | null;
   readonly previewVideoRef: RefObject<HTMLVideoElement | null>;
   readonly canEnterRoom: boolean;
   readonly isJoining: boolean;
-  readonly onBack: () => void;
-  readonly onRunPreflight: () => void;
-  readonly onEnterWaitingRoom: () => void;
-}) {
-  return (
-    <div className="grid min-h-[620px] gap-6 bg-[#f8fbff] p-5 sm:p-6 lg:grid-cols-[minmax(0,1.35fr)_340px]">
-      <div className="relative overflow-hidden rounded-lg bg-slate-950 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
-        <div className="absolute left-4 top-4 z-10 rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white/90 backdrop-blur">
-          Camera preview
-        </div>
-        <div className="absolute right-4 top-4 z-10 rounded-full bg-sky-300 px-3 py-1 text-xs font-semibold text-slate-950">
-          Puddle
-        </div>
-        <div className="grid min-h-[520px]">
-          <video
-            ref={previewVideoRef}
-            aria-label="Camera preview"
-            autoPlay
-            muted
-            playsInline
-            className="h-full min-h-[520px] w-full bg-slate-950 object-cover"
-          />
-          {status === "idle" ? (
-            <div className="absolute inset-0 grid place-items-center bg-slate-950 text-center text-white">
-              <div>
-                <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-white/10 text-3xl font-semibold">
-                  P
-                </div>
-                <div className="mt-4 text-lg font-semibold">Ready when you are</div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        {error ? (
-          <div className="absolute inset-x-4 bottom-24 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-lg">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-black/45 px-4 py-4 backdrop-blur">
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
-          >
-            Back
-          </button>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={onRunPreflight}
-              disabled={status === "checking"}
-              className="rounded-full border border-white/20 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/45"
-            >
-              {status === "checking" ? "Checking..." : status === "passed" ? "Check again" : "Use camera and mic"}
-            </button>
-            <button
-              type="button"
-              onClick={onEnterWaitingRoom}
-              disabled={!canEnterRoom}
-              className="rounded-full bg-sky-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/45"
-            >
-              {isJoining ? "Opening..." : "Enter waiting room"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <aside className="flex flex-col justify-between rounded-lg border border-slate-200 bg-white p-5">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Waiting room</div>
-          <h2 className="mt-3 text-2xl font-semibold text-slate-950">Join the live interview.</h2>
-          <div className="mt-6 grid gap-3 text-sm">
-            <StatusLine label="Camera" status={status} />
-            <StatusLine label="Microphone" status={status} />
-            <StatusLine label="Room token" status={canEnterRoom ? "passed" : "idle"} />
-          </div>
-        </div>
-        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-          The next screen keeps your preview open while you wait to start the interview.
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-function WaitingPanel({
-  error,
-  previewVideoRef,
-  isJoining,
-  roomStatus,
-  isMicEnabled,
-  isCameraEnabled,
-  onToggleMic,
-  onToggleCamera,
-  onBack,
-  onJoin,
-}: {
-  readonly error: string | null;
-  readonly previewVideoRef: RefObject<HTMLVideoElement | null>;
-  readonly isJoining: boolean;
   readonly roomStatus: string;
   readonly isMicEnabled: boolean;
   readonly isCameraEnabled: boolean;
+  readonly onConsentChange: (consent: ConsentState) => void;
+  readonly onRunPreflight: () => void;
   readonly onToggleMic: () => void;
   readonly onToggleCamera: () => void;
-  readonly onBack: () => void;
   readonly onJoin: () => void;
 }) {
+  const permissionsComplete = isConsentComplete(consent);
+  const devicesReady = status === "passed";
+  const previewVisible = devicesReady && isCameraEnabled;
+  const joinHint = canEnterRoom ? "Ready" : "Complete the checks above";
+
   return (
-    <div className="grid min-h-[620px] gap-6 bg-[#f8fbff] p-5 sm:p-6 lg:grid-cols-[minmax(0,1.35fr)_340px]">
-      <div className="relative overflow-hidden rounded-lg bg-slate-950 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
-        <div className="absolute left-4 top-4 z-10 rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white/90 backdrop-blur">
-          Waiting room
-        </div>
-        <div className="absolute right-4 top-4 z-10 rounded-full bg-sky-300 px-3 py-1 text-xs font-semibold text-slate-950">
-          Puddle
-        </div>
+    <div className="grid gap-5 bg-[#f8fafd] p-4 text-[#202124] lg:h-[calc(100svh-40px)] lg:min-h-[680px] lg:grid-cols-[minmax(0,1fr)_390px] lg:gap-8 lg:overflow-hidden lg:p-8">
+      <div className="relative min-h-[330px] overflow-hidden rounded-[28px] bg-[#202124] shadow-[0_18px_46px_rgba(32,33,36,0.22)] lg:min-h-0">
         <video
           ref={previewVideoRef}
           aria-label="Camera preview"
           autoPlay
           muted
           playsInline
-          className={`h-full min-h-[520px] w-full bg-slate-950 object-cover transition ${
-            isCameraEnabled ? "opacity-100" : "opacity-0"
+          style={{ transform: "scaleX(-1)" }}
+          className={`h-full min-h-[330px] w-full bg-[#202124] object-cover transition duration-200 lg:min-h-0 ${
+            previewVisible ? "opacity-100" : "opacity-0"
           }`}
         />
-        {!isCameraEnabled ? (
-          <div className="absolute inset-0 grid place-items-center bg-slate-950 text-center text-white">
+
+        {!previewVisible ? (
+          <div className="absolute inset-0 grid place-items-center bg-[#202124] px-6 pb-24 text-center text-white">
             <div>
-              <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-white/10 text-2xl font-semibold">
+              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[#3c4043] text-3xl font-medium text-white">
                 You
               </div>
-              <div className="mt-4 text-sm font-semibold text-slate-200">Camera is off</div>
+              <div className="mt-5 text-lg font-medium">
+                {devicesReady ? "Camera is off" : "Camera and microphone are off"}
+              </div>
             </div>
           </div>
         ) : null}
 
-        <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-black/45 px-4 py-4 backdrop-blur">
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
-          >
-            Back
-          </button>
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1 text-xs font-medium text-white/90 backdrop-blur">
+          Camera preview
+        </div>
+
+        {error ? (
+          <div className="absolute inset-x-4 bottom-28 rounded-2xl border border-[#f4c7c3] bg-[#fce8e6] px-4 py-3 text-sm text-[#b3261e] shadow-lg">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 bg-gradient-to-t from-black/75 via-black/45 to-transparent px-4 pb-5 pt-12">
+          <div className="flex items-center gap-3">
             <ControlButton
               label={isMicEnabled ? "Mute microphone" : "Unmute microphone"}
               active={isMicEnabled}
@@ -716,50 +515,113 @@ function WaitingPanel({
             >
               <CameraIcon disabled={!isCameraEnabled} />
             </ControlButton>
-            <button
-              type="button"
-              onClick={onJoin}
-              disabled={isJoining}
-              className="rounded-full bg-sky-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-200 disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/45"
-            >
-              {isJoining ? "Opening..." : "Join interview"}
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={onRunPreflight}
+            disabled={status === "checking"}
+            className="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-[#202124] shadow-sm transition hover:bg-[#f1f3f4] disabled:cursor-not-allowed disabled:bg-white/25 disabled:text-white/60"
+          >
+            {status === "checking" ? "Checking..." : devicesReady ? "Check devices again" : "Allow camera and microphone"}
+          </button>
         </div>
       </div>
 
-      <aside className="flex flex-col justify-between rounded-lg border border-slate-200 bg-white p-5">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Ready to join</div>
-          <h2 className="mt-3 text-2xl font-semibold text-slate-950">You are in the waiting room.</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
-            Keep this page open. Puddle will connect you to the live interviewer when you join.
+      <aside className="flex flex-col py-2 lg:min-h-0">
+        <div className="pt-2 text-center lg:pt-12 lg:text-left">
+          <h1 className="text-4xl font-normal tracking-normal text-[#202124] sm:text-[44px]">Ready to join?</h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#5f6368] lg:mx-0 lg:mt-3">
+            Check your camera and microphone, then enter the live interview.
           </p>
 
-          <div className="mt-6 grid gap-3 text-sm">
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-              <span className="text-slate-600">Microphone</span>
-              <span className="font-semibold text-slate-950">{isMicEnabled ? "On" : "Muted"}</span>
+          <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs lg:mt-5 lg:justify-start">
+            <ReadinessRow label="Camera" ready={devicesReady && isCameraEnabled} />
+            <ReadinessRow label="Microphone" ready={devicesReady && isMicEnabled} />
+            <ReadinessRow label="Notices" ready={permissionsComplete} />
+          </div>
+
+          <div
+            className={`mt-5 rounded-[18px] border p-3 text-left shadow-[0_1px_2px_rgba(60,64,67,0.12)] ${
+              permissionsComplete ? "border-[#a8dab5] bg-[#f1f8f4]" : "border-[#dadce0] bg-white/80"
+            }`}
+          >
+            <button
+              type="button"
+              aria-checked={permissionsComplete}
+              role="checkbox"
+              aria-label="Accept all required interview notices"
+              className="flex cursor-pointer items-start gap-2.5 text-left text-[11px] font-medium text-[#202124]"
+              onClick={() => onConsentChange(permissionsComplete ? EMPTY_CONSENT : FULL_CONSENT)}
+              onKeyDown={(event) => {
+                if (event.key === " ") {
+                  event.preventDefault();
+                  onConsentChange(permissionsComplete ? EMPTY_CONSENT : FULL_CONSENT);
+                }
+              }}
+            >
+              <span
+                className={`mt-0.5 grid h-3.5 w-3.5 place-items-center rounded border ${
+                  permissionsComplete
+                    ? "border-[#137333] bg-[#e6f4ea] text-[#137333]"
+                    : "border-[#80868b] bg-white text-[#1a73e8]"
+                }`}
+              >
+                {permissionsComplete ? <MiniCheckIcon /> : null}
+              </span>
+              <span>Accept all required interview notices</span>
+            </button>
+
+            <p className="mt-2 border-t border-[#e8eaed] pt-2 text-[11px] leading-5 text-[#5f6368]">
+              Review these notices before joining. You can request accommodation or an alternative process by contacting
+              the hiring team or Puddle.
+            </p>
+
+            <div className="mt-2 grid gap-2">
+              {CONSENT_COPY.map((item) => (
+                <PermissionCheck
+                  key={item.id}
+                  checked={consent[item.id]}
+                  label={item.label}
+                  detail={item.detail}
+                  onChange={(checked) =>
+                    onConsentChange({
+                      ...consent,
+                      [item.id]: checked,
+                    })
+                  }
+                />
+              ))}
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-              <span className="text-slate-600">Camera</span>
-              <span className="font-semibold text-slate-950">{isCameraEnabled ? "On" : "Off"}</span>
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-              <span className="text-slate-600">Room</span>
-              <span className="font-semibold text-slate-950">{isJoining ? roomStatus : "Ready"}</span>
+
+            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-[#e8eaed] pt-2 text-[10px] font-medium text-[#5f6368]">
+              <Link href="/ai-interview-disclosure" target="_blank" rel="noreferrer" className="hover:text-[#202124]">
+                AI interview disclosure
+              </Link>
+              <Link href="/privacy" target="_blank" rel="noreferrer" className="hover:text-[#202124]">
+                Privacy
+              </Link>
+              <Link href="/terms" target="_blank" rel="noreferrer" className="hover:text-[#202124]">
+                Terms
+              </Link>
+              <Link href="/subprocessors" target="_blank" rel="noreferrer" className="hover:text-[#202124]">
+                Subprocessors
+              </Link>
             </div>
           </div>
 
-          {error ? (
-            <div className="mt-5 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700">
-              {error}
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row lg:flex-col">
+            <button
+              type="button"
+              onClick={onJoin}
+              disabled={!canEnterRoom}
+              className="rounded-full bg-[#1a73e8] px-7 py-3 text-sm font-medium !text-white transition hover:bg-[#1765cc] disabled:cursor-not-allowed disabled:bg-[#dadce0] disabled:!text-[#80868b]"
+            >
+              {isJoining ? "Joining..." : "Join interview"}
+            </button>
+            <div className="min-h-4 text-center text-xs font-medium text-[#5f6368] lg:text-left">
+              {isJoining ? roomStatus : joinHint}
             </div>
-          ) : null}
-        </div>
-
-        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-          The interview starts only after you press Join interview.
+          </div>
         </div>
       </aside>
     </div>
@@ -768,14 +630,14 @@ function WaitingPanel({
 
 function ConnectingPanel({ roomStatus }: { readonly roomStatus: string }) {
   return (
-    <div className="grid min-h-[620px] place-items-center bg-slate-950 p-8 text-center text-white">
+    <div className="grid min-h-[700px] place-items-center bg-[#202124] p-8 text-center text-white">
       <div>
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-sky-300 text-2xl font-semibold text-slate-950">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#8ab4f8] text-2xl font-medium text-[#202124]">
           P
         </div>
-        <div className="mx-auto mt-6 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-sky-300" />
-        <h2 className="mt-5 text-2xl font-semibold">Opening your room</h2>
-        <p className="mt-2 text-sm text-slate-300">{roomStatus}</p>
+        <div className="mx-auto mt-6 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#8ab4f8]" />
+        <h2 className="mt-5 text-2xl font-normal">Opening your room</h2>
+        <p className="mt-2 text-sm text-[#bdc1c6]">{roomStatus}</p>
       </div>
     </div>
   );
@@ -787,6 +649,8 @@ function LivePanel({
   elapsedLabel,
   remoteParticipants,
   callVideoRef,
+  remoteVideoRef,
+  hasRemoteVideo,
   isMicEnabled,
   isCameraEnabled,
   onToggleMic,
@@ -798,6 +662,8 @@ function LivePanel({
   readonly elapsedLabel: string;
   readonly remoteParticipants: number;
   readonly callVideoRef: RefObject<HTMLVideoElement | null>;
+  readonly remoteVideoRef: RefObject<HTMLVideoElement | null>;
+  readonly hasRemoteVideo: boolean;
   readonly isMicEnabled: boolean;
   readonly isCameraEnabled: boolean;
   readonly onToggleMic: () => void;
@@ -805,116 +671,157 @@ function LivePanel({
   readonly onEnd: () => void;
 }) {
   return (
-    <div className="min-h-[680px] bg-slate-950 text-white">
-      <header className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-full bg-sky-300 text-sm font-semibold text-slate-950">
-            P
-          </div>
-          <div>
-            <div className="text-sm font-semibold">Puddle interview</div>
-            <div className="text-xs text-slate-400">{join?.room ?? "Live room"}</div>
-          </div>
+    <div className="relative flex min-h-[calc(100svh-110px)] flex-col overflow-hidden bg-[#111214] text-white">
+      <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-4 px-5 py-4 text-sm">
+        <div className="flex min-w-0 items-center gap-3 font-medium text-[#f1f3f4]">
+          <span className="shrink-0">{elapsedLabel}</span>
+          <span className="h-4 w-px shrink-0 bg-[#5f6368]" />
+          <span className="truncate">{join?.room ?? "Puddle interview"}</span>
+          <InfoIcon />
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-          <span className="rounded-full bg-emerald-400/15 px-3 py-1 text-emerald-100">{roomStatus}</span>
-          <span className="rounded-full bg-white/10 px-3 py-1 text-slate-200">Elapsed {elapsedLabel}</span>
+        <div className="flex items-center justify-end gap-2 text-xs font-medium">
+          <span className="rounded-full bg-[#5f6368] px-3 py-2 text-[#f1f3f4]">P</span>
+          <span className="rounded-full bg-[#2b2c2f] px-3 py-2 text-[#e8eaed]">
+            {remoteParticipants > 0 ? remoteParticipants + 1 : 1}
+          </span>
         </div>
       </header>
 
-      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="grid gap-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="relative grid min-h-[420px] place-items-center overflow-hidden rounded-lg border border-white/10 bg-[#151b2a] text-center">
-              <div className="absolute left-4 top-4 rounded-full bg-black/35 px-3 py-1 text-xs font-semibold text-white/85 backdrop-blur">
-                Interviewer
-              </div>
-              <div>
-                <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-sky-300 text-5xl font-semibold text-slate-950 shadow-[0_18px_55px_rgba(56,189,248,0.22)]">
-                  P
-                </div>
-                <div className="mt-5 text-2xl font-semibold">Puddle interviewer</div>
-                <div className="mt-2 text-sm text-slate-300">
-                  {remoteParticipants > 0 ? "Connected" : "Waiting for interviewer audio"}
-                </div>
-              </div>
-            </div>
+      <main className="flex flex-1 items-center justify-center px-3 pb-28 pt-20 sm:px-5 md:pb-24">
+        <div className="grid h-[min(72svh,760px)] min-h-[460px] w-full max-w-[1500px] grid-rows-2 gap-3 md:grid-cols-2 md:grid-rows-1">
+          <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
+            <video
+              ref={remoteVideoRef}
+              aria-label="Interviewer video"
+              autoPlay
+              playsInline
+              className={`h-full w-full object-cover transition ${hasRemoteVideo ? "opacity-100" : "opacity-0"}`}
+            />
 
-            <div className="relative min-h-[220px] overflow-hidden rounded-lg border border-white/10 bg-slate-900">
-              <video
-                ref={callVideoRef}
-                aria-label="Self view"
-                autoPlay
-                muted
-                playsInline
-                className={`h-full min-h-[220px] w-full object-cover transition ${
-                  isCameraEnabled ? "opacity-100" : "opacity-0"
-                }`}
-              />
-              {!isCameraEnabled ? (
-                <div className="absolute inset-0 grid place-items-center bg-slate-900">
-                  <div className="grid h-16 w-16 place-items-center rounded-full bg-white/10 text-xl font-semibold">
-                    You
+            {!hasRemoteVideo ? (
+              <div className="absolute inset-0 grid place-items-center bg-[#202124] px-6 text-center">
+                <div>
+                  <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[#8ab4f8] text-4xl font-medium text-[#202124]">
+                    P
+                  </div>
+                  <div className="mt-5 text-lg font-medium text-[#f1f3f4]">Puddle interviewer</div>
+                  <div className="mt-2 text-sm text-[#bdc1c6]">
+                    {remoteParticipants > 0 ? "Connected without video" : "Waiting for interviewer"}
                   </div>
                 </div>
-              ) : null}
-              <div className="absolute bottom-3 left-3 rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white/90 backdrop-blur">
-                You
               </div>
+            ) : null}
+
+            <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
+              {hasRemoteVideo ? "Interviewer video" : roomStatus}
+            </div>
+
+            <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
+              Puddle interviewer
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-3 rounded-lg border border-white/10 bg-white/[0.06] px-4 py-3">
-            <ControlButton
-              label={isMicEnabled ? "Mute microphone" : "Unmute microphone"}
-              active={isMicEnabled}
-              onClick={onToggleMic}
-            >
-              <MicIcon muted={!isMicEnabled} />
-            </ControlButton>
-            <ControlButton
-              label={isCameraEnabled ? "Turn camera off" : "Turn camera on"}
-              active={isCameraEnabled}
-              onClick={onToggleCamera}
-            >
-              <CameraIcon disabled={!isCameraEnabled} />
-            </ControlButton>
-            <button
-              type="button"
-              onClick={onEnd}
-              className="grid h-12 min-w-16 place-items-center rounded-full bg-rose-600 px-5 text-sm font-semibold text-white transition hover:bg-rose-500"
-            >
-              Leave
-            </button>
+          <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
+            <video
+              ref={callVideoRef}
+              aria-label="Self view"
+              autoPlay
+              muted
+              playsInline
+              style={{ transform: "scaleX(-1)" }}
+              className={`h-full w-full object-cover transition ${isCameraEnabled ? "opacity-100" : "opacity-0"}`}
+            />
+
+            {!isCameraEnabled ? (
+              <div className="absolute inset-0 grid place-items-center bg-[#202124] px-6 text-center">
+                <div>
+                  <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[#3c4043] text-3xl font-medium text-white">
+                    You
+                  </div>
+                  <div className="mt-5 text-lg font-medium text-[#f1f3f4]">Camera is off</div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
+              {isCameraEnabled ? "Your video" : "Camera off"}
+            </div>
+
+            <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
+              You
+            </div>
           </div>
         </div>
+      </main>
 
-        <aside className="rounded-lg border border-white/10 bg-white/[0.06] p-4 [&_dd]:!text-slate-100">
-          <div className="text-sm font-semibold">Session</div>
-          <dl className="mt-4 grid gap-3 text-sm">
-            <InfoRow label="Session" value={join?.sessionId ?? "-"} />
-            <InfoRow label="Room" value={join?.room ?? "-"} />
-            <InfoRow label="Status" value={roomStatus} />
-            <InfoRow
-              label="Participants"
-              value={`${remoteParticipants} remote participant${remoteParticipants === 1 ? "" : "s"}`}
-            />
-          </dl>
-        </aside>
-      </div>
+      <footer className="absolute inset-x-0 bottom-0 z-20 grid gap-4 bg-gradient-to-t from-[#111214] via-[#111214]/95 to-transparent px-4 py-4 md:grid-cols-[1fr_auto_1fr] md:items-center md:px-5">
+        <div className="hidden text-sm text-[#e8eaed] md:block">
+          <span className="font-medium">{join?.sessionId ?? "Interview"}</span>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+          <ControlButton
+            label={isMicEnabled ? "Mute microphone" : "Unmute microphone"}
+            active={isMicEnabled}
+            onClick={onToggleMic}
+          >
+            <MicIcon muted={!isMicEnabled} />
+          </ControlButton>
+          <ControlButton
+            label={isCameraEnabled ? "Turn camera off" : "Turn camera on"}
+            active={isCameraEnabled}
+            onClick={onToggleCamera}
+          >
+            <CameraIcon disabled={!isCameraEnabled} />
+          </ControlButton>
+          <UtilityButton label="Captions">
+            <CaptionsIcon />
+          </UtilityButton>
+          <UtilityButton label="Raise hand">
+            <RaiseHandIcon />
+          </UtilityButton>
+          <UtilityButton label="Present now">
+            <PresentIcon />
+          </UtilityButton>
+          <UtilityButton label="More options">
+            <MoreIcon />
+          </UtilityButton>
+          <button
+            type="button"
+            aria-label="Leave interview"
+            title="Leave interview"
+            onClick={onEnd}
+            className="grid h-12 w-[72px] place-items-center rounded-full bg-[#ea4335] text-white transition hover:bg-[#d93025] sm:ml-2"
+          >
+            <EndCallIcon />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-center gap-2 md:justify-end">
+          <UtilityButton label="Meeting details">
+            <InfoIcon />
+          </UtilityButton>
+          <UtilityButton label="People">
+            <PeopleIcon />
+          </UtilityButton>
+          <UtilityButton label="Chat">
+            <ChatIcon />
+          </UtilityButton>
+        </div>
+      </footer>
     </div>
   );
 }
 
 function CompletePanel() {
   return (
-    <div className="grid min-h-[620px] place-items-center p-8 text-center">
+    <div className="grid min-h-[620px] place-items-center bg-[#f8fafd] p-8 text-center">
       <div>
-        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-50 text-2xl text-emerald-700">
-          ✓
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#e6f4ea] text-2xl text-[#137333]">
+          <CheckMarkIcon />
         </div>
-        <h2 className="mt-5 text-3xl font-semibold text-slate-950">Thank you.</h2>
-        <p className="mt-3 max-w-md text-sm leading-6 text-slate-600">
+        <h2 className="mt-5 text-3xl font-normal text-[#202124]">Thank you.</h2>
+        <p className="mt-3 max-w-md text-sm leading-6 text-[#5f6368]">
           Your interview is complete. You may close this page.
         </p>
       </div>
@@ -922,24 +829,49 @@ function CompletePanel() {
   );
 }
 
-function StepPills({ current }: { readonly current: RoomStage }) {
+function ReadinessRow({ label, ready }: { readonly label: string; readonly ready: boolean }) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {STEPS.map((step) => (
-        <span
-          key={step.id}
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-            isStepActive(current, step.id)
-              ? "bg-slate-950 text-white"
-              : isStepComplete(current, step.id)
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-slate-100 text-slate-500"
-          }`}
-        >
-          {step.label}
-        </span>
-      ))}
+    <div
+      className={`flex items-center gap-2 rounded-full border px-3 py-1.5 ${
+        ready ? "border-[#a8dab5] bg-[#e6f4ea] text-[#137333]" : "border-[#f4c7c3] bg-[#fce8e6] text-[#b3261e]"
+      }`}
+    >
+      <span>{label}</span>
+      <span
+        className={`grid h-5 w-5 place-items-center rounded-md border ${
+          ready ? "border-[#137333]/30 bg-white/70" : "border-[#b3261e]/30 bg-white/70"
+        }`}
+      >
+        {ready ? <MiniCheckIcon /> : <MiniXIcon />}
+      </span>
     </div>
+  );
+}
+
+function PermissionCheck({
+  checked,
+  label,
+  detail,
+  onChange,
+}: {
+  readonly checked: boolean;
+  readonly label: string;
+  readonly detail: string;
+  readonly onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 rounded-[12px] border border-[#e8eaed] bg-[#f8fafd] px-2.5 py-2 text-left text-[10px] leading-4 text-[#5f6368]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[#80868b] accent-[#1a73e8]"
+      />
+      <span>
+        <span className="block font-medium text-[#202124]">{label}</span>
+        <span className="mt-0.5 block">{detail}</span>
+      </span>
+    </label>
   );
 }
 
@@ -961,8 +893,21 @@ function ControlButton({
       title={label}
       onClick={onClick}
       className={`grid h-12 w-12 place-items-center rounded-full transition ${
-        active ? "bg-white text-slate-950 hover:bg-slate-100" : "bg-rose-600 text-white hover:bg-rose-500"
+        active ? "bg-[#3c4043] text-white hover:bg-[#4a4d51]" : "bg-[#ea4335] text-white hover:bg-[#d93025]"
       }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function UtilityButton({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="grid h-10 w-10 place-items-center rounded-full text-[#e8eaed] transition hover:bg-white/10"
     >
       {children}
     </button>
@@ -991,78 +936,120 @@ function CameraIcon({ disabled }: { readonly disabled: boolean }) {
   );
 }
 
-function ConsentCheck({
-  checked,
-  label,
-  onChange,
-}: {
-  readonly checked: boolean;
-  readonly label: string;
-  readonly onChange: (checked: boolean) => void;
-}) {
+function EndCallIcon() {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-slate-300">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 h-4 w-4 rounded border-slate-300 text-slate-950"
-      />
-      <span>{label}</span>
-    </label>
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M7.5 14.5a9 9 0 0 1 9 0" />
+      <path d="M6 15.5 4.5 17a2 2 0 0 0 0 2.8l.2.2a2 2 0 0 0 2.8 0L9 18.5a2 2 0 0 0 .4-2.2" />
+      <path d="M15 18.5 16.5 20a2 2 0 0 0 2.8 0l.2-.2a2 2 0 0 0 0-2.8L18 15.5a2 2 0 0 0-3 .8" />
+    </svg>
   );
 }
 
-function StatusLine({ label, status }: { readonly label: string; readonly status: CheckStatus }) {
-  const copy =
-    status === "passed"
-      ? "Ready"
-      : status === "checking"
-        ? "Checking"
-        : status === "failed"
-          ? "Needs attention"
-          : "Pending";
+function InfoIcon() {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2">
-      <span className="text-slate-600">{label}</span>
-      <span className={status === "passed" ? "font-semibold text-emerald-700" : "font-semibold text-slate-500"}>
-        {copy}
-      </span>
-    </div>
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 8h.01" />
+    </svg>
   );
 }
 
-function InfoRow({ label, value }: { readonly label: string; readonly value: string }) {
+function PeopleIcon() {
   return (
-    <div>
-      <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</dt>
-      <dd className="mt-1 break-words text-slate-700">{value}</dd>
-    </div>
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M16 19a4 4 0 0 0-8 0" />
+      <circle cx="12" cy="9" r="3" />
+      <path d="M22 19a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M2 19a4 4 0 0 1 3-3.87" />
+      <path d="M8 3.13a4 4 0 0 0 0 7.75" />
+    </svg>
   );
 }
 
-function isStepActive(current: RoomStage, step: RoomStage): boolean {
-  if (current === "connecting" && step === "waiting") {
-    return true;
-  }
-  return current === step;
-}
-
-function isStepComplete(current: RoomStage, step: RoomStage): boolean {
-  return stepOrder(current) > stepOrder(step);
-}
-
-function stepOrder(stage: RoomStage): number {
-  if (stage === "connecting") {
-    return stepOrder("waiting");
-  }
-  if (stage === "complete") {
-    return STEPS.length;
-  }
-  return Math.max(
-    0,
-    STEPS.findIndex((step) => step.id === stage),
+function ChatIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
+    </svg>
   );
+}
+
+function CaptionsIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="5" width="18" height="14" rx="3" />
+      <path d="M8 10h3" />
+      <path d="M14 10h2" />
+      <path d="M8 14h2" />
+      <path d="M13 14h3" />
+    </svg>
+  );
+}
+
+function RaiseHandIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M7 11V7.5a1.5 1.5 0 0 1 3 0V12" />
+      <path d="M10 12V5.5a1.5 1.5 0 0 1 3 0V12" />
+      <path d="M13 12V7.5a1.5 1.5 0 0 1 3 0V13" />
+      <path d="M16 13v-2.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-14 0v-2" />
+      <path d="M5 12.5 3.5 11a1.4 1.4 0 0 1 2-2L8 11.5" />
+    </svg>
+  );
+}
+
+function PresentIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="14" rx="2" />
+      <path d="M12 14V8" />
+      <path d="m9 11 3-3 3 3" />
+      <path d="M8 21h8" />
+      <path d="M12 18v3" />
+    </svg>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+      <circle cx="12" cy="5" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="19" r="1.8" />
+    </svg>
+  );
+}
+
+function CheckMarkIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="m5 12 4 4L19 6" />
+    </svg>
+  );
+}
+
+function MiniCheckIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.25">
+      <path d="m3.5 8 3 3 6-6" />
+    </svg>
+  );
+}
+
+function MiniXIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.25">
+      <path d="m4.5 4.5 7 7" />
+      <path d="m11.5 4.5-7 7" />
+    </svg>
+  );
+}
+
+function isConsentComplete(consent: ConsentState): boolean {
+  return consent.aiDisclosure && consent.recording && consent.dataUse;
 }
 
 async function setLocalTrackEnabled(

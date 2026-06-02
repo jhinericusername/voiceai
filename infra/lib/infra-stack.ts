@@ -27,6 +27,7 @@ interface RuntimeSecrets {
   platformAuthSecret: secretsmanager.ISecret;
   workosApiKey: secretsmanager.ISecret;
   workosClientId: secretsmanager.ISecret;
+  livekitEgressS3Credentials?: secretsmanager.ISecret;
 }
 
 interface RuntimeRoles {
@@ -70,6 +71,7 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   platformAuthSecret: 'platform/auth-secret',
   workosApiKey: 'platform/workos-api-key',
   workosClientId: 'platform/workos-client-id',
+  livekitEgressS3Credentials: 'livekit/egress-s3-credentials',
 };
 
 const DATABASE_PASSWORD_EXCLUDE_CHARS = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\';
@@ -100,7 +102,7 @@ export class InfraStack extends cdk.Stack {
       autoDeleteObjects,
     );
     const repositories = this.createRepositories();
-    const runtimeSecrets = this.createRuntimeSecrets(removalPolicy);
+    const runtimeSecrets = this.createRuntimeSecrets(removalPolicy, artifactsBucket);
     const logGroups = this.createLogGroups(logRetention, removalPolicy);
 
     const vpc = this.createVpc();
@@ -123,6 +125,7 @@ export class InfraStack extends cdk.Stack {
       logGroups,
       runtimeRoles,
       database,
+      artifactsBucket,
     });
     const agentDeployment = this.createAgentDeployment({
       vpc,
@@ -216,6 +219,14 @@ export class InfraStack extends cdk.Stack {
       );
     }
 
+    if (
+      this.cfg.liveKit.recordingsEnabled &&
+      this.cfg.liveKit.egressAssumeRoleExternalId &&
+      !this.cfg.liveKit.egressAssumeRoleArn
+    ) {
+      throw new Error('liveKitEgressAssumeRoleExternalId requires liveKitEgressAssumeRoleArn.');
+    }
+
     if (this.cfg.backend.deployService) {
       if (this.cfg.database.external) {
         throw new Error('deployBackendService currently requires the CDK-managed database.');
@@ -250,6 +261,10 @@ export class InfraStack extends cdk.Stack {
     if (this.cfg.agent.deployService) {
       if (!this.cfg.liveKit.url) {
         throw new Error('deployAgentService requires a liveKitUrl CDK context value.');
+      }
+
+      if (this.cfg.agent.participantReconnectGraceSeconds < 1) {
+        throw new Error('participantReconnectGraceSeconds must be at least 1.');
       }
     }
 
@@ -599,8 +614,11 @@ export class InfraStack extends cdk.Stack {
     });
   }
 
-  private createRuntimeSecrets(removalPolicy: cdk.RemovalPolicy): RuntimeSecrets {
-    const secrets = {
+  private createRuntimeSecrets(
+    removalPolicy: cdk.RemovalPolicy,
+    artifactsBucket: s3.IBucket,
+  ): RuntimeSecrets {
+    const secrets: RuntimeSecrets = {
       livekitApiKey: this.createSecret(
         'LiveKitApiKey',
         RUNTIME_SECRET_PATHS.livekitApiKey,
@@ -653,7 +671,51 @@ export class InfraStack extends cdk.Stack {
       ),
     };
 
+    if (this.cfg.liveKit.recordingsEnabled) {
+      secrets.livekitEgressS3Credentials = this.createLiveKitEgressS3CredentialsSecret(
+        artifactsBucket,
+        removalPolicy,
+      );
+    }
+
     return secrets;
+  }
+
+  private createLiveKitEgressS3CredentialsSecret(
+    artifactsBucket: s3.IBucket,
+    removalPolicy: cdk.RemovalPolicy,
+  ): secretsmanager.Secret {
+    const user = new iam.User(this, 'LiveKitEgressUploadUser', {
+      userName: this.name('livekit-egress-upload-user'),
+    });
+
+    user.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetBucketLocation', 's3:ListBucketMultipartUploads'],
+        resources: [artifactsBucket.bucketArn],
+      }),
+    );
+    user.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:AbortMultipartUpload', 's3:ListMultipartUploadParts', 's3:PutObject'],
+        resources: [artifactsBucket.arnForObjects('*')],
+      }),
+    );
+
+    const accessKey = new iam.AccessKey(this, 'LiveKitEgressUploadAccessKey', {
+      user,
+    });
+    const secret = new secretsmanager.Secret(this, 'LiveKitEgressS3Credentials', {
+      secretName: this.secretName(RUNTIME_SECRET_PATHS.livekitEgressS3Credentials),
+      description: `${this.cfg.envName} LiveKit Cloud Egress S3 upload credentials.`,
+      secretObjectValue: {
+        accessKeyId: cdk.SecretValue.unsafePlainText(accessKey.accessKeyId),
+        secretAccessKey: accessKey.secretAccessKey,
+      },
+    });
+    secret.applyRemovalPolicy(removalPolicy);
+
+    return secret;
   }
 
   private createSecret(
@@ -725,7 +787,6 @@ export class InfraStack extends cdk.Stack {
       'platform task execution role',
       'platform-execution-role',
     );
-
     artifactsBucket.grantReadWrite(backendTaskRole);
     artifactsBucket.grantReadWrite(agentTaskRole);
     artifactsBucket.grantRead(platformTaskRole);
@@ -734,6 +795,9 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.livekitApiKey,
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.backendInternalToken,
+      ...(runtimeSecrets.livekitEgressS3Credentials
+        ? [runtimeSecrets.livekitEgressS3Credentials]
+        : []),
     ]);
     grantSecretsRead(agentExecutionRole, [
       runtimeSecrets.livekitApiKey,
@@ -805,6 +869,7 @@ export class InfraStack extends cdk.Stack {
     logGroups: Record<string, logs.ILogGroup>;
     runtimeRoles: RuntimeRoles;
     database?: rds.DatabaseInstance;
+    artifactsBucket: s3.IBucket;
   }): BackendDeployment | undefined {
     if (!this.cfg.backend.deployService) {
       return undefined;
@@ -824,11 +889,40 @@ export class InfraStack extends cdk.Stack {
       params.repositories.backend,
       this.cfg.backend.imageTag ?? 'latest',
     );
+    const recordingsEnabled = this.cfg.liveKit.recordingsEnabled;
+    const useEgressAssumeRoleExternalId =
+      recordingsEnabled &&
+      Boolean(this.cfg.liveKit.egressAssumeRoleExternalId) &&
+      Boolean(this.cfg.liveKit.egressAssumeRoleArn);
     const containerEnvironment = {
       NODE_ENV: 'production',
       HOST: '0.0.0.0',
       PORT: String(this.cfg.backend.port),
       LIVEKIT_URL: liveKitUrl,
+      PUDDLE_RECORDINGS_ENABLED: recordingsEnabled ? 'true' : 'false',
+      ...(recordingsEnabled
+        ? {
+            PUDDLE_ARTIFACTS_BUCKET: params.artifactsBucket.bucketName,
+            PUDDLE_ARTIFACTS_REGION: cdk.Stack.of(this).region,
+          }
+        : {}),
+      ...(recordingsEnabled && this.cfg.liveKit.egressAssumeRoleArn
+        ? {
+            PUDDLE_EGRESS_S3_ASSUME_ROLE_ARN: this.cfg.liveKit.egressAssumeRoleArn,
+          }
+        : {}),
+      ...(useEgressAssumeRoleExternalId
+        ? {
+            PUDDLE_EGRESS_S3_ASSUME_ROLE_EXTERNAL_ID:
+              this.cfg.liveKit.egressAssumeRoleExternalId,
+          }
+        : {}),
+      AWS_REGION: cdk.Stack.of(this).region,
+      ...(recordingsEnabled && this.cfg.platform.domainName
+        ? {
+            PUDDLE_LIVEKIT_WEBHOOK_URL: `${this.platformPublicBaseUrl()}/api/livekit/webhook`,
+          }
+        : {}),
       DATABASE_HOST: database.dbInstanceEndpointAddress,
       DATABASE_PORT: database.dbInstanceEndpointPort,
       DATABASE_NAME: this.cfg.database.name,
@@ -843,6 +937,18 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.backendInternalToken,
       ),
+      ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
+        ? {
+            PUDDLE_EGRESS_S3_ACCESS_KEY_ID: ecs.Secret.fromSecretsManager(
+              params.runtimeSecrets.livekitEgressS3Credentials,
+              'accessKeyId',
+            ),
+            PUDDLE_EGRESS_S3_SECRET_ACCESS_KEY: ecs.Secret.fromSecretsManager(
+              params.runtimeSecrets.livekitEgressS3Credentials,
+              'secretAccessKey',
+            ),
+          }
+        : {}),
       DATABASE_USER: ecs.Secret.fromSecretsManager(database.secret, 'username'),
       DATABASE_PASSWORD: ecs.Secret.fromSecretsManager(database.secret, 'password'),
     };
@@ -986,6 +1092,9 @@ export class InfraStack extends cdk.Stack {
       LIVEKIT_URL: liveKitUrl,
       PUDDLE_ENV_NAME: this.cfg.envName,
       PUDDLE_ARTIFACTS_BUCKET: params.artifactsBucket.bucketName,
+      PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS: String(
+        this.cfg.agent.participantReconnectGraceSeconds,
+      ),
       AWS_REGION: cdk.Stack.of(this).region,
       PYTHONUNBUFFERED: '1',
     };
@@ -1364,6 +1473,9 @@ export class InfraStack extends cdk.Stack {
     }
 
     for (const [name, role] of Object.entries(values.runtimeRoles)) {
+      if (!role) {
+        continue;
+      }
       new cdk.CfnOutput(this, `${this.toPascalCase(name)}Arn`, {
         value: role.roleArn,
       });

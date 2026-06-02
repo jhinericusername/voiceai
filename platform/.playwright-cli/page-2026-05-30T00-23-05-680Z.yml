@@ -1,0 +1,215 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - navigation "Global" [ref=e3]:
+      - generic [ref=e5]:
+        - link "Puddle home" [ref=e6] [cursor=pointer]:
+          - /url: "#top"
+          - generic [ref=e7]: Puddle
+        - generic [ref=e8]:
+          - link "Rubric" [ref=e9] [cursor=pointer]:
+            - /url: "#rubric"
+          - link "Video screen" [ref=e10] [cursor=pointer]:
+            - /url: "#video-screen"
+          - link "AI build test" [ref=e11] [cursor=pointer]:
+            - /url: "#ai-build-test"
+        - generic [ref=e12]:
+          - link "Sign in" [ref=e13] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Book a pilot" [ref=e14] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - generic [ref=e18]: AI recruiter for engineering teams
+        - heading "Hire AI engineers 10x faster with evidence you can inspect." [level=1] [ref=e20]
+        - paragraph [ref=e21]: Puddle sources, screens, and interviews candidates against your engineering team's rubric, then returns video answers, work signals, and coding-agent evidence in one review packet.
+        - generic [ref=e22]:
+          - link "Book a pilot" [ref=e23] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "See the process" [ref=e24] [cursor=pointer]:
+            - /url: "#rubric"
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - generic [ref=e28]: 10x
+            - generic [ref=e29]: faster first-pass screening
+          - generic [ref=e30]:
+            - generic [ref=e31]: 10 min
+            - generic [ref=e32]: video screens per candidate
+          - generic [ref=e33]:
+            - generic [ref=e34]: 1 packet
+            - generic [ref=e35]: rubric, video, and build evidence
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e39]: "01"
+            - generic [ref=e41]:
+              - heading "Rubric" [level=3] [ref=e42]
+              - paragraph [ref=e43]: Your team-specific hiring bar.
+          - generic [ref=e44]:
+            - generic [ref=e46]: "02"
+            - generic [ref=e48]:
+              - heading "Video screen" [level=3] [ref=e49]
+              - paragraph [ref=e50]: Fast answers with recording and transcript.
+          - generic [ref=e51]:
+            - generic [ref=e53]: "03"
+            - generic [ref=e55]:
+              - heading "Build evidence" [level=3] [ref=e56]
+              - paragraph [ref=e57]: How candidates work with coding agents.
+    - generic [ref=e59]:
+      - paragraph [ref=e60]: Trusted by the next generation of companies.
+      - generic [ref=e61]:
+        - img "Y Combinator" [ref=e63]
+        - img "Pioneer Fund" [ref=e65]
+        - img "Pear VC" [ref=e67]
+        - img "Nestora" [ref=e69]
+        - img "Telora" [ref=e71]
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - text: Role-specific rubric
+        - heading "Start with your team's bar, not a generic resume filter." [level=2] [ref=e75]
+        - paragraph [ref=e76]: We turn your requirements into a measurable hiring standard, then use that standard to source, screen, interview, and rank every candidate consistently.
+        - generic [ref=e77]:
+          - button "Rubric 01 Set the standard for the role" [ref=e78]:
+            - generic [ref=e79]:
+              - generic [ref=e80]: Rubric
+              - generic [ref=e81]: "01"
+            - paragraph [ref=e82]: Set the standard for the role
+          - button "Source 02 Find candidates beyond the resume" [ref=e83]:
+            - generic [ref=e84]:
+              - generic [ref=e85]: Source
+              - generic [ref=e86]: "02"
+            - paragraph [ref=e87]: Find candidates beyond the resume
+          - button "Interview 03 Run 10-minute video screens" [ref=e88]:
+            - generic [ref=e89]:
+              - generic [ref=e90]: Interview
+              - generic [ref=e91]: "03"
+            - paragraph [ref=e92]: Run 10-minute video screens
+          - button "Build 04 Watch candidates work with AI" [ref=e93]:
+            - generic [ref=e94]:
+              - generic [ref=e95]: Build
+              - generic [ref=e96]: "04"
+            - paragraph [ref=e97]: Watch candidates work with AI
+      - generic [ref=e99]:
+        - generic [ref=e100]:
+          - generic [ref=e101]: Puddle recruiting workspace
+          - generic [ref=e102]: AI engineer hiring process
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - generic [ref=e106]: Rubric
+              - generic [ref=e107]: Hiring bar set
+            - generic [ref=e109]:
+              - generic [ref=e110]: P
+              - heading "Set the standard for the role" [level=3] [ref=e111]
+              - paragraph [ref=e112]: Puddle works with your team to define what above-bar, at-bar, and below-bar look like for every hiring dimension.
+            - generic [ref=e113]:
+              - generic [ref=e114]: GitHub signal
+              - generic [ref=e115]: Peer signal
+              - generic [ref=e116]: Rubric match
+          - generic [ref=e117]:
+            - generic [ref=e118]:
+              - generic [ref=e119]: State
+              - generic [ref=e120]: Hiring bar set
+              - paragraph [ref=e121]: Puddle works with your team to define what above-bar, at-bar, and below-bar look like for every hiring dimension.
+            - generic [ref=e122]:
+              - generic [ref=e123]: Recruiting pipeline
+              - generic [ref=e124]:
+                - generic [ref=e127]:
+                  - generic [ref=e128]: Rubric
+                  - generic [ref=e129]: Hiring bar set
+                - generic [ref=e132]:
+                  - generic [ref=e133]: Source
+                  - generic [ref=e134]: Pipeline ranked
+                - generic [ref=e137]:
+                  - generic [ref=e138]: Interview
+                  - generic [ref=e139]: Screens running
+                - generic [ref=e142]:
+                  - generic [ref=e143]: Build
+                  - generic [ref=e144]: Build signal captured
+    - generic [ref=e146]:
+      - generic [ref=e147]:
+        - generic [ref=e148]:
+          - generic [ref=e149]:
+            - generic [ref=e150]: Candidate evidence packet
+            - heading "Video screen handoff" [level=3] [ref=e151]
+          - generic [ref=e152]:
+            - generic [ref=e153]: Status
+            - generic [ref=e154]: top candidate
+        - generic [ref=e155]:
+          - generic [ref=e156]:
+            - generic [ref=e157]: Recommendation
+            - generic [ref=e158]: Meet
+            - paragraph [ref=e159]: Strong rubric match, concrete project evidence, and a fast video screen with specific answers.
+          - generic [ref=e160]:
+            - generic [ref=e162]:
+              - generic [ref=e163]: Technical skill
+              - generic [ref=e164]: 92%
+            - generic [ref=e168]:
+              - generic [ref=e169]: Collaboration
+              - generic [ref=e170]: 88%
+            - generic [ref=e174]:
+              - generic [ref=e175]: Determination
+              - generic [ref=e176]: 84%
+            - generic [ref=e180]:
+              - generic [ref=e181]: AI-agent fluency
+              - generic [ref=e182]: 90%
+        - generic [ref=e185]:
+          - generic [ref=e186]:
+            - generic [ref=e187]: Video excerpt
+            - paragraph [ref=e188]: Candidate explained a real repository decision, the failed first approach, and what changed after feedback.
+          - generic [ref=e189]:
+            - generic [ref=e190]: Source signals
+            - paragraph [ref=e191]: GitHub work, hackathon performance, and peer recommendations support the interview signal.
+      - generic [ref=e192]:
+        - text: 10-minute video screen
+        - heading "Direct questions beat rehearsed answers." [level=2] [ref=e193]
+        - paragraph [ref=e194]: Puddle interviews the most promising candidates immediately, records every answer, and gives your team the transcript, summary, and recommendation without forcing engineers through hundreds of first-round calls.
+        - generic [ref=e195]:
+          - generic [ref=e196]: Recording
+          - generic [ref=e197]: Transcript
+          - generic [ref=e198]: Rubric summary
+          - generic [ref=e199]: Reviewer notes
+    - generic [ref=e201]:
+      - generic [ref=e202]:
+        - generic [ref=e203]:
+          - text: AI build test
+          - heading "See how candidates build with coding agents." [level=2] [ref=e204]
+        - paragraph [ref=e205]: The best AI engineers are not the ones who avoid AI. Puddle measures how candidates use coding agents, recover from weak plans, and compare against your own engineers' baseline so the first pass is much harder to fake.
+      - generic [ref=e206]:
+        - article [ref=e207]:
+          - generic [ref=e208]: "01"
+          - heading "The rubric replaces resume-first screening" [level=3] [ref=e209]
+          - paragraph [ref=e210]: Candidates are evaluated against the standards your engineering team actually cares about, not pedigree shortcuts.
+        - article [ref=e211]:
+          - generic [ref=e212]: "02"
+          - heading "Granular questions reduce scripted answers" [level=3] [ref=e213]
+          - paragraph [ref=e214]: Short, direct video interviews keep candidates moving and reveal how they think when the questions get specific.
+        - article [ref=e215]:
+          - generic [ref=e216]: "03"
+          - heading "Cheat-proof signal stays reviewable" [level=3] [ref=e217]
+          - paragraph [ref=e218]: Every recording, transcript, summary, source signal, and rubric decision is available for your team to inspect.
+        - article [ref=e219]:
+          - generic [ref=e220]: "04"
+          - heading "AI-era engineering is tested directly" [level=3] [ref=e221]
+          - paragraph [ref=e222]: Puddle observes candidates building with coding agents instead of pretending modern engineers work without AI tools.
+    - generic [ref=e223]:
+      - generic [ref=e224]:
+        - generic [ref=e225]:
+          - generic [ref=e227]: Puddle
+          - heading "Start with one role and a small pilot cohort." [level=2] [ref=e228]
+          - paragraph [ref=e229]: We will map your rubric, source and screen candidates, run 10-minute video interviews, and hand your team the evidence needed to meet the best people in person.
+        - generic [ref=e230]:
+          - link "Book a pilot" [ref=e231] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Staff sign in" [ref=e232] [cursor=pointer]:
+            - /url: /dashboard
+      - generic [ref=e233]:
+        - generic [ref=e234]: 2026 Puddle. AI recruiter for engineering teams.
+        - generic [ref=e235]:
+          - link "Contact" [ref=e236] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Rubric" [ref=e237] [cursor=pointer]:
+            - /url: "#rubric"
+          - link "Video screen" [ref=e238] [cursor=pointer]:
+            - /url: "#video-screen"
+  - button "Open Next.js Dev Tools" [ref=e244] [cursor=pointer]:
+    - img [ref=e245]

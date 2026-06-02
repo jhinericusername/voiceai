@@ -1,0 +1,31 @@
+- generic [ref=e1]:
+  - generic [ref=e5]:
+    - heading "Sign in" [level=1] [ref=e7]
+    - generic [ref=e8]:
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]:
+            - generic [ref=e14]: Email
+            - textbox "Email" [active] [ref=e16]:
+              - /placeholder: Your email address
+          - button "Continue" [ref=e17] [cursor=pointer]:
+            - generic [ref=e18]: Continue
+        - generic [ref=e19]: OR
+        - generic [ref=e21]:
+          - link [ref=e23] [cursor=pointer]:
+            - /url: api/login?provider=GoogleOAuth&state=Fe26.2%2A1%2A948bcc278d980b8c6b12dfcb0505cbc36a7d96ad827f1fe007a07e6c59d3dfb3%2AMhmA43VlDf9UnhyKs1bImw%2APgMaWipZ_4xCgw3c-T7awbCNmRSMnw8SzEY1Yccwslyc-m_ijVobyjXKDSYV2kvAY_x6yg4Qz3Bi6Nh32Nh8cfe2e_nBkdqqzMDygsBAJu1UbuQcfBlEPE9FjBu8NXHR4fvzfZuwRbE8NOLPZlUL_CuJaokRnp3J1-id8pC1GEI9JDmUt03lMpI7oe74MrKo%2A1780353178746%2Adc0ab3ae875a42572862c66c0b8751afaee23af0c11338d2a234e2e71d3b69fa%2AB7LPHjgjDfr7qbpRmUzSmmqONVXuQIW4EfPA5Jm_hdc~2&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&client_id=client_01KSH3RAGJR1PA8QPPA7VRS04M&source=signin&authorization_session_id=01KT2MGX9SMTZZ9YZBRXZN3X05
+            - img [ref=e24]
+          - link [ref=e31] [cursor=pointer]:
+            - /url: api/login?provider=MicrosoftOAuth&state=Fe26.2%2A1%2A948bcc278d980b8c6b12dfcb0505cbc36a7d96ad827f1fe007a07e6c59d3dfb3%2AMhmA43VlDf9UnhyKs1bImw%2APgMaWipZ_4xCgw3c-T7awbCNmRSMnw8SzEY1Yccwslyc-m_ijVobyjXKDSYV2kvAY_x6yg4Qz3Bi6Nh32Nh8cfe2e_nBkdqqzMDygsBAJu1UbuQcfBlEPE9FjBu8NXHR4fvzfZuwRbE8NOLPZlUL_CuJaokRnp3J1-id8pC1GEI9JDmUt03lMpI7oe74MrKo%2A1780353178746%2Adc0ab3ae875a42572862c66c0b8751afaee23af0c11338d2a234e2e71d3b69fa%2AB7LPHjgjDfr7qbpRmUzSmmqONVXuQIW4EfPA5Jm_hdc~2&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&client_id=client_01KSH3RAGJR1PA8QPPA7VRS04M&source=signin&authorization_session_id=01KT2MGX9SMTZZ9YZBRXZN3X05
+            - img [ref=e32]
+          - link [ref=e39] [cursor=pointer]:
+            - /url: api/login?provider=GitHubOAuth&state=Fe26.2%2A1%2A948bcc278d980b8c6b12dfcb0505cbc36a7d96ad827f1fe007a07e6c59d3dfb3%2AMhmA43VlDf9UnhyKs1bImw%2APgMaWipZ_4xCgw3c-T7awbCNmRSMnw8SzEY1Yccwslyc-m_ijVobyjXKDSYV2kvAY_x6yg4Qz3Bi6Nh32Nh8cfe2e_nBkdqqzMDygsBAJu1UbuQcfBlEPE9FjBu8NXHR4fvzfZuwRbE8NOLPZlUL_CuJaokRnp3J1-id8pC1GEI9JDmUt03lMpI7oe74MrKo%2A1780353178746%2Adc0ab3ae875a42572862c66c0b8751afaee23af0c11338d2a234e2e71d3b69fa%2AB7LPHjgjDfr7qbpRmUzSmmqONVXuQIW4EfPA5Jm_hdc~2&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&client_id=client_01KSH3RAGJR1PA8QPPA7VRS04M&source=signin&authorization_session_id=01KT2MGX9SMTZZ9YZBRXZN3X05
+            - img [ref=e40]
+          - link [ref=e43] [cursor=pointer]:
+            - /url: api/login?provider=AppleOAuth&state=Fe26.2%2A1%2A948bcc278d980b8c6b12dfcb0505cbc36a7d96ad827f1fe007a07e6c59d3dfb3%2AMhmA43VlDf9UnhyKs1bImw%2APgMaWipZ_4xCgw3c-T7awbCNmRSMnw8SzEY1Yccwslyc-m_ijVobyjXKDSYV2kvAY_x6yg4Qz3Bi6Nh32Nh8cfe2e_nBkdqqzMDygsBAJu1UbuQcfBlEPE9FjBu8NXHR4fvzfZuwRbE8NOLPZlUL_CuJaokRnp3J1-id8pC1GEI9JDmUt03lMpI7oe74MrKo%2A1780353178746%2Adc0ab3ae875a42572862c66c0b8751afaee23af0c11338d2a234e2e71d3b69fa%2AB7LPHjgjDfr7qbpRmUzSmmqONVXuQIW4EfPA5Jm_hdc~2&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&client_id=client_01KSH3RAGJR1PA8QPPA7VRS04M&source=signin&authorization_session_id=01KT2MGX9SMTZZ9YZBRXZN3X05
+            - img [ref=e44]
+      - paragraph [ref=e46]:
+        - text: Don't have an account?
+        - link "Sign up" [ref=e47] [cursor=pointer]:
+          - /url: /sign-up?state=Fe26.2%2A1%2A948bcc278d980b8c6b12dfcb0505cbc36a7d96ad827f1fe007a07e6c59d3dfb3%2AMhmA43VlDf9UnhyKs1bImw%2APgMaWipZ_4xCgw3c-T7awbCNmRSMnw8SzEY1Yccwslyc-m_ijVobyjXKDSYV2kvAY_x6yg4Qz3Bi6Nh32Nh8cfe2e_nBkdqqzMDygsBAJu1UbuQcfBlEPE9FjBu8NXHR4fvzfZuwRbE8NOLPZlUL_CuJaokRnp3J1-id8pC1GEI9JDmUt03lMpI7oe74MrKo%2A1780353178746%2Adc0ab3ae875a42572862c66c0b8751afaee23af0c11338d2a234e2e71d3b69fa%2AB7LPHjgjDfr7qbpRmUzSmmqONVXuQIW4EfPA5Jm_hdc~2&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&authorization_session_id=01KT2MGX9SMTZZ9YZBRXZN3X05
+  - alert [ref=e48]

@@ -24,6 +24,7 @@ export interface CandidateInviteInput {
 export interface CandidateInviteRow {
   readonly invite_id: string;
   readonly session_id: string;
+  readonly org_id: string;
   readonly candidate_email: string;
   readonly status: string;
   readonly not_before: string | Date;
@@ -67,8 +68,10 @@ export function createCandidateInviteInsert(record: CandidateInviteRecord): SqlS
 export function findCandidateInviteByTokenStatement(token: string): SqlStatement {
   return {
     sql:
-      "SELECT invite_id, session_id, candidate_email, status, not_before, expires_at, revoked_at, join_count " +
-      "FROM candidate_invites WHERE token_hash = $1",
+      "SELECT ci.invite_id, ci.session_id, s.org_id, ci.candidate_email, ci.status, " +
+      "ci.not_before, ci.expires_at, ci.revoked_at, ci.join_count " +
+      "FROM candidate_invites ci JOIN sessions s ON s.session_id = ci.session_id " +
+      "WHERE ci.token_hash = $1",
     params: [hashInviteToken(token)],
   };
 }

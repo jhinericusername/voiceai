@@ -1,0 +1,250 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - navigation "Global" [ref=e3]:
+      - generic [ref=e5]:
+        - link "Puddle home" [ref=e6] [cursor=pointer]:
+          - /url: "#top"
+          - generic [ref=e7]: Puddle
+        - generic [ref=e8]:
+          - button "Product ▼" [ref=e10]:
+            - generic [ref=e11]: Product
+            - generic [ref=e12]: ▼
+          - link "Sample Report" [ref=e13] [cursor=pointer]:
+            - /url: /sample-report
+          - link "Candidates" [ref=e14] [cursor=pointer]:
+            - /url: /candidates
+          - button "Trust ▼" [ref=e16]:
+            - generic [ref=e17]: Trust
+            - generic [ref=e18]: ▼
+        - generic [ref=e19]:
+          - link "Sign in" [ref=e20] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Book a pilot" [ref=e21] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]: Technical hiring infrastructure
+        - heading "Turn engineering hiring into an evidence-backed system." [level=1] [ref=e28]
+        - paragraph [ref=e29]: Puddle helps teams define role-specific rubrics, run structured AI video screens, and review candidates through recordings, transcripts, and coding-agent evidence.
+        - generic [ref=e30]:
+          - link "Book a pilot" [ref=e31] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "See the process" [ref=e32] [cursor=pointer]:
+            - /url: "#rubric"
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - generic [ref=e35]: Product diagram
+          - paragraph [ref=e36]: From hiring bar to review packet.
+        - generic [ref=e37]:
+          - generic [ref=e38]:
+            - generic [ref=e40]:
+              - generic [ref=e41]:
+                - generic [ref=e42]: Role rubric
+                - generic [ref=e43]: Set
+              - generic [ref=e44]:
+                - generic [ref=e48]: Technical depth
+                - generic [ref=e54]: Collaboration
+                - generic [ref=e60]: AI fluency
+            - generic [ref=e64]: Hiring bar
+          - generic [ref=e68]:
+            - generic [ref=e71]:
+              - generic [ref=e72]:
+                - generic [ref=e73]: Live screen
+                - generic [ref=e74]: 10 min
+              - generic [ref=e76]: P
+            - generic [ref=e82]: Puddle screen
+          - generic [ref=e86]:
+            - generic [ref=e91]:
+              - generic [ref=e93]: Candidate packet
+              - generic [ref=e95]:
+                - generic [ref=e97]: Recommendation
+                - generic [ref=e100]: Transcript
+                - generic [ref=e103]: Rubric notes
+                - generic [ref=e106]: Build evidence
+            - generic [ref=e109]: Reviewer output
+    - generic [ref=e111]:
+      - paragraph [ref=e112]: Trusted by the next generation of companies.
+      - generic [ref=e113]:
+        - img "YC" [ref=e115]
+        - img "Pear VC" [ref=e117]
+        - generic [ref=e118]:
+          - img "Telora" [ref=e119]
+          - generic [ref=e120]: Telora
+    - generic [ref=e122]:
+      - generic [ref=e123]:
+        - text: Rubric-specific scorecards
+        - heading "Turn a short screen into evidence your team can inspect." [level=2] [ref=e124]
+        - paragraph [ref=e125]: "Puddle converts a 15-minute video interview into a role-specific scorecard: rubric scores, question coverage, authenticity signals, and a concise final recommendation."
+        - generic [ref=e126]:
+          - button "Scorecard 01 Scores tied to your rubric" [ref=e127]:
+            - generic [ref=e128]:
+              - generic [ref=e129]: Scorecard
+              - generic [ref=e130]: "01"
+            - paragraph [ref=e131]: Scores tied to your rubric
+          - button "Coverage 02 Required prompts are checked" [ref=e132]:
+            - generic [ref=e133]:
+              - generic [ref=e134]: Coverage
+              - generic [ref=e135]: "02"
+            - paragraph [ref=e136]: Required prompts are checked
+          - button "Authenticity 03 Cheating risk is separated from quality" [ref=e137]:
+            - generic [ref=e138]:
+              - generic [ref=e139]: Authenticity
+              - generic [ref=e140]: "03"
+            - paragraph [ref=e141]: Cheating risk is separated from quality
+          - button "Decision 04 A concise final hiring signal" [ref=e142]:
+            - generic [ref=e143]:
+              - generic [ref=e144]: Decision
+              - generic [ref=e145]: "04"
+            - paragraph [ref=e146]: A concise final hiring signal
+      - generic [ref=e148]:
+        - generic [ref=e149]:
+          - generic [ref=e150]:
+            - generic [ref=e151]: 15-minute screen output
+            - heading "Scorecard for Henry U." [level=3] [ref=e152]
+            - paragraph [ref=e153]: A rubric-specific report with enough evidence for the hiring manager to agree, disagree, or replay the original answer.
+          - generic [ref=e154]:
+            - generic [ref=e155]:
+              - generic [ref=e156]: 8/16
+              - generic [ref=e157]: Score
+            - generic [ref=e158]:
+              - generic [ref=e159]: 10%
+              - generic [ref=e160]: AI risk
+            - generic [ref=e161]:
+              - generic [ref=e162]: 4/4
+              - generic [ref=e163]: Coverage
+        - generic [ref=e164]:
+          - generic [ref=e165]:
+            - generic [ref=e166]:
+              - generic [ref=e167]: Dimension
+              - generic [ref=e168]: Evidence note
+            - generic [ref=e169]:
+              - generic [ref=e170]:
+                - generic [ref=e171]: Problem solving
+                - generic [ref=e172]: 2 / 4
+              - paragraph [ref=e173]: Credible infra work, but not especially clever, novel, or hacky when pressed.
+            - generic [ref=e174]:
+              - generic [ref=e175]:
+                - generic [ref=e176]: Agency
+                - generic [ref=e177]: 2 / 4
+              - paragraph [ref=e178]: The non-computer hack answered the prompt, but the example was small and low-stakes.
+            - generic [ref=e179]:
+              - generic [ref=e180]:
+                - generic [ref=e181]: Competitiveness
+                - generic [ref=e182]: 2 / 4
+              - paragraph [ref=e183]: Real improvement behavior in ranked games, without strong rank, cost, or obsession signal.
+            - generic [ref=e184]:
+              - generic [ref=e185]:
+                - generic [ref=e186]: Curious
+                - generic [ref=e187]: 2 / 4
+              - paragraph [ref=e188]: Clear technical curiosity, but the answer missed the requested non-technical prompt.
+          - generic [ref=e189]:
+            - generic [ref=e190]:
+              - generic [ref=e191]: Scorecard
+              - heading "Scores tied to your rubric" [level=4] [ref=e192]
+              - paragraph [ref=e193]: Every screen becomes dimension-level scores with notes that explain the judgment.
+            - generic [ref=e195]:
+              - generic [ref=e196]:
+                - generic [ref=e197]:
+                  - generic [ref=e198]: Final scores
+                  - generic [ref=e199]: "8"
+                - generic [ref=e200]: out of 16
+              - generic [ref=e201]:
+                - generic [ref=e202]:
+                  - generic [ref=e203]: Problem solving
+                  - generic [ref=e204]: 2 / 4
+                - generic [ref=e205]:
+                  - generic [ref=e206]: Agency
+                  - generic [ref=e207]: 2 / 4
+                - generic [ref=e208]:
+                  - generic [ref=e209]: Competitiveness
+                  - generic [ref=e210]: 2 / 4
+                - generic [ref=e211]:
+                  - generic [ref=e212]: Curious
+                  - generic [ref=e213]: 2 / 4
+    - generic [ref=e215]:
+      - generic [ref=e216]:
+        - generic [ref=e217]:
+          - generic [ref=e218]:
+            - generic [ref=e219]: Candidate evidence packet
+            - heading "Video screen handoff" [level=3] [ref=e220]
+          - generic [ref=e221]:
+            - generic [ref=e222]: Status
+            - generic [ref=e223]: top candidate
+        - generic [ref=e224]:
+          - generic [ref=e225]:
+            - generic [ref=e226]: Recommendation
+            - generic [ref=e227]: Meet
+            - paragraph [ref=e228]: Strong rubric match, concrete project evidence, and a fast video screen with specific answers.
+          - generic [ref=e229]:
+            - generic [ref=e231]:
+              - generic [ref=e232]: Technical skill
+              - generic [ref=e233]: 92%
+            - generic [ref=e237]:
+              - generic [ref=e238]: Collaboration
+              - generic [ref=e239]: 88%
+            - generic [ref=e243]:
+              - generic [ref=e244]: Determination
+              - generic [ref=e245]: 84%
+            - generic [ref=e249]:
+              - generic [ref=e250]: AI-agent fluency
+              - generic [ref=e251]: 90%
+        - generic [ref=e254]:
+          - generic [ref=e255]:
+            - generic [ref=e256]: Video excerpt
+            - paragraph [ref=e257]: Candidate explained a real repository decision, the failed first approach, and what changed after feedback.
+          - generic [ref=e258]:
+            - generic [ref=e259]: Source signals
+            - paragraph [ref=e260]: GitHub work, hackathon performance, and peer recommendations support the interview signal.
+      - generic [ref=e261]:
+        - text: 10-minute video screen
+        - heading "Direct questions beat rehearsed answers." [level=2] [ref=e262]
+        - paragraph [ref=e263]: Puddle interviews the most promising candidates immediately, records every answer, and gives your team the transcript, summary, and recommendation without forcing engineers through hundreds of first-round calls.
+        - generic [ref=e264]:
+          - generic [ref=e265]: Recording
+          - generic [ref=e266]: Transcript
+          - generic [ref=e267]: Rubric summary
+          - generic [ref=e268]: Reviewer notes
+    - generic [ref=e270]:
+      - generic [ref=e271]:
+        - generic [ref=e272]:
+          - text: AI build test
+          - heading "See how candidates build with coding agents." [level=2] [ref=e273]
+        - paragraph [ref=e274]: The best AI engineers are not the ones who avoid AI. Puddle measures how candidates use coding agents, recover from weak plans, and compare against your own engineers' baseline so the first pass is much harder to fake.
+      - generic [ref=e275]:
+        - article [ref=e276]:
+          - generic [ref=e277]: "01"
+          - heading "The rubric replaces resume-first screening" [level=3] [ref=e278]
+          - paragraph [ref=e279]: Candidates are evaluated against the standards your engineering team actually cares about, not pedigree shortcuts.
+        - article [ref=e280]:
+          - generic [ref=e281]: "02"
+          - heading "Granular questions reduce scripted answers" [level=3] [ref=e282]
+          - paragraph [ref=e283]: Short, direct video interviews keep candidates moving and reveal how they think when the questions get specific.
+        - article [ref=e284]:
+          - generic [ref=e285]: "03"
+          - heading "Cheat-proof signal stays reviewable" [level=3] [ref=e286]
+          - paragraph [ref=e287]: Every recording, transcript, summary, source signal, and rubric decision is available for your team to inspect.
+        - article [ref=e288]:
+          - generic [ref=e289]: "04"
+          - heading "AI-era engineering is tested directly" [level=3] [ref=e290]
+          - paragraph [ref=e291]: Puddle observes candidates building with coding agents instead of pretending modern engineers work without AI tools.
+    - generic [ref=e292]:
+      - generic [ref=e293]:
+        - generic [ref=e294]:
+          - generic [ref=e296]: Puddle
+          - heading "Start with one role and a small pilot cohort." [level=2] [ref=e297]
+          - paragraph [ref=e298]: We will map your rubric, source and screen candidates, run 10-minute video interviews, and hand your team the evidence needed to meet the best people in person.
+        - generic [ref=e299]:
+          - link "Book a pilot" [ref=e300] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Staff sign in" [ref=e301] [cursor=pointer]:
+            - /url: /dashboard
+      - generic [ref=e302]:
+        - generic [ref=e303]: 2026 Puddle. Technical hiring infrastructure.
+        - generic [ref=e304]:
+          - link "Contact" [ref=e305] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Rubric" [ref=e306] [cursor=pointer]:
+            - /url: "#rubric"
+          - link "Video screen" [ref=e307] [cursor=pointer]:
+            - /url: "#video-screen"
+  - alert [ref=e308]

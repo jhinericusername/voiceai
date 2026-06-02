@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
 import { getPool } from "./db/pool.js";
 import { provisionRoom, type LiveKitConfig } from "./livekit/provision.js";
+import { registerLiveKitWebhookRoutes } from "./livekit/webhooks.js";
 import { registerSchedulerRoutes } from "./scheduler/routes.js";
 import {
   buildSessionRecord,
@@ -15,6 +16,7 @@ import {
   recordingArtifactUpsertStatement,
   recordingUpsertStatement,
 } from "./recordings/repository.js";
+import { liveKitRecordingsEnabledFromEnv } from "./livekit/egress.js";
 import { registerIntegrationRoutes } from "./integration/routes.js";
 import type { CreateSessionRequest, CreateSessionResponse } from "./integration/contract.js";
 import { registerCandidateInviteRoutes } from "./invites/routes.js";
@@ -58,17 +60,20 @@ export async function createSession(
     record.sessionId,
     buildWorkerDispatchMetadata(record),
   );
-  const roomUpdate = sessionRoomUpdateStatement(record.sessionId, room);
-  await pool.query(roomUpdate.sql, [...roomUpdate.params]);
 
-  const recording = recordingUpsertStatement({
-    sessionId: record.sessionId,
-    status: "pending",
-  });
-  await pool.query(recording.sql, [...recording.params]);
-  for (const artifact of expectedRecordingArtifacts(record.orgId, record.sessionId)) {
-    const stmt = recordingArtifactUpsertStatement(artifact);
-    await pool.query(stmt.sql, [...stmt.params]);
+  if (liveKitRecordingsEnabledFromEnv()) {
+    const roomUpdate = sessionRoomUpdateStatement(record.sessionId, room);
+    await pool.query(roomUpdate.sql, [...roomUpdate.params]);
+
+    const recording = recordingUpsertStatement({
+      sessionId: record.sessionId,
+      status: "pending",
+    });
+    await pool.query(recording.sql, [...recording.params]);
+    for (const artifact of expectedRecordingArtifacts(record.orgId, record.sessionId)) {
+      const stmt = recordingArtifactUpsertStatement(artifact);
+      await pool.query(stmt.sql, [...stmt.params]);
+    }
   }
 
   const inviteToken = generateInviteToken();
@@ -94,11 +99,19 @@ export async function createSession(
 // routes registered. Pure construction — no network I/O until a route is hit.
 export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   const app = Fastify({ logger: true });
+  app.addContentTypeParser(
+    "application/webhook+json",
+    { parseAs: "string" },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
   registerInternalAuth(app);
   app.get("/healthz", async () => ({ ok: true }));
   registerSchedulerRoutes(app, liveKitConfig);
   registerIntegrationRoutes(app, (body) => createSession(liveKitConfig, body));
   registerCandidateInviteRoutes(app, liveKitConfig);
+  registerLiveKitWebhookRoutes(app, liveKitConfig);
   return app;
 }
 

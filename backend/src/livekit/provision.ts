@@ -1,5 +1,7 @@
 import { RoomServiceClient, AgentDispatchClient } from "livekit-server-sdk";
 
+const INTERVIEW_ROOM_PREFIX = "interview-";
+
 export interface LiveKitConfig {
   readonly host: string;
   readonly apiKey: string;
@@ -7,7 +9,16 @@ export interface LiveKitConfig {
 }
 
 export function roomName(sessionId: string): string {
-  return `interview-${sessionId}`;
+  return `${INTERVIEW_ROOM_PREFIX}${sessionId}`;
+}
+
+export function sessionIdFromRoomName(name: string): string | null {
+  if (!name.startsWith(INTERVIEW_ROOM_PREFIX)) {
+    return null;
+  }
+
+  const sessionId = name.slice(INTERVIEW_ROOM_PREFIX.length).trim();
+  return sessionId || null;
 }
 
 // Provisions the SFU room and dispatches one agent worker into it.

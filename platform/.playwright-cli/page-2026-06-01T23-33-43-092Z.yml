@@ -1,0 +1,66 @@
+- generic [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic "Camera preview" [ref=e7]
+        - generic [ref=e9]:
+          - generic [ref=e10]: You
+          - generic [ref=e11]: Camera and microphone are off
+        - generic [ref=e12]: Camera preview
+        - generic [ref=e13]:
+          - generic [ref=e14]:
+            - button "Mute microphone" [ref=e15]:
+              - img [ref=e16]
+            - button "Turn camera off" [ref=e19]:
+              - img [ref=e20]
+          - button "Allow camera and microphone" [ref=e23]
+      - complementary [ref=e24]:
+        - generic [ref=e25]:
+          - heading "Ready to join?" [level=1] [ref=e26]
+          - paragraph [ref=e27]: Check your camera and microphone, then enter the live interview.
+          - generic [ref=e28]:
+            - generic [ref=e29]:
+              - generic [ref=e30]: Camera
+              - img [ref=e32]
+            - generic [ref=e35]:
+              - generic [ref=e36]: Microphone
+              - img [ref=e38]
+            - generic [ref=e41]:
+              - generic [ref=e42]: Permissions
+              - img [ref=e86]
+          - generic [ref=e47]:
+            - checkbox "Accept all required interview permissions" [checked] [active] [ref=e48] [cursor=pointer]:
+              - img [ref=e88]
+              - generic [ref=e50]: Accept all required interview permissions
+            - paragraph [ref=e51]: Review these notices before joining. You can request accommodation or an alternative process by contacting the hiring team or Puddle.
+            - generic [ref=e52]:
+              - generic [ref=e53] [cursor=pointer]:
+                - checkbox "I understand this interview is conducted by an AI interviewer. The interviewer asks structured, role-related questions and creates review materials for human reviewers." [checked] [ref=e54]
+                - generic [ref=e55]:
+                  - generic [ref=e56]: I understand this interview is conducted by an AI interviewer.
+                  - generic [ref=e57]: The interviewer asks structured, role-related questions and creates review materials for human reviewers.
+              - generic [ref=e58] [cursor=pointer]:
+                - checkbox "I consent to audio, video, transcript, and interview-data processing. Puddle records and transcribes the session so the hiring team can review the interview record against its rubric." [checked] [ref=e59]
+                - generic [ref=e60]:
+                  - generic [ref=e61]: I consent to audio, video, transcript, and interview-data processing.
+                  - generic [ref=e62]: Puddle records and transcribes the session so the hiring team can review the interview record against its rubric.
+              - generic [ref=e63] [cursor=pointer]:
+                - checkbox "I understand Puddle does not make employment decisions. Puddle does not reject, select, rank, or advance candidates. Review should be based on job-related answers, not appearance, emotion, age, race, gender, disability, accent, or facial expression." [checked] [ref=e64]
+                - generic [ref=e65]:
+                  - generic [ref=e66]: I understand Puddle does not make employment decisions.
+                  - generic [ref=e67]: Puddle does not reject, select, rank, or advance candidates. Review should be based on job-related answers, not appearance, emotion, age, race, gender, disability, accent, or facial expression.
+            - generic [ref=e68]:
+              - link "AI interview disclosure" [ref=e69] [cursor=pointer]:
+                - /url: /ai-interview-disclosure
+              - link "Privacy" [ref=e70] [cursor=pointer]:
+                - /url: /privacy
+              - link "Terms" [ref=e71] [cursor=pointer]:
+                - /url: /terms
+              - link "Subprocessors" [ref=e72] [cursor=pointer]:
+                - /url: /subprocessors
+          - generic [ref=e73]:
+            - button "Join interview" [disabled] [ref=e74]
+            - generic [ref=e75]: Complete the checks above
+  - button "Open Next.js Dev Tools" [ref=e81] [cursor=pointer]:
+    - img [ref=e82]
+  - alert [ref=e85]

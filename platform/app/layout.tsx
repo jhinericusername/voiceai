@@ -2,18 +2,28 @@ import type { Metadata, Viewport } from "next";
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
 import "./globals.css";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://usepuddle.com";
-const title = "Puddle | AI voice interviews for structured hiring signal";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://app.usepuddle.com";
+const title = "Puddle | Technical hiring infrastructure";
 const description =
-  "Run live AI voice interviews with candidate rooms, controlled interviewer prompts, transcripts, and review-ready assessments.";
+  "Turn engineering hiring into an evidence-backed system with role-specific rubrics, structured AI video screens, recordings, transcripts, and reviewer-ready evidence.";
+const openGraphImage = "/opengraph-image.png";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
+  applicationName: "Puddle",
   title,
   description,
+  alternates: {
+    canonical: "/",
+  },
   icons: {
-    icon: "/puddle-symbol-512-padded.png",
-    apple: "/puddle-symbol-512-padded.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon-32x32.png", type: "image/png", sizes: "32x32" },
+      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
   },
   openGraph: {
     title,
@@ -22,10 +32,10 @@ export const metadata: Metadata = {
     siteName: "Puddle",
     images: [
       {
-        url: "/opengraph-image",
+        url: openGraphImage,
         width: 1200,
         height: 630,
-        alt: "Puddle AI voice interviews",
+        alt: "Puddle technical hiring infrastructure",
       },
     ],
     locale: "en_US",
@@ -35,12 +45,12 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title,
     description,
-    images: ["/opengraph-image"],
+    images: [openGraphImage],
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#eef7ff",
+  themeColor: "#f8fafd",
 };
 
 export default function RootLayout({

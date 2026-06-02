@@ -27,6 +27,15 @@ export interface RecordingInput {
   readonly errorMessage?: string | null;
 }
 
+export interface RecordingRow {
+  readonly session_id: string;
+  readonly egress_id: string | null;
+  readonly status: RecordingStatus;
+  readonly started_at: string | Date | null;
+  readonly ended_at: string | Date | null;
+  readonly error_message: string | null;
+}
+
 export interface RecordingArtifactInput {
   readonly artifactId?: string;
   readonly sessionId: string;
@@ -36,6 +45,23 @@ export interface RecordingArtifactInput {
   readonly status: RecordingArtifactStatus;
   readonly sizeBytes?: number | null;
   readonly durationSeconds?: number | null;
+}
+
+export interface RecordingArtifactStatusUpdateInput {
+  readonly sessionId: string;
+  readonly kind: RecordingArtifactKind;
+  readonly status: RecordingArtifactStatus;
+  readonly sizeBytes?: number | null;
+  readonly durationSeconds?: number | null;
+}
+
+export function recordingBySessionStatement(sessionId: string): SqlStatement {
+  return {
+    sql:
+      "SELECT session_id, egress_id, status, started_at, ended_at, error_message " +
+      "FROM recordings WHERE session_id = $1",
+    params: [sessionId],
+  };
 }
 
 export function recordingUpsertStatement(input: RecordingInput): SqlStatement {
@@ -55,6 +81,25 @@ export function recordingUpsertStatement(input: RecordingInput): SqlStatement {
       input.startedAt ?? null,
       input.endedAt ?? null,
       input.errorMessage ?? null,
+    ],
+  };
+}
+
+export function recordingArtifactStatusUpdateStatement(
+  input: RecordingArtifactStatusUpdateInput,
+): SqlStatement {
+  return {
+    sql:
+      "UPDATE recording_artifacts SET status = $3, " +
+      "size_bytes = COALESCE($4, size_bytes), " +
+      "duration_seconds = COALESCE($5, duration_seconds), updated_at = now() " +
+      "WHERE session_id = $1 AND kind = $2",
+    params: [
+      input.sessionId,
+      input.kind,
+      input.status,
+      input.sizeBytes ?? null,
+      input.durationSeconds ?? null,
     ],
   };
 }

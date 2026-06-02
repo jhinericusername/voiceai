@@ -77,4 +77,14 @@ describe("session update statements", () => {
     expect(stmt.sql).toContain("status = $2");
     expect(stmt.params).toEqual(["sess1", "in_progress", "2026-05-29T10:00:00Z", null]);
   });
+
+  it("can update base session status without dashboard timeline columns", () => {
+    const stmt = sessionStatusUpdateStatement("sess1", "in_progress", {
+      startedAt: "2026-05-29T10:00:00Z",
+      includeTimelineColumns: false,
+    });
+    expect(stmt.sql).not.toContain("started_at");
+    expect(stmt.sql).toContain("status = $2");
+    expect(stmt.params).toEqual(["sess1", "in_progress"]);
+  });
 });

@@ -56,7 +56,7 @@ CREATE TABLE recording_artifacts (
   content_type     TEXT NOT NULL,
   status           TEXT NOT NULL CHECK (status IN ('expected', 'available', 'failed')),
   size_bytes       BIGINT,
-  duration_seconds INTEGER,
+  duration_seconds NUMERIC(12,3),
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (session_id, kind)

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   expectedRecordingArtifacts,
+  recordingArtifactStatusUpdateStatement,
   recordingArtifactUpsertStatement,
+  recordingBySessionStatement,
   recordingUpsertStatement,
 } from "../src/recordings/repository.js";
 import {
@@ -81,6 +83,12 @@ describe("recording persistence", () => {
     ]);
   });
 
+  it("queries recording lifecycle state by session", () => {
+    const stmt = recordingBySessionStatement("sess1");
+    expect(stmt.sql).toContain("FROM recordings WHERE session_id = $1");
+    expect(stmt.params).toEqual(["sess1"]);
+  });
+
   it("upserts recording artifact metadata", () => {
     const stmt = recordingArtifactUpsertStatement({
       artifactId: "artifact1",
@@ -100,6 +108,25 @@ describe("recording persistence", () => {
       "composite_video",
       "/org1/interviews/sess1/media/composite.mp4",
       "video/mp4",
+      "available",
+      1234,
+      300,
+    ]);
+  });
+
+  it("updates recording artifact availability from egress webhooks", () => {
+    const stmt = recordingArtifactStatusUpdateStatement({
+      sessionId: "sess1",
+      kind: "composite_video",
+      status: "available",
+      sizeBytes: 1234,
+      durationSeconds: 300,
+    });
+
+    expect(stmt.sql).toContain("WHERE session_id = $1 AND kind = $2");
+    expect(stmt.params).toEqual([
+      "sess1",
+      "composite_video",
       "available",
       1234,
       300,

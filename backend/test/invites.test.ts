@@ -45,7 +45,8 @@ describe("candidate invite repository", () => {
 
   it("looks up invite rows by token hash", () => {
     const stmt = findCandidateInviteByTokenStatement("inv_test");
-    expect(stmt.sql).toContain("WHERE token_hash = $1");
+    expect(stmt.sql).toContain("JOIN sessions");
+    expect(stmt.sql).toContain("WHERE ci.token_hash = $1");
     expect(stmt.params).toEqual([hashInviteToken("inv_test")]);
   });
 
@@ -53,6 +54,7 @@ describe("candidate invite repository", () => {
     const active = {
       invite_id: "invite1",
       session_id: "sess1",
+      org_id: "org1",
       candidate_email: "candidate@example.com",
       status: "active",
       not_before: "2026-05-25T12:00:00Z",
@@ -79,6 +81,7 @@ describe("candidate join consent", () => {
   const invite: CandidateInviteRow = {
     invite_id: "invite1",
     session_id: "sess1",
+    org_id: "org1",
     candidate_email: "candidate@example.com",
     status: "active",
     not_before: "2026-05-25T12:00:00Z",

@@ -22,7 +22,7 @@ _INSTRUCTIONS = (
     "You are a media transport for Puddle's scripted interview controller. "
     "Do not generate autonomous replies. The controller supplies every word."
 )
-_DEFAULT_RECONNECT_GRACE_SECONDS = 90.0
+_DEFAULT_RECONNECT_GRACE_SECONDS = 300.0
 _AGENT_RECORD_ENV = "PUDDLE_LIVEKIT_AGENT_RECORD"
 
 

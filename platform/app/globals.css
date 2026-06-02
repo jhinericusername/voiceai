@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -32,8 +33,11 @@ body {
 }
 
 a {
-  color: inherit;
   text-decoration: none;
+}
+
+a:not([class]) {
+  color: inherit;
 }
 
 button,
@@ -42,7 +46,7 @@ a {
 }
 
 button {
-  font: inherit;
+  font-family: inherit;
 }
 
 ::selection {
@@ -52,13 +56,23 @@ button {
 .puddle-page {
   position: relative;
   overflow-x: clip;
-  background:
-    radial-gradient(74rem 46rem at 84% 4%, rgba(125, 211, 252, 0.28), transparent 62%),
-    radial-gradient(58rem 38rem at 8% 12%, rgba(52, 211, 153, 0.14), transparent 58%),
-    linear-gradient(180deg, #f7fcff 0%, #edf8ff 46%, #f8fbff 100%);
+  background: #ffffff;
 }
 
-.puddle-page::before {
+.puddle-hero-frame {
+  position: relative;
+  width: 90vw;
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: 0 0 24px 24px;
+  background:
+    linear-gradient(180deg, #ffffff 0, #ffffff 100px, rgba(255, 255, 255, 0) 180px),
+    radial-gradient(74rem 46rem at 84% 280px, rgba(125, 211, 252, 0.28), transparent 62%),
+    radial-gradient(58rem 38rem at 8% 320px, rgba(52, 211, 153, 0.14), transparent 58%),
+    linear-gradient(180deg, #ffffff 0, #f7fcff 100px, #edf8ff 46%, #f8fbff 100%);
+}
+
+.puddle-hero-frame::before {
   pointer-events: none;
   content: "";
   position: absolute;
@@ -68,12 +82,675 @@ button {
     linear-gradient(rgba(15, 23, 42, 0.07) 1px, transparent 1px),
     linear-gradient(90deg, rgba(15, 23, 42, 0.07) 1px, transparent 1px);
   background-position:
-    0 0,
-    0 0;
+    0 100px,
+    0 100px;
   background-size:
     56px 56px,
     56px 56px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.52) 560px, transparent 940px);
+  mask-image: linear-gradient(to bottom, transparent 0, transparent 100px, rgba(0, 0, 0, 0.78) 180px, rgba(0, 0, 0, 0.52) 560px, transparent 940px);
+}
+
+.puddle-grid-band {
+  position: relative;
+  background:
+    radial-gradient(62rem 36rem at 86% 14%, rgba(125, 211, 252, 0.24), transparent 64%),
+    radial-gradient(48rem 30rem at 8% 18%, rgba(52, 211, 153, 0.1), transparent 62%),
+    linear-gradient(180deg, #f9fdff 0%, #edf8ff 48%, #f8fbff 100%);
+}
+
+.puddle-grid-band::before {
+  pointer-events: none;
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+  background-size:
+    56px 56px,
+    56px 56px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.68), rgba(0, 0, 0, 0.5) 58%, transparent 100%);
+}
+
+.puddle-logo-strip {
+  background: linear-gradient(180deg, #ffffff 0%, #ffffff 58%, #f8fcff 100%);
+}
+
+.puddle-how-heading-shell {
+  isolation: isolate;
+}
+
+.puddle-how-heading-shell::before {
+  display: none;
+}
+
+.puddle-hero-kicker {
+  position: relative;
+  isolation: isolate;
+}
+
+.puddle-hero-kicker::before {
+  pointer-events: none;
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 14px;
+  z-index: 2;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #10b981;
+  box-shadow:
+    0 0 0 4px rgba(103, 232, 249, 0.2),
+    0 0 16px rgba(34, 211, 238, 0.74),
+    0 0 28px rgba(16, 185, 129, 0.34);
+  transform: translate(-50%, -50%);
+  animation: puddle-kicker-orbit 6s linear infinite;
+}
+
+.puddle-hero-kicker::after {
+  pointer-events: none;
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 1px rgba(103, 232, 249, 0.28),
+    0 0 18px rgba(34, 211, 238, 0.08);
+  opacity: 0.7;
+}
+
+.puddle-artifact-preview {
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+  will-change: border-color, box-shadow, transform;
+  z-index: 0;
+}
+
+.puddle-artifact-preview::before {
+  pointer-events: none;
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 0%, rgba(103, 232, 249, 0.3), transparent 58%);
+  opacity: 0;
+  z-index: 0;
+}
+
+.puddle-artifact-preview > * {
+  position: relative;
+  z-index: 1;
+}
+
+.puddle-artifact-preview--rubric {
+  animation: puddle-artifact-rubric 6.8s ease-in-out infinite;
+}
+
+.puddle-artifact-preview--rubric::before {
+  animation: puddle-artifact-glow-rubric 6.8s ease-in-out infinite;
+}
+
+.puddle-artifact-preview--screen {
+  animation: puddle-artifact-screen 6.8s ease-in-out infinite;
+}
+
+.puddle-artifact-preview--screen::before {
+  animation: puddle-artifact-glow-screen 6.8s ease-in-out infinite;
+}
+
+.puddle-artifact-preview--packet {
+  animation: puddle-artifact-packet 6.8s ease-in-out infinite;
+}
+
+.puddle-artifact-preview--packet::before {
+  animation: puddle-artifact-glow-packet 6.8s ease-in-out infinite;
+}
+
+.puddle-flow-connector {
+  color: #22d3ee;
+}
+
+.puddle-flow-connector-track {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(8, 145, 178, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(14, 116, 144, 0.14),
+    0 0 20px rgba(34, 211, 238, 0.14);
+}
+
+.puddle-flow-connector--desktop .puddle-flow-connector-track {
+  width: 5.25rem;
+  height: 4px;
+}
+
+.puddle-flow-connector--mobile .puddle-flow-connector-track {
+  width: 4px;
+  height: 2.35rem;
+}
+
+.puddle-flow-connector-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+}
+
+.puddle-flow-connector--desktop .puddle-flow-connector-track::after {
+  background: linear-gradient(90deg, transparent 0%, rgba(103, 232, 249, 0.5) 20%, #0891b2 50%, rgba(103, 232, 249, 0.5) 80%, transparent 100%);
+  transform: translateX(-120%);
+}
+
+.puddle-flow-connector--mobile .puddle-flow-connector-track::after {
+  background: linear-gradient(180deg, transparent 0%, rgba(103, 232, 249, 0.5) 20%, #0891b2 50%, rgba(103, 232, 249, 0.5) 80%, transparent 100%);
+  transform: translateY(-120%);
+}
+
+.puddle-flow-connector--desktop.puddle-flow-connector--rubric .puddle-flow-connector-track::after {
+  animation: puddle-flow-rubric-x 6.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.puddle-flow-connector--desktop.puddle-flow-connector--screen .puddle-flow-connector-track::after {
+  animation: puddle-flow-screen-x 6.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.puddle-flow-connector--mobile.puddle-flow-connector--rubric .puddle-flow-connector-track::after {
+  animation: puddle-flow-rubric-y 6.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.puddle-flow-connector--mobile.puddle-flow-connector--screen .puddle-flow-connector-track::after {
+  animation: puddle-flow-screen-y 6.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.puddle-flow-connector-head {
+  display: block;
+  width: 0.82rem;
+  height: 0.82rem;
+  margin-left: -0.34rem;
+  border-right: 3px solid currentColor;
+  border-top: 3px solid currentColor;
+  opacity: 0.62;
+  transform: rotate(45deg);
+}
+
+.puddle-flow-connector--rubric .puddle-flow-connector-head {
+  animation: puddle-arrow-rubric 6.8s ease-in-out infinite;
+}
+
+.puddle-flow-connector--screen .puddle-flow-connector-head {
+  animation: puddle-arrow-screen 6.8s ease-in-out infinite;
+}
+
+.puddle-rubric-dot {
+  animation: puddle-rubric-dot 6.8s ease-in-out infinite;
+}
+
+.puddle-rubric-fill {
+  transform-origin: left center;
+  animation: puddle-rubric-fill 6.8s ease-in-out infinite;
+}
+
+.puddle-screen-avatar {
+  animation: puddle-screen-avatar 6.8s ease-in-out infinite;
+}
+
+.puddle-screen-line {
+  transform-origin: left center;
+  animation: puddle-screen-line 6.8s ease-in-out infinite;
+}
+
+.puddle-packet-status {
+  animation: puddle-packet-status 6.8s ease-in-out infinite;
+}
+
+.puddle-packet-row {
+  animation: puddle-packet-row 6.8s ease-in-out infinite;
+}
+
+.puddle-how-step-card {
+  transform: translateY(0);
+}
+
+.puddle-how-step-card:hover {
+  transform: translateY(-2px);
+}
+
+.puddle-how-artifact-motion {
+  color: #e2e8f0;
+  opacity: 1;
+  animation: puddle-how-artifact-shift 360ms ease both;
+}
+
+.puddle-how-artifact-motion .text-white {
+  color: #ffffff;
+}
+
+.puddle-how-artifact-motion .text-slate-200,
+.puddle-how-artifact-motion .text-slate-300 {
+  color: #e2e8f0;
+}
+
+.puddle-how-artifact-motion .text-slate-400 {
+  color: #94a3b8;
+}
+
+.puddle-how-artifact-motion .text-cyan-100,
+.puddle-how-artifact-motion .text-cyan-200 {
+  color: #cffafe;
+}
+
+.puddle-how-artifact-motion .bg-white\/\[0\.04\] {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.puddle-how-artifact-motion .bg-white\/\[0\.05\],
+.puddle-how-artifact-motion .bg-white\/\[0\.06\] {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.puddle-how-artifact-motion .bg-cyan-300\/10 {
+  background-color: rgba(103, 232, 249, 0.1);
+}
+
+.puddle-how-artifact-motion .bg-slate-950\/38 {
+  background-color: rgba(2, 6, 23, 0.38);
+}
+
+.puddle-how-artifact-motion .border-white\/10 {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.puddle-how-artifact-motion .border-cyan-300\/30 {
+  border-color: rgba(103, 232, 249, 0.3);
+}
+
+@keyframes puddle-kicker-orbit {
+  0% {
+    top: -1px;
+    left: 14px;
+    transform: translate(-50%, -50%);
+  }
+
+  40% {
+    top: -1px;
+    left: calc(100% - 14px);
+    transform: translate(-50%, -50%);
+  }
+
+  43.5% {
+    top: 10px;
+    left: calc(100% + 1px);
+    transform: translate(-50%, -50%);
+  }
+
+  46.5% {
+    top: calc(100% - 10px);
+    left: calc(100% + 1px);
+    transform: translate(-50%, -50%);
+  }
+
+  50% {
+    top: calc(100% + 1px);
+    left: calc(100% - 14px);
+    transform: translate(-50%, -50%);
+  }
+
+  90% {
+    top: calc(100% + 1px);
+    left: 14px;
+    transform: translate(-50%, -50%);
+  }
+
+  93.5% {
+    top: calc(100% - 10px);
+    left: -1px;
+    transform: translate(-50%, -50%);
+  }
+
+  96.5% {
+    top: 10px;
+    left: -1px;
+    transform: translate(-50%, -50%);
+  }
+
+  100% {
+    top: -1px;
+    left: 14px;
+    transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes puddle-artifact-rubric {
+  0%,
+  4%,
+  24%,
+  100% {
+    border-color: rgb(226, 232, 240);
+    box-shadow: none;
+    transform: translateY(0);
+  }
+
+  8%,
+  18% {
+    border-color: rgba(34, 211, 238, 0.72);
+    box-shadow:
+      0 20px 48px rgba(8, 145, 178, 0.16),
+      0 0 0 1px rgba(103, 232, 249, 0.28),
+      0 0 30px rgba(34, 211, 238, 0.12);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes puddle-artifact-screen {
+  0%,
+  29%,
+  50%,
+  100% {
+    border-color: rgb(226, 232, 240);
+    box-shadow: none;
+    transform: translateY(0);
+  }
+
+  34%,
+  44% {
+    border-color: rgba(34, 211, 238, 0.72);
+    box-shadow:
+      0 20px 48px rgba(8, 145, 178, 0.16),
+      0 0 0 1px rgba(103, 232, 249, 0.28),
+      0 0 30px rgba(34, 211, 238, 0.12);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes puddle-artifact-packet {
+  0%,
+  56%,
+  82%,
+  100% {
+    border-color: rgb(226, 232, 240);
+    box-shadow: none;
+    transform: translateY(0);
+  }
+
+  62%,
+  75% {
+    border-color: rgba(34, 211, 238, 0.72);
+    box-shadow:
+      0 20px 48px rgba(8, 145, 178, 0.16),
+      0 0 0 1px rgba(103, 232, 249, 0.28),
+      0 0 30px rgba(34, 211, 238, 0.12);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes puddle-artifact-glow-rubric {
+  0%,
+  5%,
+  24%,
+  100% {
+    opacity: 0;
+  }
+
+  9%,
+  18% {
+    opacity: 0.75;
+  }
+}
+
+@keyframes puddle-artifact-glow-screen {
+  0%,
+  30%,
+  50%,
+  100% {
+    opacity: 0;
+  }
+
+  35%,
+  44% {
+    opacity: 0.75;
+  }
+}
+
+@keyframes puddle-artifact-glow-packet {
+  0%,
+  57%,
+  82%,
+  100% {
+    opacity: 0;
+  }
+
+  63%,
+  75% {
+    opacity: 0.75;
+  }
+}
+
+@keyframes puddle-flow-rubric-x {
+  0%,
+  17% {
+    opacity: 0;
+    transform: translateX(-120%);
+  }
+
+  21%,
+  30% {
+    opacity: 1;
+  }
+
+  33%,
+  100% {
+    opacity: 0;
+    transform: translateX(120%);
+  }
+}
+
+@keyframes puddle-flow-screen-x {
+  0%,
+  45% {
+    opacity: 0;
+    transform: translateX(-120%);
+  }
+
+  49%,
+  58% {
+    opacity: 1;
+  }
+
+  61%,
+  100% {
+    opacity: 0;
+    transform: translateX(120%);
+  }
+}
+
+@keyframes puddle-flow-rubric-y {
+  0%,
+  17% {
+    opacity: 0;
+    transform: translateY(-120%);
+  }
+
+  21%,
+  30% {
+    opacity: 1;
+  }
+
+  33%,
+  100% {
+    opacity: 0;
+    transform: translateY(120%);
+  }
+}
+
+@keyframes puddle-flow-screen-y {
+  0%,
+  45% {
+    opacity: 0;
+    transform: translateY(-120%);
+  }
+
+  49%,
+  58% {
+    opacity: 1;
+  }
+
+  61%,
+  100% {
+    opacity: 0;
+    transform: translateY(120%);
+  }
+}
+
+@keyframes puddle-arrow-rubric {
+  0%,
+  18%,
+  34%,
+  100% {
+    filter: none;
+    opacity: 0.42;
+  }
+
+  25%,
+  31% {
+    filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.82));
+    opacity: 1;
+  }
+}
+
+@keyframes puddle-arrow-screen {
+  0%,
+  46%,
+  62%,
+  100% {
+    filter: none;
+    opacity: 0.42;
+  }
+
+  53%,
+  59% {
+    filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.82));
+    opacity: 1;
+  }
+}
+
+@keyframes puddle-rubric-dot {
+  0%,
+  5%,
+  24%,
+  100% {
+    background-color: rgb(6, 182, 212);
+    box-shadow: none;
+    transform: scale(1);
+  }
+
+  9%,
+  18% {
+    background-color: rgb(20, 184, 166);
+    box-shadow: 0 0 12px rgba(20, 184, 166, 0.45);
+    transform: scale(1.18);
+  }
+}
+
+@keyframes puddle-rubric-fill {
+  0%,
+  5%,
+  24%,
+  100% {
+    background-color: rgb(203, 213, 225);
+    transform: scaleX(0.76);
+  }
+
+  9%,
+  18% {
+    background-color: rgb(103, 232, 249);
+    box-shadow: 0 0 12px rgba(34, 211, 238, 0.28);
+    transform: scaleX(1);
+  }
+}
+
+@keyframes puddle-screen-avatar {
+  0%,
+  30%,
+  50%,
+  100% {
+    background-color: rgba(255, 255, 255, 0.12);
+    box-shadow: none;
+    transform: scale(1);
+  }
+
+  35%,
+  44% {
+    background-color: rgba(103, 232, 249, 0.18);
+    box-shadow: 0 0 24px rgba(103, 232, 249, 0.24);
+    transform: scale(1.05);
+  }
+}
+
+@keyframes puddle-screen-line {
+  0%,
+  30%,
+  50%,
+  100% {
+    opacity: 0.82;
+    transform: scaleX(0.88);
+  }
+
+  35%,
+  44% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes puddle-packet-status {
+  0%,
+  57%,
+  82%,
+  100% {
+    box-shadow: none;
+    transform: scale(1);
+  }
+
+  63%,
+  75% {
+    box-shadow: 0 0 14px rgba(16, 185, 129, 0.55);
+    transform: scale(1.2);
+  }
+}
+
+@keyframes puddle-packet-row {
+  0%,
+  57%,
+  82%,
+  100% {
+    border-color: rgb(241, 245, 249);
+    background-color: rgb(255, 255, 255);
+    transform: translateX(0);
+  }
+
+  63%,
+  75% {
+    border-color: rgba(103, 232, 249, 0.58);
+    background-color: rgba(236, 254, 255, 0.48);
+    transform: translateX(1px);
+  }
+}
+
+@keyframes puddle-how-artifact-shift {
+  from {
+    transform: translateY(10px);
+  }
+
+  to {
+    transform: translateY(0);
+  }
 }
 
 [data-reveal] {
@@ -90,7 +767,13 @@ button {
 }
 
 @media (max-width: 640px) {
-  .puddle-page::before {
+  .puddle-hero-frame::before {
+    background-size:
+      38px 38px,
+      38px 38px;
+  }
+
+  .puddle-grid-band::before {
     background-size:
       38px 38px,
       38px 38px;

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getPool } from "../db/pool.js";
+import { liveKitRecordingsEnabledFromEnv } from "../livekit/egress.js";
 import { provisionRoom, type LiveKitConfig } from "../livekit/provision.js";
 import {
   buildSessionRecord,
@@ -29,16 +30,18 @@ export function registerSchedulerRoutes(
       buildWorkerDispatchMetadata(record),
     );
     const pool = getPool();
-    const roomUpdate = sessionRoomUpdateStatement(record.sessionId, room);
-    await pool.query(roomUpdate.sql, [...roomUpdate.params]);
-    const recording = recordingUpsertStatement({
-      sessionId: record.sessionId,
-      status: "pending",
-    });
-    await pool.query(recording.sql, [...recording.params]);
-    for (const artifact of expectedRecordingArtifacts(record.orgId, record.sessionId)) {
-      const stmt = recordingArtifactUpsertStatement(artifact);
-      await pool.query(stmt.sql, [...stmt.params]);
+    if (liveKitRecordingsEnabledFromEnv()) {
+      const roomUpdate = sessionRoomUpdateStatement(record.sessionId, room);
+      await pool.query(roomUpdate.sql, [...roomUpdate.params]);
+      const recording = recordingUpsertStatement({
+        sessionId: record.sessionId,
+        status: "pending",
+      });
+      await pool.query(recording.sql, [...recording.params]);
+      for (const artifact of expectedRecordingArtifacts(record.orgId, record.sessionId)) {
+        const stmt = recordingArtifactUpsertStatement(artifact);
+        await pool.query(stmt.sql, [...stmt.params]);
+      }
     }
     return reply.code(201).send({ sessionId: record.sessionId, room });
   });

@@ -32,6 +32,7 @@ export interface PuddleEnvConfig {
     desiredCount: number;
     cpu: number;
     memoryMiB: number;
+    participantReconnectGraceSeconds: number;
   };
   platform: {
     hosting: PlatformHosting;
@@ -59,6 +60,9 @@ export interface PuddleEnvConfig {
   };
   liveKit: {
     url?: string;
+    recordingsEnabled: boolean;
+    egressAssumeRoleArn?: string;
+    egressAssumeRoleExternalId?: string;
   };
   logs: {
     retentionDays: number;
@@ -115,6 +119,11 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
       desiredCount: readNumberContext(app, 'agentDesiredCount', 1),
       cpu: readNumberContext(app, 'agentCpu', 1024),
       memoryMiB: readNumberContext(app, 'agentMemoryMiB', 2048),
+      participantReconnectGraceSeconds: readNumberContext(
+        app,
+        'participantReconnectGraceSeconds',
+        300,
+      ),
     },
     platform: {
       hosting: readEnumContext(
@@ -164,6 +173,12 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
     },
     liveKit: {
       url: readStringContext(app, 'liveKitUrl'),
+      recordingsEnabled: readBooleanContext(app, 'enableLiveKitRecordings', false),
+      egressAssumeRoleArn: readStringContext(app, 'liveKitEgressAssumeRoleArn'),
+      egressAssumeRoleExternalId: readStringContext(
+        app,
+        'liveKitEgressAssumeRoleExternalId',
+      ),
     },
     logs: {
       retentionDays: readNumberContext(

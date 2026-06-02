@@ -54,6 +54,12 @@ def test_livekit_session_voice_agent_satisfies_contract() -> None:
     assert issubclass(LiveKitSessionVoiceAgent, VoiceAgent)
 
 
+def test_livekit_session_default_reconnect_grace_is_five_minutes() -> None:
+    voice = LiveKitSessionVoiceAgent(FakeSession())
+
+    assert voice._participant_reconnect_grace_seconds == 300.0
+
+
 def test_agent_session_recording_defaults_off() -> None:
     assert _agent_session_recording_enabled({}) is False
 

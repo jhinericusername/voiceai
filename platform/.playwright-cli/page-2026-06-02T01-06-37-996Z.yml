@@ -1,0 +1,281 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - navigation "Global" [ref=e3]:
+      - generic [ref=e5]:
+        - link "Puddle home" [ref=e6] [cursor=pointer]:
+          - /url: "#top"
+          - generic [ref=e7]: Puddle
+        - button "Open menu" [ref=e516]
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]: Technical hiring infrastructure
+        - heading "Turn engineering hiring into an evidence-backed system." [level=1] [ref=e28]
+        - paragraph [ref=e29]: Puddle helps teams define role-specific rubrics, run structured AI video screens, and review candidates through recordings, transcripts, and rubric-backed evidence.
+        - generic [ref=e30]:
+          - link "Book a pilot" [ref=e31] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "See the process" [ref=e32] [cursor=pointer]:
+            - /url: "#system"
+      - generic [ref=e33]:
+        - paragraph [ref=e35]: From hiring bar to review packet.
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e39]:
+              - generic [ref=e40]:
+                - generic [ref=e41]: Role rubric
+                - generic [ref=e42]: Set
+              - generic [ref=e43]:
+                - generic [ref=e47]: Technical depth
+                - generic [ref=e53]: Collaboration
+                - generic [ref=e59]: AI fluency
+            - generic [ref=e63]: Hiring bar
+          - generic [ref=e67]:
+            - generic [ref=e70]:
+              - generic [ref=e71]:
+                - generic [ref=e72]: Live screen
+                - generic [ref=e73]: 10 min
+              - generic [ref=e75]: P
+            - generic [ref=e81]: Puddle screen
+          - generic [ref=e85]:
+            - generic [ref=e90]:
+              - generic [ref=e92]: Candidate packet
+              - generic [ref=e94]:
+                - generic [ref=e96]: Recommendation
+                - generic [ref=e99]: Transcript
+                - generic [ref=e102]: Rubric notes
+                - generic [ref=e105]: Build evidence
+            - generic [ref=e108]: Reviewer output
+    - generic [ref=e110]:
+      - heading "How it works" [level=2] [ref=e112]
+      - generic [ref=e117]:
+        - article [ref=e119]:
+          - generic [ref=e120]:
+            - generic [ref=e121]: "01"
+            - generic [ref=e122]:
+              - generic [ref=e123]: Hiring bar
+              - heading "Turn the role brief into a measurable standard" [level=3] [ref=e124]
+              - paragraph [ref=e125]: Puddle converts the role brief into rubric dimensions, signal criteria, and examples your team can calibrate against.
+          - generic [ref=e126]:
+            - generic [ref=e127]: Rubric dimensions
+            - generic [ref=e128]: Strong and weak evidence
+            - generic [ref=e129]: Role-specific probes
+          - generic [ref=e527]:
+            - generic [ref=e528]:
+              - generic [ref=e529]: Role rubric
+              - generic [ref=e530]: Set
+            - generic [ref=e531]:
+              - generic [ref=e535]: Technical depth
+              - generic [ref=e541]: Collaboration
+              - generic [ref=e547]: AI fluency
+        - article [ref=e131]:
+          - generic [ref=e132]:
+            - generic [ref=e133]: "02"
+            - generic [ref=e134]:
+              - generic [ref=e135]: Puddle screen
+              - heading "Run a focused screen against the bar" [level=3] [ref=e136]
+              - paragraph [ref=e137]: The interviewer asks role-linked questions, captures the recording and transcript, and follows up when an answer needs more signal.
+          - generic [ref=e138]:
+            - generic [ref=e139]: 10-minute screen
+            - generic [ref=e140]: Transcript capture
+            - generic [ref=e141]: Adaptive follow-ups
+          - generic [ref=e553]:
+            - generic [ref=e554]:
+              - generic [ref=e555]: Live screen
+              - generic [ref=e556]: 10 min
+            - generic [ref=e558]: P
+        - article [ref=e143]:
+          - generic [ref=e144]:
+            - generic [ref=e145]: "03"
+            - generic [ref=e146]:
+              - generic [ref=e147]: Reviewer output
+              - heading "Hand the panel evidence, not hunches" [level=3] [ref=e148]
+              - paragraph [ref=e149]: Reviewers get the recommendation, confidence, timestamps, rubric notes, and the reason behind the next action.
+          - generic [ref=e150]:
+            - generic [ref=e151]: Recommendation
+            - generic [ref=e152]: Timestamped evidence
+            - generic [ref=e153]: Reviewer action
+          - generic [ref=e568]:
+            - generic [ref=e570]: Candidate packet
+            - generic [ref=e572]:
+              - generic [ref=e574]: Recommendation
+              - generic [ref=e577]: Transcript
+              - generic [ref=e580]: Rubric notes
+              - generic [ref=e583]: Build evidence
+    - generic [ref=e189]:
+      - generic [ref=e190]:
+        - generic [ref=e191]:
+          - generic [ref=e192]:
+            - generic [ref=e193]: Live video screen
+            - heading "Structured screen in progress" [level=3] [ref=e194]
+          - generic [ref=e195]:
+            - generic [ref=e196]: Status
+            - generic [ref=e197]: screening live
+        - generic [ref=e198]:
+          - generic [ref=e199]:
+            - generic [ref=e200]:
+              - generic [ref=e201]: Current probe
+              - generic [ref=e202]: 06:42
+            - paragraph [ref=e203]: Explain the tradeoff you made when the first implementation failed.
+            - generic [ref=e204]:
+              - generic [ref=e205]: Camera on
+              - generic [ref=e206]: Transcript live
+              - generic [ref=e207]: Follow-up queued
+          - generic [ref=e208]:
+            - generic [ref=e209]:
+              - generic [ref=e210]: Rubric dimension
+              - generic [ref=e211]: Technical depth
+            - generic [ref=e212]:
+              - generic [ref=e213]: Coverage
+              - generic [ref=e214]: 2 / 3 probes
+            - generic [ref=e215]:
+              - generic [ref=e216]: Capture
+              - generic [ref=e217]: Recording + transcript
+            - generic [ref=e218]:
+              - generic [ref=e219]: Next action
+              - generic [ref=e220]: Ask failure-handling follow-up
+        - generic [ref=e221]:
+          - generic [ref=e222]:
+            - generic [ref=e223]: Adaptive follow-up
+            - paragraph [ref=e224]: If the answer is generic, Puddle asks for constraints, failure modes, and the decision the candidate made.
+          - generic [ref=e225]:
+            - generic [ref=e226]: Evidence capture
+            - paragraph [ref=e227]: The screen creates a recording, transcript, timestamped rubric notes, and coverage state for reviewers.
+      - generic [ref=e228]:
+        - text: 10-minute video screen
+        - heading "Specific questions beat rehearsed answers." [level=2] [ref=e229]
+        - paragraph [ref=e230]: Puddle interviews the most promising candidates immediately, records every answer, and gives your team the transcript, summary, and recommendation without putting engineers on every first-round call.
+        - generic [ref=e231]:
+          - generic [ref=e232]: Recording
+          - generic [ref=e233]: Transcript
+          - generic [ref=e234]: Rubric summary
+          - generic [ref=e235]: Reviewer notes
+    - generic [ref=e237]:
+      - generic [ref=e238]:
+        - text: Review packet
+        - heading "Every recommendation shows its work." [level=2] [ref=e239]
+        - paragraph [ref=e240]: "Puddle converts a 10-minute video interview into a role-specific review packet: rubric observations, question coverage, authenticity signals, and the evidence behind the final recommendation."
+      - generic [ref=e241]:
+        - button "Scorecard 01 Rubric notes tied to your criteria" [ref=e242]:
+          - generic [ref=e243]:
+            - generic [ref=e244]: Scorecard
+            - generic [ref=e245]: "01"
+          - paragraph [ref=e246]: Rubric notes tied to your criteria
+        - button "Coverage 02 Required prompts are checked" [ref=e247]:
+          - generic [ref=e248]:
+            - generic [ref=e249]: Coverage
+            - generic [ref=e250]: "02"
+          - paragraph [ref=e251]: Required prompts are checked
+        - button "Authenticity 03 Cheating risk is separated from quality" [ref=e252]:
+          - generic [ref=e253]:
+            - generic [ref=e254]: Authenticity
+            - generic [ref=e255]: "03"
+          - paragraph [ref=e256]: Cheating risk is separated from quality
+        - button "Decision 04 A concise final hiring signal" [ref=e257]:
+          - generic [ref=e258]:
+            - generic [ref=e259]: Decision
+            - generic [ref=e260]: "04"
+          - paragraph [ref=e261]: A concise final hiring signal
+      - generic [ref=e263]:
+        - generic [ref=e264]:
+          - generic [ref=e265]:
+            - generic [ref=e266]: 10-minute screen output
+            - heading "Scorecard for Prakul Singh" [level=3] [ref=e483]
+            - paragraph [ref=e268]: A rubric-specific report with enough evidence for the hiring manager to agree, disagree, or replay the original answer.
+          - generic [ref=e269]:
+            - generic [ref=e270]:
+              - generic [ref=e271]: 8/16
+              - generic [ref=e272]: Score
+            - generic [ref=e273]:
+              - generic [ref=e274]: 10%
+              - generic [ref=e275]: AI risk
+            - generic [ref=e276]:
+              - generic [ref=e277]: 4/4
+              - generic [ref=e278]: Coverage
+        - generic [ref=e279]:
+          - generic [ref=e280]:
+            - generic [ref=e282]: Dimension
+            - generic [ref=e484]:
+              - generic [ref=e485]:
+                - generic [ref=e486]: Systems reasoning
+                - generic [ref=e487]: 2 / 4
+              - paragraph [ref=e488]: Prakul identified queue isolation, retry behavior, and audit logging for a screening-service failure, but only quantified throughput thresholds after a follow-up prompt.
+            - generic [ref=e489]:
+              - generic [ref=e490]:
+                - generic [ref=e491]: Ownership
+                - generic [ref=e492]: 2 / 4
+              - paragraph [ref=e493]: He described taking a half-scoped onboarding bug from reproduction to shipped fix, including migration notes and reviewer signoff; the example showed follow-through, but limited scope.
+            - generic [ref=e494]:
+              - generic [ref=e495]:
+                - generic [ref=e496]: Product judgment
+                - generic [ref=e497]: 2 / 4
+              - paragraph [ref=e498]: He connected consent copy and auth states to candidate trust, then chose a smaller launch path over rebuilding the full ATS flow, but missed one reviewer-calibration tradeoff.
+            - generic [ref=e499]:
+              - generic [ref=e500]:
+                - generic [ref=e501]: Communication clarity
+                - generic [ref=e502]: 2 / 4
+              - paragraph [ref=e503]: Answers included concrete timestamps, tools, and constraints. Follow-ups were easy to inspect, though the root cause sometimes took a second prompt to state cleanly.
+          - generic [ref=e304]:
+            - generic [ref=e305]:
+              - generic [ref=e306]: Scorecard
+              - heading "Rubric notes tied to your criteria" [level=4] [ref=e307]
+              - paragraph [ref=e308]: Every screen becomes dimension-level observations with notes that explain the review.
+            - generic [ref=e310]:
+              - generic [ref=e311]:
+                - generic [ref=e312]:
+                  - generic [ref=e313]: Final scores
+                  - generic [ref=e314]: "8"
+                - generic [ref=e315]: out of 16
+              - generic [ref=e316]:
+                - generic [ref=e504]:
+                  - generic [ref=e505]: Systems reasoning
+                  - generic [ref=e506]: 2 / 4
+                - generic [ref=e507]:
+                  - generic [ref=e508]: Ownership
+                  - generic [ref=e509]: 2 / 4
+                - generic [ref=e510]:
+                  - generic [ref=e511]: Product judgment
+                  - generic [ref=e512]: 2 / 4
+                - generic [ref=e513]:
+                  - generic [ref=e514]: Communication clarity
+                  - generic [ref=e515]: 2 / 4
+    - generic [ref=e330]:
+      - paragraph [ref=e331]: Trusted by the next generation of companies.
+      - generic [ref=e332]:
+        - img "YC" [ref=e334]
+        - img "Pear VC" [ref=e336]
+        - generic [ref=e337]:
+          - img "Telora" [ref=e338]
+          - generic [ref=e339]: Telora
+    - generic [ref=e340]:
+      - generic [ref=e341]:
+        - generic [ref=e342]:
+          - generic [ref=e344]: Puddle
+          - heading "Start with one role and a small pilot cohort." [level=2] [ref=e345]
+          - paragraph [ref=e346]: We will map your rubric, source and screen candidates, run 10-minute video interviews, and hand your team the evidence needed to meet the best people in person.
+        - generic [ref=e347]:
+          - link "Book a pilot" [ref=e348] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Staff sign in" [ref=e349] [cursor=pointer]:
+            - /url: /dashboard
+      - generic [ref=e350]:
+        - generic [ref=e351]: 2026 Puddle. Technical hiring infrastructure.
+        - navigation "Footer" [ref=e352]:
+          - link "Contact" [ref=e353] [cursor=pointer]:
+            - /url: mailto:hello@usepuddle.com
+          - link "Process" [ref=e354] [cursor=pointer]:
+            - /url: "#system"
+          - link "Video screen" [ref=e355] [cursor=pointer]:
+            - /url: "#video-screen"
+          - link "Review packet" [ref=e356] [cursor=pointer]:
+            - /url: "#review-packet"
+          - link "Privacy" [ref=e357] [cursor=pointer]:
+            - /url: /privacy
+          - link "Terms" [ref=e358] [cursor=pointer]:
+            - /url: /terms
+          - link "AI interview disclosure" [ref=e359] [cursor=pointer]:
+            - /url: /ai-interview-disclosure
+          - link "Subprocessors" [ref=e360] [cursor=pointer]:
+            - /url: /subprocessors
+  - button "Open Next.js Dev Tools" [ref=e366] [cursor=pointer]:
+    - img [ref=e367]
+  - alert [ref=e370]
