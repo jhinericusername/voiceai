@@ -47,6 +47,19 @@ def test_disconnect_pause_excludes_downtime_from_elapsed() -> None:
     assert clock.elapsed_seconds() == 100.0  # downtime not counted
 
 
+def test_elapsed_freezes_while_disconnect_is_still_paused() -> None:
+    clock = InterviewClock(total_cap_seconds=1800.0, now=lambda: 0.0)
+    clock.start()
+    clock._now = lambda: 100.0
+    clock.begin_question(soft_budget_seconds=180.0)
+    clock.pause_for_disconnect()
+
+    clock._now = lambda: 250.0
+
+    assert clock.elapsed_seconds() == 100.0
+    assert clock.question_elapsed_seconds() == 0.0
+
+
 def test_humane_boundary_line_is_the_scripted_text() -> None:
     assert HUMANE_BOUNDARY_LINE == (
         "Thank you — I'm going to move on so we cover everything."

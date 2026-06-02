@@ -256,15 +256,19 @@ describe('InfraStack', () => {
     ).not.toThrow();
   });
 
-  test('requires LiveKit URL before deploying the agent service', () => {
+  test('requires the backend service before deploying the agent service', () => {
     expect(() =>
       createStack({
         agent: {
           ...defaultConfig().agent,
           deployService: true,
         },
+        liveKit: {
+          recordingsEnabled: false,
+          url: 'wss://livekit.example',
+        },
       }),
-    ).toThrow('deployAgentService requires a liveKitUrl CDK context value.');
+    ).toThrow('deployAgentService requires deployBackendService=true.');
   });
 
   test('blocks static platform hosting during this pass', () => {
@@ -280,6 +284,11 @@ describe('InfraStack', () => {
 
   test('creates a private ECS agent service when enabled', () => {
     const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'backend-test',
+      },
       agent: {
         ...defaultConfig().agent,
         deployService: true,
@@ -292,9 +301,9 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 1);
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 1);
-    template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 0);
+    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 3);
+    template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
 
     template.hasResourceProperties('AWS::ECS::Service', {
       ServiceName: 'puddle-videoagent-agent-service',
@@ -324,6 +333,9 @@ describe('InfraStack', () => {
               Name: 'PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS',
               Value: '300',
             }),
+            Match.objectLike({
+              Name: 'PUDDLE_BACKEND_BASE_URL',
+            }),
           ]),
           Secrets: Match.arrayWith([
             Match.objectLike({
@@ -337,6 +349,9 @@ describe('InfraStack', () => {
             }),
             Match.objectLike({
               Name: 'CARTESIA_API_KEY',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_BACKEND_INTERNAL_TOKEN',
             }),
           ]),
         }),

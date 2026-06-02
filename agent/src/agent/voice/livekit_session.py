@@ -11,7 +11,7 @@ import contextlib
 import logging
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from agent.voice.interface import ListenResult, VoiceAgent, VoiceMode
@@ -46,6 +46,9 @@ class ParticipantDisconnectedError(RuntimeError):
     """Raised when the linked participant does not reconnect within the grace window."""
 
 
+ParticipantStateCallback = Callable[[], None]
+
+
 class LiveKitSessionVoiceAgent(VoiceAgent):
     """VoiceAgent backed by LiveKit AgentSession and RoomIO."""
 
@@ -59,10 +62,14 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         self._mode: VoiceMode = "scripted"
         self._last_spoken: str | None = None
         self._transcripts: asyncio.Queue[str] = asyncio.Queue()
+        self._accepting_transcripts = False
         self._participant_reconnect_grace_seconds = participant_reconnect_grace_seconds
         self._participant_identity: str | None = None
         self._participant_connected = True
         self._participant_state_changed = asyncio.Event()
+        self._on_disconnect_callback: ParticipantStateCallback | None = None
+        self._on_reconnect_callback: ParticipantStateCallback | None = None
+        self._on_reconnect_grace_expired_callback: ParticipantStateCallback | None = None
         self._room: Any | None = None
         self._closed = False
         self._session.on("user_input_transcribed", self._on_user_input_transcribed)
@@ -139,7 +146,7 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         self._mode = mode
         self._last_spoken = text
         logger.info("speaking utterance", extra={"mode": mode, "characters": len(text)})
-        handle = self._session.say(text, allow_interruptions=True, add_to_chat_ctx=False)
+        handle = self._session.say(text, allow_interruptions=False, add_to_chat_ctx=False)
         await handle.wait_for_playout()
         logger.info("finished utterance playout", extra={"mode": mode, "characters": len(text)})
 
@@ -149,36 +156,49 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
             "waiting for final candidate transcript",
             extra={"participant": self._participant_identity},
         )
+        self._drain_transcripts()
+        self._accepting_transcripts = True
+        try:
+            while True:
+                if self._closed:
+                    raise RuntimeError("LiveKit agent session closed while waiting for transcript")
+                if not self._participant_connected:
+                    await self._wait_for_participant_reconnect()
+
+                transcript_task = asyncio.create_task(self._transcripts.get())
+                state_task = asyncio.create_task(self._participant_state_changed.wait())
+                pending: set[asyncio.Task[Any]] = {transcript_task, state_task}
+                try:
+                    done, pending = await asyncio.wait(
+                        pending,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
+                    for task in pending:
+                        task.cancel()
+
+                if transcript_task in done:
+                    transcript = transcript_task.result()
+                    logger.info(
+                        "received final candidate transcript",
+                        extra={
+                            "participant": self._participant_identity,
+                            "characters": len(transcript),
+                        },
+                    )
+                    return ListenResult(transcript=transcript, end_of_turn=True)
+
+                self._participant_state_changed.clear()
+        finally:
+            self._accepting_transcripts = False
+            self._drain_transcripts()
+
+    def _drain_transcripts(self) -> None:
         while True:
-            if self._closed:
-                raise RuntimeError("LiveKit agent session closed while waiting for transcript")
-            if not self._participant_connected:
-                await self._wait_for_participant_reconnect()
-
-            transcript_task = asyncio.create_task(self._transcripts.get())
-            state_task = asyncio.create_task(self._participant_state_changed.wait())
-            pending: set[asyncio.Task[Any]] = {transcript_task, state_task}
             try:
-                done, pending = await asyncio.wait(
-                    pending,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-            finally:
-                for task in pending:
-                    task.cancel()
-
-            if transcript_task in done:
-                transcript = transcript_task.result()
-                logger.info(
-                    "received final candidate transcript",
-                    extra={
-                        "participant": self._participant_identity,
-                        "characters": len(transcript),
-                    },
-                )
-                return ListenResult(transcript=transcript, end_of_turn=True)
-
-            self._participant_state_changed.clear()
+                self._transcripts.get_nowait()
+            except asyncio.QueueEmpty:
+                return
 
     async def interrupt(self) -> None:
         """Interrupt current LiveKit speech playback."""
@@ -187,6 +207,18 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
     def set_mode(self, mode: VoiceMode) -> None:
         """Set the voice mode without changing any spoken content."""
         self._mode = mode
+
+    def set_participant_state_handlers(
+        self,
+        *,
+        on_disconnect: ParticipantStateCallback | None = None,
+        on_reconnect: ParticipantStateCallback | None = None,
+        on_reconnect_grace_expired: ParticipantStateCallback | None = None,
+    ) -> None:
+        """Register controller hooks for participant disconnect lifecycle."""
+        self._on_disconnect_callback = on_disconnect
+        self._on_reconnect_callback = on_reconnect
+        self._on_reconnect_grace_expired_callback = on_reconnect_grace_expired
 
     async def aclose(self) -> None:
         """Unsubscribe and close the underlying LiveKit session."""
@@ -212,9 +244,10 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
                 "participant": self._participant_identity,
                 "final": is_final,
                 "characters": len(transcript),
+                "accepting": self._accepting_transcripts,
             },
         )
-        if is_final and transcript:
+        if is_final and transcript and self._accepting_transcripts:
             self._transcripts.put_nowait(transcript)
 
     def _link_participant(self, room: Any, participant_identity: str) -> None:
@@ -238,6 +271,7 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
                 raise RuntimeError("LiveKit agent session closed while waiting for reconnect")
             remaining = self._participant_reconnect_grace_seconds - (time.monotonic() - started_at)
             if remaining <= 0:
+                self._notify_reconnect_grace_expired()
                 raise ParticipantDisconnectedError(
                     f"participant {self._participant_identity} did not reconnect"
                 )
@@ -245,16 +279,23 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
             try:
                 await asyncio.wait_for(self._participant_state_changed.wait(), timeout=remaining)
             except TimeoutError as exc:
+                self._notify_reconnect_grace_expired()
                 raise ParticipantDisconnectedError(
                     f"participant {self._participant_identity} did not reconnect"
                 ) from exc
         logger.info("participant reconnected", extra={"participant": self._participant_identity})
+
+    def _notify_reconnect_grace_expired(self) -> None:
+        if self._on_reconnect_grace_expired_callback is not None:
+            self._on_reconnect_grace_expired_callback()
 
     def _on_participant_disconnected(self, participant: Any) -> None:
         if getattr(participant, "identity", None) != self._participant_identity:
             return
         self._participant_connected = False
         self._participant_state_changed.set()
+        if self._on_disconnect_callback is not None:
+            self._on_disconnect_callback()
         logger.info("participant disconnected", extra={"participant": self._participant_identity})
 
     def _on_participant_connected(self, participant: Any) -> None:
@@ -265,6 +306,8 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         if room_io is not None:
             room_io.set_participant(self._participant_identity)
         self._participant_state_changed.set()
+        if self._on_reconnect_callback is not None:
+            self._on_reconnect_callback()
         logger.info("participant connected", extra={"participant": self._participant_identity})
 
     def _on_agent_state_changed(self, event: Any) -> None:

@@ -12,7 +12,7 @@ import {
   liveKitTimestampToIso,
   recordingStatusForEgressEvent,
 } from "../src/livekit/webhooks.js";
-import { roomName, sessionIdFromRoomName } from "../src/livekit/provision.js";
+import { ensureRoomReady, roomName, sessionIdFromRoomName } from "../src/livekit/provision.js";
 
 describe("LiveKit Egress output configuration", () => {
   it("keeps recordings disabled unless explicitly enabled", () => {
@@ -129,5 +129,106 @@ describe("LiveKit Egress webhook mapping", () => {
       "2026-05-16T12:00:00.000Z",
     );
     expect(liveKitDurationSeconds(90_500_000_000n)).toBe(90.5);
+  });
+});
+
+describe("LiveKit room readiness", () => {
+  const liveKitConfig = {
+    host: "wss://livekit.example",
+    apiKey: "key",
+    apiSecret: "secret",
+  };
+
+  it("creates a missing room and dispatches the interviewer on candidate join", async () => {
+    const createdRooms: unknown[] = [];
+    const createdDispatches: unknown[] = [];
+    const rooms = {
+      listRooms: async () => [],
+      createRoom: async (options: unknown) => {
+        createdRooms.push(options);
+      },
+    };
+    const dispatch = {
+      listDispatch: async () => [],
+      createDispatch: async (room: string, agentName: string, options: unknown) => {
+        createdDispatches.push({ room, agentName, options });
+      },
+    };
+
+    const result = await ensureRoomReady(liveKitConfig, "sess1", "{\"session_id\":\"sess1\"}", {
+      rooms,
+      dispatch,
+    });
+
+    expect(result).toEqual({
+      room: "interview-sess1",
+      roomCreated: true,
+      dispatchCreated: true,
+      roomRecreated: false,
+    });
+    expect(createdRooms).toEqual([
+      {
+        name: "interview-sess1",
+        emptyTimeout: 600,
+        departureTimeout: 300,
+        maxParticipants: 3,
+      },
+    ]);
+    expect(createdDispatches).toEqual([
+      {
+        room: "interview-sess1",
+        agentName: "puddle-interviewer",
+        options: { metadata: "{\"session_id\":\"sess1\"}" },
+      },
+    ]);
+  });
+
+  it("recreates an expired prior room and records that as a recreation", async () => {
+    const rooms = {
+      listRooms: async () => [],
+      createRoom: async () => undefined,
+    };
+    const dispatch = {
+      listDispatch: async () => [{ agentName: "other-agent" }],
+      createDispatch: async () => undefined,
+    };
+
+    const result = await ensureRoomReady(liveKitConfig, "sess1", "{}", {
+      hadPreviousRoom: true,
+      rooms,
+      dispatch,
+    });
+
+    expect(result.roomCreated).toBe(true);
+    expect(result.dispatchCreated).toBe(true);
+    expect(result.roomRecreated).toBe(true);
+  });
+
+  it("leaves an active room and existing interviewer dispatch alone", async () => {
+    const rooms = {
+      listRooms: async () => [{ name: "interview-sess1" }],
+      createRoom: async () => {
+        throw new Error("should not create room");
+      },
+    };
+    const dispatch = {
+      listDispatch: async () => [{ agentName: "puddle-interviewer" }],
+      createDispatch: async () => {
+        throw new Error("should not create dispatch");
+      },
+    };
+
+    const result = await ensureRoomReady(liveKitConfig, "sess1", "{}", {
+      hadPreviousRoom: true,
+      rooms,
+      dispatch,
+    });
+
+    expect(result).toEqual({
+      room: "interview-sess1",
+      roomCreated: false,
+      dispatchCreated: false,
+      roomRecreated: false,
+    });
   });
 });

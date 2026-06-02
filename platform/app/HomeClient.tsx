@@ -349,7 +349,7 @@ function WorkflowSection() {
   }, []);
 
   const getCrossfadeStyle = (index: number) => {
-    const fadeWidth = 0.04;
+    const fadeWidth = 0.026;
     const segmentStart = index / stepCount;
     const segmentEnd = (index + 1) / stepCount;
     const isFirst = index === 0;
@@ -382,10 +382,10 @@ function WorkflowSection() {
   return (
     <section
       id="system"
-      className="relative z-10 scroll-mt-24 overflow-visible bg-white px-5 pb-16 pt-0 sm:px-6 md:pb-24 lg:min-h-[300vh] lg:pb-0"
+      className="relative z-10 scroll-mt-24 overflow-visible bg-white px-5 pb-16 pt-0 sm:px-6 md:pb-24 lg:min-h-[230vh] lg:pb-0"
     >
-      <div className="relative z-10 mx-auto max-w-7xl pt-14 md:pt-16 lg:sticky lg:top-[60px] lg:flex lg:min-h-[calc(100svh-60px)] lg:flex-col lg:pb-6 lg:pt-8">
-        <div data-reveal className="puddle-how-heading-shell relative mx-auto max-w-4xl text-center">
+      <div className="relative z-10 mx-auto max-w-7xl pt-14 md:pt-16 lg:sticky lg:top-[60px] lg:flex lg:min-h-[calc(100svh-60px)] lg:flex-col lg:pb-6 lg:pt-8 2xl:max-w-[1500px] 2xl:justify-center 2xl:pb-10 2xl:pt-0">
+        <div data-reveal className="puddle-how-heading-shell relative mx-auto max-w-4xl text-center 2xl:max-w-5xl">
           <span className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-700">How it works</span>
           <h2 className="mt-3 text-3xl font-semibold leading-tight tracking-normal text-slate-950 md:text-4xl">
             From hiring bar to reviewer output.
@@ -396,13 +396,13 @@ function WorkflowSection() {
           </p>
         </div>
 
-        <div data-reveal className="mt-8 hidden gap-10 lg:grid lg:grid-cols-[0.76fr_1.24fr] lg:items-center">
+        <div data-reveal className="mt-8 hidden gap-10 lg:grid lg:grid-cols-[0.76fr_1.24fr] lg:items-center 2xl:mt-10 2xl:grid-cols-[0.8fr_1.2fr] 2xl:gap-16">
           <div>
-            <div className="relative min-h-[286px]">
+            <div className="relative min-h-[286px] 2xl:min-h-[308px]">
               {howItWorksSteps.map((step, index) => (
                 <div
                   key={step.stage}
-                  className={`absolute inset-0 transition-[opacity,transform,filter] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  className={`absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                     activeStep === index ? "pointer-events-auto" : "pointer-events-none"
                   }`}
                   style={getCrossfadeStyle(index)}
@@ -417,13 +417,13 @@ function WorkflowSection() {
               ))}
             </div>
 
-            <div className="mt-8 grid grid-cols-3 gap-2">
+            <div className="mt-8 grid grid-cols-3 gap-2 2xl:mt-10">
               {howItWorksSteps.map((step, index) => (
                 <button
                   key={step.stage}
                   type="button"
                   onClick={() => setWorkflowProgress(getStepAnchorProgress(index))}
-                  className={`rounded-md border px-3 py-2 text-left transition duration-500 ${
+                  className={`rounded-md border px-3 py-2 text-left transition duration-500 2xl:px-4 2xl:py-3 ${
                     activeStep === index
                       ? "border-cyan-300 bg-cyan-50 text-cyan-950"
                       : "border-slate-200 bg-white/70 text-slate-500 hover:border-slate-300"
@@ -436,11 +436,11 @@ function WorkflowSection() {
             </div>
           </div>
 
-          <div className="puddle-how-artifact-stage relative min-h-[440px]">
+          <div className="puddle-how-artifact-stage relative min-h-[440px] 2xl:min-h-[472px]">
             {howItWorksSteps.map((step, index) => (
               <div
                 key={step.stage}
-                className={`absolute inset-0 transition-[opacity,transform,filter] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                className={`absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                   activeStep === index ? "pointer-events-auto" : "pointer-events-none"
                 }`}
                 style={getCrossfadeStyle(index)}
@@ -484,7 +484,7 @@ function HowItWorksStepCard({
   return (
     <article
       onMouseEnter={onMouseEnter}
-      className={`puddle-how-step-card w-full rounded-lg border bg-white/86 p-5 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur transition duration-300 lg:p-6 ${
+      className={`puddle-how-step-card w-full rounded-lg border bg-white/86 p-5 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur transition duration-300 lg:p-6 2xl:p-7 ${
         active ? "border-cyan-300 shadow-[0_24px_70px_rgba(8,145,178,0.12)]" : "border-slate-200 lg:opacity-80"
       }`}
     >
@@ -503,9 +503,12 @@ function HowItWorksStepCard({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-2 sm:grid-cols-3">
+      <div className="mt-5 grid gap-2 sm:grid-cols-3 2xl:mt-6">
         {step.proof.map((item) => (
-          <div key={item} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+          <div
+            key={item}
+            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 2xl:px-4 2xl:py-3"
+          >
             {item}
           </div>
         ))}
@@ -529,7 +532,7 @@ function HowItWorksArtifact({
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 text-white shadow-[0_36px_110px_rgba(15,23,42,0.18)]">
-      <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+      <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4 2xl:px-6 2xl:py-5">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">Process output</div>
           <h3 className="mt-1.5 text-2xl font-semibold leading-tight">{step.stage}</h3>
@@ -537,13 +540,13 @@ function HowItWorksArtifact({
         <div className="rounded-md bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950">{step.badge}</div>
       </div>
 
-      <div key={step.stage} className="puddle-how-artifact-motion p-5">
+      <div key={step.stage} className="puddle-how-artifact-motion p-5 2xl:p-6">
         {step.kind === "rubric" ? <HiringBarArtifact /> : null}
         {step.kind === "screen" ? <PuddleScreenArtifact /> : null}
         {step.kind === "packet" ? <ReviewerOutputArtifact /> : null}
       </div>
 
-      <div className="border-t border-white/10 px-5 py-4">
+      <div className="border-t border-white/10 px-5 py-4 2xl:px-6 2xl:py-5">
         <div className="grid grid-cols-3 gap-2">
           {howItWorksSteps.map((item, index) => (
             <div

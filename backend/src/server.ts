@@ -2,24 +2,17 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
 import { getPool } from "./db/pool.js";
-import { provisionRoom, type LiveKitConfig } from "./livekit/provision.js";
+import { roomName, type LiveKitConfig } from "./livekit/provision.js";
 import { registerLiveKitWebhookRoutes } from "./livekit/webhooks.js";
 import { registerSchedulerRoutes } from "./scheduler/routes.js";
 import {
   buildSessionRecord,
   createSessionInsert,
-  buildWorkerDispatchMetadata,
-  sessionRoomUpdateStatement,
 } from "./scheduler/sessions.js";
-import {
-  expectedRecordingArtifacts,
-  recordingArtifactUpsertStatement,
-  recordingUpsertStatement,
-} from "./recordings/repository.js";
-import { liveKitRecordingsEnabledFromEnv } from "./livekit/egress.js";
 import { registerIntegrationRoutes } from "./integration/routes.js";
 import type { CreateSessionRequest, CreateSessionResponse } from "./integration/contract.js";
 import { registerCandidateInviteRoutes } from "./invites/routes.js";
+import { registerInternalSessionRoutes } from "./internal/routes.js";
 import {
   buildCandidateInviteRecord,
   createCandidateInviteInsert,
@@ -44,37 +37,17 @@ export function liveKitConfigFromEnv(
   return { host, apiKey, apiSecret };
 }
 
-// Creates one interview session: generates the session id, persists the row,
-// provisions the LiveKit room, and dispatches the agent worker. This is the
-// single create-session operation behind the platform integration endpoint.
+// Creates one interview session and invite. LiveKit room/agent provisioning is
+// intentionally deferred until the candidate joins, so rooms cannot expire
+// while waiting for a candidate to open the invite.
 export async function createSession(
-  liveKitConfig: LiveKitConfig,
+  _liveKitConfig: LiveKitConfig,
   input: CreateSessionRequest,
 ): Promise<CreateSessionResponse> {
   const record = buildSessionRecord({ ...input, sessionId: randomUUID() });
   const insert = createSessionInsert(record);
   const pool = getPool();
   await pool.query(insert.sql, [...insert.params]);
-  const { room } = await provisionRoom(
-    liveKitConfig,
-    record.sessionId,
-    buildWorkerDispatchMetadata(record),
-  );
-
-  if (liveKitRecordingsEnabledFromEnv()) {
-    const roomUpdate = sessionRoomUpdateStatement(record.sessionId, room);
-    await pool.query(roomUpdate.sql, [...roomUpdate.params]);
-
-    const recording = recordingUpsertStatement({
-      sessionId: record.sessionId,
-      status: "pending",
-    });
-    await pool.query(recording.sql, [...recording.params]);
-    for (const artifact of expectedRecordingArtifacts(record.orgId, record.sessionId)) {
-      const stmt = recordingArtifactUpsertStatement(artifact);
-      await pool.query(stmt.sql, [...stmt.params]);
-    }
-  }
 
   const inviteToken = generateInviteToken();
   const invite = buildCandidateInviteRecord({
@@ -88,7 +61,7 @@ export async function createSession(
 
   return {
     sessionId: record.sessionId,
-    room,
+    room: roomName(record.sessionId),
     inviteToken,
     invitePath: invitePath(inviteToken),
     inviteExpiresAt: invite.expiresAt,
@@ -111,6 +84,7 @@ export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   registerSchedulerRoutes(app, liveKitConfig);
   registerIntegrationRoutes(app, (body) => createSession(liveKitConfig, body));
   registerCandidateInviteRoutes(app, liveKitConfig);
+  registerInternalSessionRoutes(app);
   registerLiveKitWebhookRoutes(app, liveKitConfig);
   return app;
 }

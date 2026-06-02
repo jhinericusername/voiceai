@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 const PROTECTED_POST_PATHS = [
   "/integration/",
   "/candidate/invites/",
+  "/internal/",
 ] as const;
 
 function bearerToken(header: string | undefined): string | null {

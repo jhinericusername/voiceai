@@ -5,6 +5,7 @@ import {
   createCandidateInviteInsert,
   findCandidateInviteByTokenStatement,
   invitePath,
+  isInviteSessionJoinable,
   isInviteUsable,
   type CandidateInviteRow,
 } from "../src/invites/repository.js";
@@ -47,6 +48,9 @@ describe("candidate invite repository", () => {
     const stmt = findCandidateInviteByTokenStatement("inv_test");
     expect(stmt.sql).toContain("JOIN sessions");
     expect(stmt.sql).toContain("WHERE ci.token_hash = $1");
+    expect(stmt.sql).toContain("s.status AS session_status");
+    expect(stmt.sql).toContain("s.scheduled_at");
+    expect(stmt.sql).toContain("s.room_name");
     expect(stmt.params).toEqual([hashInviteToken("inv_test")]);
   });
 
@@ -55,7 +59,11 @@ describe("candidate invite repository", () => {
       invite_id: "invite1",
       session_id: "sess1",
       org_id: "org1",
+      script_version: "pilot-v1",
       candidate_email: "candidate@example.com",
+      session_status: "scheduled",
+      scheduled_at: "2026-05-25T12:00:00Z",
+      room_name: null,
       status: "active",
       not_before: "2026-05-25T12:00:00Z",
       expires_at: "2026-05-25T13:00:00Z",
@@ -75,6 +83,32 @@ describe("candidate invite repository", () => {
       reason: "expired",
     });
   });
+
+  it("rejects invites attached to terminal interview sessions", () => {
+    const active: CandidateInviteRow = {
+      invite_id: "invite1",
+      session_id: "sess1",
+      org_id: "org1",
+      script_version: "pilot-v1",
+      candidate_email: "candidate@example.com",
+      session_status: "incomplete",
+      scheduled_at: "2026-05-25T12:00:00Z",
+      room_name: "interview-sess1",
+      status: "active",
+      not_before: "2026-05-25T12:00:00Z",
+      expires_at: "2026-05-25T13:00:00Z",
+      revoked_at: null,
+      join_count: 1,
+    };
+
+    expect(isInviteSessionJoinable(active)).toEqual({
+      ok: false,
+      reason: "session_ended",
+    });
+    expect(isInviteSessionJoinable({ ...active, session_status: "in_progress" })).toEqual({
+      ok: true,
+    });
+  });
 });
 
 describe("candidate join consent", () => {
@@ -82,7 +116,11 @@ describe("candidate join consent", () => {
     invite_id: "invite1",
     session_id: "sess1",
     org_id: "org1",
+    script_version: "pilot-v1",
     candidate_email: "candidate@example.com",
+    session_status: "scheduled",
+    scheduled_at: "2026-05-25T12:00:00Z",
+    room_name: null,
     status: "active",
     not_before: "2026-05-25T12:00:00Z",
     expires_at: "2026-05-25T13:00:00Z",

@@ -25,7 +25,11 @@ export interface CandidateInviteRow {
   readonly invite_id: string;
   readonly session_id: string;
   readonly org_id: string;
+  readonly script_version: string;
   readonly candidate_email: string;
+  readonly session_status: string;
+  readonly scheduled_at: string | Date | null;
+  readonly room_name: string | null;
   readonly status: string;
   readonly not_before: string | Date;
   readonly expires_at: string | Date;
@@ -68,8 +72,9 @@ export function createCandidateInviteInsert(record: CandidateInviteRecord): SqlS
 export function findCandidateInviteByTokenStatement(token: string): SqlStatement {
   return {
     sql:
-      "SELECT ci.invite_id, ci.session_id, s.org_id, ci.candidate_email, ci.status, " +
-      "ci.not_before, ci.expires_at, ci.revoked_at, ci.join_count " +
+      "SELECT ci.invite_id, ci.session_id, s.org_id, s.script_version, " +
+      "ci.candidate_email, s.status AS session_status, s.scheduled_at, s.room_name, " +
+      "ci.status, ci.not_before, ci.expires_at, ci.revoked_at, ci.join_count " +
       "FROM candidate_invites ci JOIN sessions s ON s.session_id = ci.session_id " +
       "WHERE ci.token_hash = $1",
     params: [hashInviteToken(token)],
@@ -106,6 +111,20 @@ export function isInviteUsable(
   const expiresAt = new Date(row.expires_at);
   if (!Number.isFinite(expiresAt.getTime()) || now >= expiresAt) {
     return { ok: false, reason: "expired" };
+  }
+
+  return { ok: true };
+}
+
+export function isInviteSessionJoinable(
+  row: CandidateInviteRow,
+): { ok: true } | { ok: false; reason: "session_ended" } {
+  if (
+    row.session_status === "incomplete" ||
+    row.session_status === "review_ready" ||
+    row.session_status === "recording_finalizing"
+  ) {
+    return { ok: false, reason: "session_ended" };
   }
 
   return { ok: true };

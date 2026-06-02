@@ -43,7 +43,10 @@ export async function POST(request: Request, context: RouteContext) {
   const payload = await backendResponse.json().catch(() => ({}));
   if (!backendResponse.ok) {
     return NextResponse.json(
-      { error: payload.error ?? "Invite could not be joined." },
+      {
+        error: payload.error ?? "Invite could not be joined.",
+        code: payload.code,
+      },
       { status: backendResponse.status },
     );
   }

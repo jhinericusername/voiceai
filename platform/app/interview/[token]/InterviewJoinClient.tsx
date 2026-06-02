@@ -24,7 +24,12 @@ interface JoinResponse {
   readonly token: string;
 }
 
-type RoomStage = "waiting" | "connecting" | "live" | "complete";
+interface JoinErrorResponse {
+  readonly error?: string;
+  readonly code?: string;
+}
+
+type RoomStage = "waiting" | "connecting" | "live" | "left" | "ended";
 type CheckStatus = "idle" | "checking" | "passed" | "failed";
 
 interface ConsentState {
@@ -74,6 +79,7 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   const [isJoining, setIsJoining] = useState(false);
   const [roomStatus, setRoomStatus] = useState("Not connected");
   const [remoteParticipants, setRemoteParticipants] = useState(0);
+  const [interviewerDelayed, setInterviewerDelayed] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [isPreviewMicEnabled, setIsPreviewMicEnabled] = useState(true);
@@ -114,6 +120,7 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
     localVideoTrackRef.current = null;
     setLocalVideoTrack(null);
     setRemoteVideoTrack(null);
+    setInterviewerDelayed(false);
     setIsMicEnabled(true);
     setIsCameraEnabled(true);
     liveKitRoomRef.current?.disconnect();
@@ -145,6 +152,15 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
 
     return () => window.clearInterval(interval);
   }, [stage]);
+
+  useEffect(() => {
+    if (stage !== "live" || remoteParticipants > 0) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setInterviewerDelayed(true), 15_000);
+    return () => window.clearTimeout(timeout);
+  }, [remoteParticipants, stage]);
 
   useEffect(() => {
     const video = callVideoRef.current;
@@ -266,11 +282,18 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
           },
         }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as JoinErrorResponse | JoinResponse;
 
       if (!response.ok) {
+        if ("code" in payload && payload.code === "session_ended") {
+          cleanupRoom();
+          stopPreview();
+          setStage("ended");
+          setError(payload.error ?? "This interview session has ended.");
+          return;
+        }
         setStage("waiting");
-        setError(payload.error ?? "Could not join this interview.");
+        setError(("error" in payload && payload.error) || "Could not join this interview.");
         return;
       }
 
@@ -284,7 +307,10 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
       });
       liveKitRoomRef.current = room;
 
-      const updateParticipants = () => setRemoteParticipants(room.remoteParticipants.size);
+      const updateParticipants = () => {
+        setInterviewerDelayed(false);
+        setRemoteParticipants(room.remoteParticipants.size);
+      };
       room.on(RoomEvent.Connected, () => setRoomStatus("Connected"));
       room.on(RoomEvent.Disconnected, () => setRoomStatus("Disconnected"));
       room.on(RoomEvent.ParticipantConnected, updateParticipants);
@@ -322,6 +348,7 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
       ]);
 
       setElapsedSeconds(0);
+      setInterviewerDelayed(false);
       setRoomStatus("Connected");
       setStage("live");
     } catch {
@@ -366,8 +393,9 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
 
   function endInterview(): void {
     cleanupRoom();
+    setError(null);
     setRoomStatus("Disconnected");
-    setStage("complete");
+    setStage("left");
   }
 
   return (
@@ -404,6 +432,7 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
           callVideoRef={callVideoRef}
           remoteVideoRef={remoteVideoRef}
           hasRemoteVideo={remoteVideoTrack !== null}
+          interviewerDelayed={interviewerDelayed}
           isMicEnabled={isMicEnabled}
           isCameraEnabled={isCameraEnabled}
           onToggleMic={() => {
@@ -420,7 +449,9 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
         />
       ) : null}
 
-      {stage === "complete" ? <CompletePanel /> : null}
+      {stage === "left" ? <LeftPanel isJoining={isJoining} roomStatus={roomStatus} onRejoin={enterRoom} /> : null}
+
+      {stage === "ended" ? <EndedPanel detail={error} /> : null}
     </section>
   );
 }
@@ -651,6 +682,7 @@ function LivePanel({
   callVideoRef,
   remoteVideoRef,
   hasRemoteVideo,
+  interviewerDelayed,
   isMicEnabled,
   isCameraEnabled,
   onToggleMic,
@@ -664,6 +696,7 @@ function LivePanel({
   readonly callVideoRef: RefObject<HTMLVideoElement | null>;
   readonly remoteVideoRef: RefObject<HTMLVideoElement | null>;
   readonly hasRemoteVideo: boolean;
+  readonly interviewerDelayed: boolean;
   readonly isMicEnabled: boolean;
   readonly isCameraEnabled: boolean;
   readonly onToggleMic: () => void;
@@ -706,14 +739,18 @@ function LivePanel({
                   </div>
                   <div className="mt-5 text-lg font-medium text-[#f1f3f4]">Puddle interviewer</div>
                   <div className="mt-2 text-sm text-[#bdc1c6]">
-                    {remoteParticipants > 0 ? "Connected without video" : "Waiting for interviewer"}
+                    {remoteParticipants > 0
+                      ? "Connected without video"
+                      : interviewerDelayed
+                        ? "Connecting interviewer..."
+                        : "Waiting for interviewer"}
                   </div>
                 </div>
               </div>
             ) : null}
 
             <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
-              {hasRemoteVideo ? "Interviewer video" : roomStatus}
+              {hasRemoteVideo ? "Interviewer video" : interviewerDelayed ? "Connecting interviewer..." : roomStatus}
             </div>
 
             <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
@@ -759,7 +796,7 @@ function LivePanel({
           <span className="font-medium">{join?.sessionId ?? "Interview"}</span>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 md:grid md:grid-cols-[repeat(3,48px)_72px_48px] md:justify-items-center">
           <ControlButton
             label={isMicEnabled ? "Mute microphone" : "Unmute microphone"}
             active={isMicEnabled}
@@ -774,55 +811,82 @@ function LivePanel({
           >
             <CameraIcon disabled={!isCameraEnabled} />
           </ControlButton>
-          <UtilityButton label="Captions">
+          <DisabledUtilityButton label="Captions">
             <CaptionsIcon />
-          </UtilityButton>
-          <UtilityButton label="Raise hand">
-            <RaiseHandIcon />
-          </UtilityButton>
-          <UtilityButton label="Present now">
-            <PresentIcon />
-          </UtilityButton>
-          <UtilityButton label="More options">
-            <MoreIcon />
-          </UtilityButton>
+          </DisabledUtilityButton>
           <button
             type="button"
             aria-label="Leave interview"
             title="Leave interview"
             onClick={onEnd}
-            className="grid h-12 w-[72px] place-items-center rounded-full bg-[#ea4335] text-white transition hover:bg-[#d93025] sm:ml-2"
+            className="grid h-12 w-[72px] place-items-center rounded-full bg-[#ea4335] text-white transition hover:bg-[#d93025]"
           >
             <EndCallIcon />
           </button>
+          <DisabledUtilityButton label="More options">
+            <MoreIcon />
+          </DisabledUtilityButton>
         </div>
 
         <div className="flex items-center justify-center gap-2 md:justify-end">
-          <UtilityButton label="Meeting details">
+          <DisabledUtilityButton label="Meeting details">
             <InfoIcon />
-          </UtilityButton>
-          <UtilityButton label="People">
+          </DisabledUtilityButton>
+          <DisabledUtilityButton label="People">
             <PeopleIcon />
-          </UtilityButton>
-          <UtilityButton label="Chat">
+          </DisabledUtilityButton>
+          <DisabledUtilityButton label="Chat">
             <ChatIcon />
-          </UtilityButton>
+          </DisabledUtilityButton>
         </div>
       </footer>
     </div>
   );
 }
 
-function CompletePanel() {
+function LeftPanel({
+  isJoining,
+  roomStatus,
+  onRejoin,
+}: {
+  readonly isJoining: boolean;
+  readonly roomStatus: string;
+  readonly onRejoin: () => void;
+}) {
   return (
     <div className="grid min-h-[620px] place-items-center bg-[#f8fafd] p-8 text-center">
       <div>
-        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#e6f4ea] text-2xl text-[#137333]">
-          <CheckMarkIcon />
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#fce8e6] text-2xl text-[#b3261e]">
+          <EndCallIcon />
         </div>
-        <h2 className="mt-5 text-3xl font-normal text-[#202124]">Thank you.</h2>
+        <h2 className="mt-5 text-3xl font-normal text-[#202124]">You left the interview.</h2>
         <p className="mt-3 max-w-md text-sm leading-6 text-[#5f6368]">
-          Your interview is complete. You may close this page.
+          The session remains available while the reconnect window is open.
+        </p>
+        <button
+          type="button"
+          onClick={onRejoin}
+          disabled={isJoining}
+          className="mt-6 rounded-full bg-[#1a73e8] px-7 py-3 text-sm font-medium !text-white transition hover:bg-[#1765cc] disabled:cursor-not-allowed disabled:bg-[#dadce0] disabled:!text-[#80868b]"
+        >
+          {isJoining ? "Rejoining..." : "Rejoin interview"}
+        </button>
+        <div className="mt-2 min-h-4 text-xs font-medium text-[#5f6368]">{isJoining ? roomStatus : null}</div>
+      </div>
+    </div>
+  );
+}
+
+function EndedPanel({ detail }: { readonly detail: string | null }) {
+  return (
+    <div className="grid min-h-[620px] place-items-center bg-[#f8fafd] p-8 text-center">
+      <div>
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#f1f3f4] text-2xl text-[#5f6368]">
+          <InfoIcon />
+        </div>
+        <h2 className="mt-5 text-3xl font-normal text-[#202124]">Session ended.</h2>
+        <p className="mt-3 max-w-md text-sm leading-6 text-[#5f6368]">
+          {detail ?? "This interview is no longer available to rejoin."}
         </p>
       </div>
     </div>
@@ -901,16 +965,36 @@ function ControlButton({
   );
 }
 
-function UtilityButton({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+function DisabledUtilityButton({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  const [showMessage, setShowMessage] = useState(false);
+  const disabledMessage = `${label} is disabled`;
+
+  function showDisabledMessage(): void {
+    setShowMessage(true);
+    window.setTimeout(() => setShowMessage(false), 1600);
+  }
+
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      className="grid h-10 w-10 place-items-center rounded-full text-[#e8eaed] transition hover:bg-white/10"
-    >
-      {children}
-    </button>
+    <span className="group relative inline-grid h-12 w-12 place-items-center">
+      <button
+        type="button"
+        aria-disabled="true"
+        aria-label={disabledMessage}
+        title={disabledMessage}
+        onClick={showDisabledMessage}
+        className="grid h-10 w-10 cursor-not-allowed place-items-center rounded-full text-[#9aa0a6] opacity-70 transition hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8ab4f8]"
+      >
+        {children}
+      </button>
+      <span
+        role="status"
+        className={`pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[#202124] px-2.5 py-1.5 text-xs font-medium text-white shadow-lg transition ${
+          showMessage ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+        }`}
+      >
+        {disabledMessage}
+      </span>
+    </span>
   );
 }
 
@@ -989,44 +1073,12 @@ function CaptionsIcon() {
   );
 }
 
-function RaiseHandIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M7 11V7.5a1.5 1.5 0 0 1 3 0V12" />
-      <path d="M10 12V5.5a1.5 1.5 0 0 1 3 0V12" />
-      <path d="M13 12V7.5a1.5 1.5 0 0 1 3 0V13" />
-      <path d="M16 13v-2.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-14 0v-2" />
-      <path d="M5 12.5 3.5 11a1.4 1.4 0 0 1 2-2L8 11.5" />
-    </svg>
-  );
-}
-
-function PresentIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="4" width="18" height="14" rx="2" />
-      <path d="M12 14V8" />
-      <path d="m9 11 3-3 3 3" />
-      <path d="M8 21h8" />
-      <path d="M12 18v3" />
-    </svg>
-  );
-}
-
 function MoreIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
       <circle cx="12" cy="5" r="1.8" />
       <circle cx="12" cy="12" r="1.8" />
       <circle cx="12" cy="19" r="1.8" />
-    </svg>
-  );
-}
-
-function CheckMarkIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="m5 12 4 4L19 6" />
     </svg>
   );
 }

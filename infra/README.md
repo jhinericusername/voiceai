@@ -161,8 +161,8 @@ http://internal-Puddle-Backe-B0GCD7ar4tZv-1590581178.us-west-1.elb.amazonaws.com
 ```
 
 Treat this as stack-specific state. CDK wires the current
-`BackendInternalBaseUrl` into the platform ECS task automatically when both
-backend and platform services are enabled.
+`BackendInternalBaseUrl` into the platform and agent ECS tasks automatically
+when those services are enabled with the backend service.
 
 ## Agent Image Build
 

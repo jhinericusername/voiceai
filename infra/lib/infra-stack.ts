@@ -136,6 +136,7 @@ export class InfraStack extends cdk.Stack {
       logGroups,
       runtimeRoles,
       artifactsBucket,
+      backendDeployment,
     });
     const platformDeployment = this.createPlatformDeployment({
       vpc,
@@ -259,6 +260,10 @@ export class InfraStack extends cdk.Stack {
     }
 
     if (this.cfg.agent.deployService) {
+      if (!this.cfg.backend.deployService) {
+        throw new Error('deployAgentService requires deployBackendService=true.');
+      }
+
       if (!this.cfg.liveKit.url) {
         throw new Error('deployAgentService requires a liveKitUrl CDK context value.');
       }
@@ -806,6 +811,7 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.deepgramApiKey,
       runtimeSecrets.cartesiaApiKey,
       runtimeSecrets.geminiApiKey,
+      runtimeSecrets.backendInternalToken,
     ]);
     grantSecretsRead(platformExecutionRole, [
       runtimeSecrets.backendInternalToken,
@@ -1074,9 +1080,15 @@ export class InfraStack extends cdk.Stack {
     logGroups: Record<string, logs.ILogGroup>;
     runtimeRoles: RuntimeRoles;
     artifactsBucket: s3.IBucket;
+    backendDeployment?: BackendDeployment;
   }): AgentDeployment | undefined {
     if (!this.cfg.agent.deployService) {
       return undefined;
+    }
+
+    const { backendDeployment } = params;
+    if (!backendDeployment) {
+      throw new Error('Agent service deployment requires a backend deployment.');
     }
 
     const liveKitUrl = this.cfg.liveKit.url;
@@ -1095,6 +1107,7 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS: String(
         this.cfg.agent.participantReconnectGraceSeconds,
       ),
+      PUDDLE_BACKEND_BASE_URL: `http://${backendDeployment.loadBalancer.loadBalancerDnsName}`,
       AWS_REGION: cdk.Stack.of(this).region,
       PYTHONUNBUFFERED: '1',
     };
@@ -1113,6 +1126,9 @@ export class InfraStack extends cdk.Stack {
         params.runtimeSecrets.cartesiaApiKey,
       ),
       GEMINI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.geminiApiKey),
+      PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.backendInternalToken,
+      ),
     };
 
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'AgentTaskDefinition', {
