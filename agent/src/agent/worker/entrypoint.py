@@ -64,7 +64,10 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
     from agent.worker.persistence import mark_session_incomplete, persist_assessment
 
     interview = build_session_context(ctx)
-    database_url = os.environ["DATABASE_URL"]
+    # DATABASE_URL is optional — when unset, the agent runs the interview but
+    # skips assessment persistence (the event log still lands on disk via
+    # EventLog). Required only for the full prod persistence path.
+    database_url = os.environ.get("DATABASE_URL")
     session: Any = None
     try:
         await ctx.connect()
@@ -104,9 +107,11 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
             clock_now=time.monotonic,
         )
         assessment = await runner.run(session_id=interview.session_id)
-        await persist_assessment(database_url, assessment)
+        if database_url:
+            await persist_assessment(database_url, assessment)
     except Exception:
-        await mark_session_incomplete(database_url, interview.session_id)
+        if database_url:
+            await mark_session_incomplete(database_url, interview.session_id)
         raise
     finally:
         if session is not None:
