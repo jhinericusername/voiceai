@@ -24,11 +24,37 @@ def test_every_category_has_four_anchors() -> None:
 def test_four_verbatim_questions_in_order() -> None:
     rubric = load_rubric(RUBRIC_PATH)
     assert [q.question_id for q in rubric.questions] == ["q1", "q2", "q3", "q4"]
-    assert rubric.questions[0].verbatim_text == (
-        "Can you tell me about a technically complex problem you solved "
-        "with a clever or hacky solution?"
-    )
+    # Verbatim is Prakul's actual phrasing extracted from real interviews.
+    assert "technically complex" in rubric.questions[0].verbatim_text
+    assert "clever or hacky" in rubric.questions[0].verbatim_text
     assert rubric.questions[0].rubric_categories == ["problem_solving"]
+
+
+def test_style_and_opener_and_closer_present() -> None:
+    rubric = load_rubric(RUBRIC_PATH)
+    assert rubric.style is not None
+    assert rubric.style.interviewer_name == "Prakul"
+    assert "Got it. Got it. Got it." in rubric.style.acknowledgments
+    assert rubric.opener is not None
+    assert rubric.opener.greeting == "Hello. How are you?"
+    assert "Weave" in rubric.opener.introduction
+    assert rubric.closer is not None
+    assert len(rubric.closer.logistics_questions) == 2
+
+
+def test_q2_has_pre_question_yc_framing() -> None:
+    rubric = load_rubric(RUBRIC_PATH)
+    q2 = next(q for q in rubric.questions if q.question_id == "q2")
+    assert q2.pre_question is not None
+    assert "YC" in q2.pre_question.ask
+    assert "their application" in q2.pre_question.branch_no
+
+
+def test_q1_has_scripted_probes() -> None:
+    rubric = load_rubric(RUBRIC_PATH)
+    q1 = next(q for q in rubric.questions if q.question_id == "q1")
+    assert len(q1.scripted_probes) >= 3
+    assert "tech stack" in q1.scripted_probes[0]
 
 
 def test_bare_minimum_rule_present() -> None:

@@ -47,10 +47,22 @@ class ProbeGenerator:
     def generate(self, request: ProbeRequest) -> str:
         """Draft a follow-up targeting the assessment's missing elements.
 
+        Scripted-first: when the question being probed has a `scripted_probes`
+        pool, return the next one in order (probes_used picks the index). Only
+        falls back to the LLM when the pool is exhausted but probes_used is
+        still under max_probes. This is Prakul's pattern — used 99% of the
+        time. The LLM tail-fallback handles cases where the pool is shorter
+        than max_probes but the candidate still needs targeted elicitation.
+
         Raises `ValueError` if the per-question probe budget is exhausted.
         """
         if request.probes_used >= request.max_probes:
             raise ValueError("probe budget exhausted for this question")
+
+        scripted = self._scripted_probes_for(request.category_assessment.category)
+        if request.probes_used < len(scripted):
+            return scripted[request.probes_used]
+
         ca = request.category_assessment
         missing = "; ".join(ca.missing_or_ambiguous) or "unclear evidence"
         user_text = (
@@ -72,3 +84,11 @@ class ProbeGenerator:
             messages=[{"role": "user", "content": user_text}],
         )
         return "".join(block.text for block in response.content).strip()
+
+    def _scripted_probes_for(self, category_key: str) -> list[str]:
+        """Return the scripted probe pool from the first question that targets
+        this category. Empty list when none defined (LLM fallback kicks in)."""
+        for q in self._rubric.questions:
+            if category_key in q.rubric_categories and q.scripted_probes:
+                return list(q.scripted_probes)
+        return []

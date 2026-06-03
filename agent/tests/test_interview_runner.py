@@ -48,8 +48,13 @@ async def test_runner_asks_every_base_question_verbatim(tmp_path: Path) -> None:
     assessment = await runner.run(session_id="s1")
 
     spoken = [c.args[0] for c in voice.speak.await_args_list]
+    # Verbatim is spoken — possibly prefixed with transition_in ("Awesome.
+    # Cool.") or a pre_question framing (Q2's YC ask). Each base question's
+    # verbatim must appear as a substring of some controller utterance.
     for question in RUBRIC.questions:
-        assert question.verbatim_text in spoken  # asked verbatim, unaltered
+        assert any(question.verbatim_text in u for u in spoken), (
+            f"{question.question_id} verbatim not found in any spoken utterance"
+        )
     assert assessment.session_id == "s1"
     assert len(assessment.category_scores) == 4
 

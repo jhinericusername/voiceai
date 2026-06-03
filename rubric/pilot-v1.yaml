@@ -2,6 +2,71 @@ script_version: pilot-v1
 total_cap_seconds: 1800
 bare_minimum_rule: at_least_one_4_and_problem_solving_ge_3
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Voice & style — extracted verbatim from Prakul's two real interviews
+# (artifacts/transcripts/video_1.json, video_2.json — Speaker [1]).
+#
+# The Interview Controller picks one acknowledgment / filler at random when
+# the candidate finishes a turn before transitioning to the next state. These
+# triplet repetitions ("Got it. Got it. Got it.") are signature Prakul; keep
+# them verbatim.
+# ─────────────────────────────────────────────────────────────────────────────
+style:
+  interviewer_name: Prakul
+  company_name: Weave
+  interviewer_role: engineer
+  acknowledgments:
+    - "Got it. Got it. Got it."
+    - "Awesome. Awesome. Awesome."
+    - "Okay. Cool. Cool. Cool."
+    - "Cool. Cool. Cool. Cool. Cool."
+    - "Nice. Nice. Nice."
+    - "Good. Good. Good."
+    - "Awesome. Awesome. Pretty cool."
+    - "Got it. And okay, cool."
+  thinking_fillers:
+    - "Take your time."
+    - "No rush."
+  vague_answer_nudges:
+    - "That's a tough one. Give me a second to think about it."
+    - "It's okay if it's not done."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Opener — exact phrasing observed in both video_1 (~47s) and video_2 (~17s).
+# The introduction line ("Well, my name is Prakul. I'm an engineer here at
+# Weave...") is identical in both interviews. The small_talk turn is improvised
+# but always covers location + weather.
+# ─────────────────────────────────────────────────────────────────────────────
+opener:
+  greeting: "Hello. How are you?"
+  small_talk_prompts:
+    - "Where are you calling in from?"
+    - "How's the weather over there?"
+  introduction: >-
+    Well, my name is Prakul. I'm an engineer here at Weave, and I guess the
+    purpose of this is to learn more about you, your technical background,
+    stuff you do outside of work. And I guess with that being said, can you
+    tell me a bit about yourself?
+  soft_budget_seconds: 180
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Closer — two logistical questions, then the wrap. Phrasing taken from both
+# interviews and merged where they differ in trivial ways.
+# ─────────────────────────────────────────────────────────────────────────────
+closer:
+  logistics_lead_in: "Two logistical questions to wrap this up."
+  logistics_questions:
+    - "This rolls five days a week in person in San Francisco. Is that okay?"
+    - "And would you require any sponsorship in order to work at Weave?"
+  wrap: >-
+    Awesome. Okay cool. Well the next steps are a take home followed by two
+    technical interviews with Andrew the CTO and then a work trial. I will
+    go talk to Andrew right now after this and we'll get back to you by
+    tomorrow morning.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Categories — unchanged from prior rubric. Definitions remain.
+# ─────────────────────────────────────────────────────────────────────────────
 categories:
   - key: problem_solving
     name: Problem Solving
@@ -36,54 +101,153 @@ categories:
       3: Very curious about something and takes action.
       4: Obsessively curious — becomes an expert.
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Questions — verbatim from Prakul's two interviews.
+# Each question has:
+#   verbatim_text     primary phrasing (preferred)
+#   variations        2nd phrasing seen across interviews
+#   transition_in     filler/transition Prakul says immediately before
+#   scripted_probes   ordered probe pool (used 99% of the time)
+#   when_stuck        what Prakul says when the candidate stalls or asks for examples
+#   pre_question      optional gating ask + branch (for Q2's YC framing trick)
+# ─────────────────────────────────────────────────────────────────────────────
 questions:
   - question_id: q1
-    verbatim_text: >-
-      Can you tell me about a technically complex problem you solved with a
-      clever or hacky solution?
     rubric_categories: [problem_solving]
+    transition_in: "Awesome. Cool."
+    verbatim_text: >-
+      Well, I guess the first question I have is, can you tell me about the
+      time you solved a technically complex problem with a clever or hacky
+      or novel solution, some roundabout way?
+    variations:
+      - >-
+        I guess my first question is, can you tell me about maybe, like, a
+        clever or hacky or novel solution you came up with when you were
+        building something technically complex?
+    scripted_probes:
+      - >-
+        Got it. Got it. Got it. And then guide me through, like, the tech
+        stack or, like, your guys' frame of mind, like things that you use,
+        why you use them, etcetera.
+      - >-
+        And then what about in this particular instance? Like what did you
+        use with the stack? Like why did you think of this solution rather
+        than, you know, a brute force?
+      - >-
+        Like how did you come to this? Like what made you think that this
+        was a good solution versus others?
+    when_stuck:
+      - >-
+        Imagine I'm a new developer joining your team, and you had to break
+        down for me the problem, the obvious solution — you know, something
+        that somebody might have typically come up with — and then the hacky
+        solution. How would you break those three things down?
     target_evidence:
       - the problem and why it was hard
       - the solution and why it was clever or elegant
       - the impact and level of recognition
-    max_probes: 2
-    soft_budget_seconds: 180
+    max_probes: 3
+    soft_budget_seconds: 240
     hard_stop_behavior: acknowledge_and_move_on
+
   - question_id: q2
-    verbatim_text: >-
-      Can you tell me about the time you hacked a non-computer system to your
-      advantage?
     rubric_categories: [agency]
+    transition_in: "Got it. And okay, cool."
+    pre_question:
+      ask: "Have you ever applied to YC before as a founder?"
+      branch_no: >-
+        The reason why I ask is because there's a question on their
+        application that we like a lot, which is the same question I'd like
+        to ask you, which is...
+      branch_yes: ""
+    verbatim_text: >-
+      Can you tell me about the time you hacked a noncomputer system to
+      your advantage?
+    variations: []
+    scripted_probes: []
+    when_stuck:
+      - >-
+        Probably I can give some examples. Somebody I met recently forged a
+        signature on her visa application in order to get an extension.
+        Another person, albeit this is a bit less illegal — they wanted to
+        serve concert goers for some software that they were building, so
+        they drove all around in a fifty-mile radius to every single concert
+        venue, snuck into the parking lots, and put their flyers on every
+        single car in every single parking lot. So, very roundabout, hacky
+        ways to get what you want, you know, solve problems that you're
+        experiencing. It doesn't need to be as illegal as forging a
+        signature to get a visa extension, but any instance of you breaking
+        the rules or doing something, you know, a bit out of the box to get
+        what you wanted.
+      - "That's what I'm saying. It's okay if it's not done."
     target_evidence:
       - the system and the rules or norms in place
       - what the candidate did and why it was unconventional
       - the outcome and what it cost or risked
     max_probes: 2
-    soft_budget_seconds: 180
+    soft_budget_seconds: 240
     hard_stop_behavior: acknowledge_and_move_on
+
   - question_id: q3
-    verbatim_text: >-
-      Can you tell me about an area of your life where your competitiveness
-      became so intense that it cost you something? Maybe it was detrimental
-      physically, mentally, or emotionally?
     rubric_categories: [competitiveness]
+    transition_in: "Awesome. Yeah. Shifting gears a bit. I think"
+    verbatim_text: >-
+      My next question is, can you tell me about an area outside of your
+      work or outside of tech where you are extremely competitive, so much
+      so that maybe it's been a detriment to some facet of your life? Maybe
+      you played sports at a high level — physically detrimental — video
+      games, you are consumed by them, mentally detrimental, any instance?
+    variations:
+      - >-
+        My next question is, can you tell me about an area of your life
+        outside of work where you were so competitive that it cost you
+        something? Maybe you played sports or video games at a high level
+        so much so that it was detrimental in some facet of your life?
+    scripted_probes:
+      - >-
+        Like, maybe you train for eight hours on one day or something like
+        that. Like, what's the most extreme instance? Or maybe it's about
+        longevity — how much you practiced every day for a particular
+        period of time.
+    when_stuck:
+      - >-
+        That's a tough one. Give me a second to think about it. It could be
+        anything. It just needs to be, I guess, like, competitive in nature
+        where you can prove that you're one of the best.
     target_evidence:
       - the area of life and what winning meant there
       - how intense the competitiveness became
       - the concrete cost the candidate paid
     max_probes: 2
-    soft_budget_seconds: 180
+    soft_budget_seconds: 240
     hard_stop_behavior: acknowledge_and_move_on
+
   - question_id: q4
-    verbatim_text: >-
-      Can you tell me about a niche or obscure topic that no one knows about
-      but you are an expert in? Meaning you are in the top 1% of this thing
-      that is extremely niche?
     rubric_categories: [curious]
+    transition_in: "Okay, cool, cool, cool."
+    verbatim_text: >-
+      And my last question is, can you tell me about a niche or obscure
+      nontechnical topic that nobody knows about, nobody cares about,
+      nobody gives a shit about, but you are an expert in? Meaning you're
+      in the top one percent of knowledge about this topic.
+    variations:
+      - >-
+        Nontechnical, that you are an expert in — meaning you're in the top
+        one percent of knowledge about this obscure topic that nobody cares
+        about, nobody gives a shit about.
+    scripted_probes: []
+    when_stuck:
+      - >-
+        I'll give some examples. Something that I've heard is — and these
+        sort of compound. Somebody recently traveled to Europe and went to
+        all the places that Napoleon was, and while he was there, he drank
+        wine. So, indirectly, he became an expert at Napoleonic-era wine
+        tasting. So it could compound. It could just be, like — what are
+        you in the top one percent of?
     target_evidence:
       - the topic and why it is niche
       - how the candidate became an expert
       - evidence of top-1% depth and sustained action
     max_probes: 2
-    soft_budget_seconds: 180
+    soft_budget_seconds: 240
     hard_stop_behavior: acknowledge_and_move_on

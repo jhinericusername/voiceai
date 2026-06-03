@@ -7,7 +7,14 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from agent.domain.types import Question, Rubric, RubricCategory
+from agent.domain.types import (
+    Closer,
+    Opener,
+    Question,
+    Rubric,
+    RubricCategory,
+    Style,
+)
 
 
 class RubricValidationError(Exception):
@@ -27,12 +34,18 @@ def load_rubric(path: Path) -> Rubric:
             Question(script_version=raw["script_version"], **q)
             for q in raw["questions"]
         ]
+        style = Style(**raw["style"]) if raw.get("style") else None
+        opener = Opener(**raw["opener"]) if raw.get("opener") else None
+        closer = Closer(**raw["closer"]) if raw.get("closer") else None
         rubric = Rubric(
             script_version=raw["script_version"],
             categories=categories,
             questions=questions,
             bare_minimum_rule=raw["bare_minimum_rule"],
             total_cap_seconds=raw["total_cap_seconds"],
+            style=style,
+            opener=opener,
+            closer=closer,
         )
     except (ValidationError, KeyError, TypeError) as exc:
         raise RubricValidationError(str(exc)) from exc

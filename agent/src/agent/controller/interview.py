@@ -30,6 +30,13 @@ _INTRO_TEXT = (
 )
 _CLOSING_TEXT = "That's everything I wanted to cover. Thank you for your time."
 
+
+def _join_nonempty(*parts: str) -> str:
+    """Join non-empty strings with single spaces. Used to glue transitions in
+    front of question verbatim text without leaving leading whitespace when the
+    transition is absent."""
+    return " ".join(p.strip() for p in parts if p and p.strip())
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,6 +99,7 @@ class InterviewRunner:
         )
         self._transcript: list[TranscriptTurn] = []
         self._turn_index = 0
+        self._ack_index = 0
 
     async def run(self, session_id: str) -> Assessment:
         """Conduct the interview and return the rolled-up `Assessment`."""
@@ -101,10 +109,10 @@ class InterviewRunner:
         self.state_machine.transition(InterviewState.PREFLIGHT_COMPLETE)
         self.state_machine.transition(InterviewState.CONSENT_CAPTURED)
         self.state_machine.transition(InterviewState.INTRO)
-        await self._say(_INTRO_TEXT, "INTRO", question_id=None)
+        await self._speak_opener()
 
         final: dict[str, CategoryAssessment] = {}
-        for question in self._rubric.questions:
+        for q_idx, question in enumerate(self._rubric.questions):
             logger.info(
                 "starting interview question",
                 extra={"session_id": session_id, "question_id": question.question_id},
@@ -114,16 +122,19 @@ class InterviewRunner:
             if self.state_machine.state != InterviewState.QUESTION_ASKING:
                 self.state_machine.transition(InterviewState.QUESTION_ASKING)
             self._clock.begin_question(question.soft_budget_seconds)
-            await self._say(
-                question.verbatim_text, "SCRIPTED_QUESTION", question.question_id
-            )
+            # Optional acknowledgment between questions (not before the first).
+            if q_idx > 0:
+                ack = self._next_acknowledgment()
+                if ack:
+                    await self._say(ack, "SCRIPTED_QUESTION", question.question_id)
+            await self._speak_question(question)
             assessments = await self._run_question(question)
             for category, assessment in assessments.items():
                 final[category] = assessment
             self.state_machine.transition(InterviewState.QUESTION_CLOSED)
             self.state_machine.advance_question()
 
-        await self._say(_CLOSING_TEXT, "CLOSING", question_id=None)
+        await self._speak_closer()
         logger.info("interview run closing", extra={"session_id": session_id})
         integrity_flags: list[str] = (
             self._perception.integrity_flags()  # type: ignore[attr-defined]
@@ -203,6 +214,61 @@ class InterviewRunner:
                 category=directive.probe_category,
                 missing_element=directive.missing_element,
             )
+
+    async def _speak_opener(self) -> None:
+        """Speak the opener block — uses rubric.opener when defined, else the
+        legacy _INTRO_TEXT. The opener combines greeting + first small-talk
+        prompt + introduction in one utterance so the candidate's "tell me
+        about yourself" response flows naturally into the first question."""
+        opener = self._rubric.opener
+        if opener is None or not opener.introduction:
+            await self._say(_INTRO_TEXT, "INTRO", question_id=None)
+            return
+        small_talk = opener.small_talk_prompts[0] if opener.small_talk_prompts else ""
+        text = _join_nonempty(opener.greeting, small_talk, opener.introduction)
+        await self._say(text, "INTRO", question_id=None)
+
+    async def _speak_question(self, question: object) -> None:
+        """Speak a question's transition_in + verbatim_text as one utterance.
+        Includes the pre_question gating ask + branch_no when defined (Q2's
+        YC framing trick)."""
+        transition_in = getattr(question, "transition_in", "") or ""
+        verbatim = question.verbatim_text  # type: ignore[attr-defined]
+        question_id = question.question_id  # type: ignore[attr-defined]
+        pre = getattr(question, "pre_question", None)
+        if pre is not None and pre.ask:
+            # Today the controller can't branch on the candidate's yes/no
+            # answer here without changing the answer/score loop. Speak the
+            # framing inline (the "branch_no" path, which is the common case)
+            # so we still get Prakul's verbatim framing.
+            text = _join_nonempty(transition_in, pre.ask, pre.branch_no, verbatim)
+        else:
+            text = _join_nonempty(transition_in, verbatim)
+        await self._say(text, "SCRIPTED_QUESTION", question_id)
+
+    async def _speak_closer(self) -> None:
+        """Speak the closer block — uses rubric.closer when defined, else the
+        legacy _CLOSING_TEXT."""
+        closer = self._rubric.closer
+        if closer is None or not closer.wrap:
+            await self._say(_CLOSING_TEXT, "CLOSING", question_id=None)
+            return
+        parts: list[str] = []
+        if closer.logistics_lead_in:
+            parts.append(closer.logistics_lead_in)
+        parts.extend(closer.logistics_questions)
+        parts.append(closer.wrap)
+        await self._say(_join_nonempty(*parts), "CLOSING", question_id=None)
+
+    def _next_acknowledgment(self) -> str:
+        """Round-robin through the style.acknowledgments pool. Returns an
+        empty string when no style is defined (silently skips ack)."""
+        style = self._rubric.style
+        if style is None or not style.acknowledgments:
+            return ""
+        ack = style.acknowledgments[self._ack_index % len(style.acknowledgments)]
+        self._ack_index += 1
+        return ack
 
     async def _say(
         self,

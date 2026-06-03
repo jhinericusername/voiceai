@@ -57,8 +57,26 @@ class RubricCategory(BaseModel):
         return value
 
 
+class PreQuestion(BaseModel):
+    """An optional gating ask before a main question. Used by Q2's YC framing."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ask: str
+    branch_no: str = ""
+    branch_yes: str = ""
+
+
 class Question(BaseModel):
-    """A verbatim base question and its probing budget."""
+    """A verbatim base question and its probing budget.
+
+    `variations` are alternate phrasings of the main question (e.g., used on a
+    re-ask). `scripted_probes` is the canonical ordered probe pool — the
+    Probe Generator consumes from this first and only falls back to the LLM
+    when the pool is exhausted. `when_stuck` are the example/clarification
+    nudges to use when a candidate stalls. `transition_in` is the short filler
+    the controller speaks immediately before this question.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -70,6 +88,45 @@ class Question(BaseModel):
     max_probes: int = 2
     soft_budget_seconds: int = 180
     hard_stop_behavior: HardStopBehavior = "acknowledge_and_move_on"
+    transition_in: str = ""
+    variations: list[str] = Field(default_factory=list)
+    scripted_probes: list[str] = Field(default_factory=list)
+    when_stuck: list[str] = Field(default_factory=list)
+    pre_question: PreQuestion | None = None
+
+
+class Style(BaseModel):
+    """Reusable phrasing the controller picks from between turns."""
+
+    model_config = ConfigDict(frozen=True)
+
+    interviewer_name: str = ""
+    company_name: str = ""
+    interviewer_role: str = ""
+    acknowledgments: list[str] = Field(default_factory=list)
+    thinking_fillers: list[str] = Field(default_factory=list)
+    vague_answer_nudges: list[str] = Field(default_factory=list)
+
+
+class Opener(BaseModel):
+    """The interview's opener block — greeting, small talk, introduction."""
+
+    model_config = ConfigDict(frozen=True)
+
+    greeting: str = ""
+    small_talk_prompts: list[str] = Field(default_factory=list)
+    introduction: str = ""
+    soft_budget_seconds: int = 180
+
+
+class Closer(BaseModel):
+    """Wrap-up logistics + farewell."""
+
+    model_config = ConfigDict(frozen=True)
+
+    logistics_lead_in: str = ""
+    logistics_questions: list[str] = Field(default_factory=list)
+    wrap: str = ""
 
 
 class Rubric(BaseModel):
@@ -82,6 +139,9 @@ class Rubric(BaseModel):
     questions: list[Question]
     bare_minimum_rule: str
     total_cap_seconds: int
+    style: Style | None = None
+    opener: Opener | None = None
+    closer: Closer | None = None
 
 
 class TranscriptTurn(BaseModel):
