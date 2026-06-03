@@ -43,24 +43,28 @@ def build_session_context(ctx: Any) -> InterviewJobContext:
 async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
     """LiveKit Agents entrypoint: one worker process runs one interview.
 
-    Connects to the room, starts an `AgentSession` configured for scripted
-    speech only, runs the `InterviewRunner` to completion, and persists the
-    resulting `Assessment`. On any failure the session is marked incomplete.
+    Uses the production-shaped `LiveKitSessionVoiceAgent` which handles
+    participant linking, audio track subscription, reconnect grace, and
+    proper event wiring. The earlier `LiveKitVoiceAgent` spike was missing
+    participant linking which caused STT to receive intermittent audio.
     """
     import os
     import time
     from pathlib import Path
 
     import anthropic
-    from livekit.agents import Agent
 
     from agent.controller.event_log import EventLog
     from agent.controller.interview import InterviewRunner
     from agent.rubric_loader import load_rubric
     from agent.scoring.probe import ProbeGenerator
     from agent.scoring.scorer import Scorer
-    from agent.voice.livekit_agent import LiveKitVoiceAgent
-    from agent.voice.session import build_agent_session
+    from agent.voice.livekit_session import (
+        LiveKitSessionVoiceAgent,
+        ParticipantDisconnectedError,
+    )
+    from agent.voice.stt import build_deepgram_stt
+    from agent.voice.tts import build_cartesia_tts
     from agent.worker.persistence import mark_session_incomplete, persist_assessment
 
     interview = build_session_context(ctx)
@@ -68,24 +72,14 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
     # skips assessment persistence (the event log still lands on disk via
     # EventLog). Required only for the full prod persistence path.
     database_url = os.environ.get("DATABASE_URL")
-    session: Any = None
+    voice: Any = None
     try:
         await ctx.connect()
-        session = build_agent_session(
-            deepgram_api_key=os.environ["DEEPGRAM_API_KEY"],
-            cartesia_api_key=os.environ["CARTESIA_API_KEY"],
+        voice = await LiveKitSessionVoiceAgent.start(
+            ctx,
+            stt=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]),
+            tts=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]),
         )
-        # Per Task 1.1 findings §3: AgentSession.start requires an Agent
-        # instance. We never call generate_reply(); the Interview Controller
-        # supplies every spoken word verbatim through session.say().
-        agent = Agent(
-            instructions=(
-                "Puddle voice interviewer. All speech is driven by the "
-                "Interview Controller via session.say(); do not synthesize "
-                "replies."
-            )
-        )
-        await session.start(agent, room=ctx.room)
 
         repo_root = Path(__file__).resolve().parents[4]
         rubric = load_rubric(
@@ -94,7 +88,7 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
         anthropic_client = anthropic.Anthropic()
         runner = InterviewRunner(
             rubric=rubric,
-            voice=LiveKitVoiceAgent(session),
+            voice=voice,
             scorer=Scorer(client=anthropic_client, rubric=rubric),
             probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
             event_log=EventLog(
@@ -106,7 +100,14 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
             ),
             clock_now=time.monotonic,
         )
-        assessment = await runner.run(session_id=interview.session_id)
+        try:
+            assessment = await runner.run(session_id=interview.session_id)
+        except ParticipantDisconnectedError:
+            # Candidate failed to reconnect within the grace window. Mark
+            # incomplete and don't try to persist a partial assessment.
+            if database_url:
+                await mark_session_incomplete(database_url, interview.session_id)
+            return
         if database_url:
             await persist_assessment(database_url, assessment)
     except Exception:
@@ -114,8 +115,8 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
             await mark_session_incomplete(database_url, interview.session_id)
         raise
     finally:
-        if session is not None:
+        if voice is not None:
             try:
-                await session.aclose()
+                await voice.aclose()
             except Exception:
                 pass
