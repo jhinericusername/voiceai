@@ -104,7 +104,12 @@ async def test_runner_prompts_after_silent_candidate_turn(
 ) -> None:  # noqa: ANN001
     monkeypatch.setattr(interview_module, "_LISTEN_INITIAL_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(interview_module, "_LISTEN_REPAIR_TIMEOUT_SECONDS", 0.01)
-    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    # Strip the opener so this test isolates question-level audio repair —
+    # otherwise the opener's pause-and-listen calls would each fire the
+    # repair path and inflate listen_calls beyond what this test models.
+    rubric = RUBRIC.model_copy(
+        update={"questions": [RUBRIC.questions[0]], "opener": None}
+    )
     voice = MagicMock()
     voice.speak = AsyncMock()
     listen_calls = {"count": 0}

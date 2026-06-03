@@ -217,16 +217,28 @@ class InterviewRunner:
 
     async def _speak_opener(self) -> None:
         """Speak the opener block — uses rubric.opener when defined, else the
-        legacy _INTRO_TEXT. The opener combines greeting + first small-talk
-        prompt + introduction in one utterance so the candidate's "tell me
-        about yourself" response flows naturally into the first question."""
+        legacy _INTRO_TEXT.
+
+        Matches Prakul's real rhythm — greet, pause for the candidate's "good,
+        you?" reply, ask the small-talk prompt, pause for the location/weather
+        reply, then deliver the longer introduction and pause for the
+        "tell me a bit about yourself" answer. The first question's listen
+        then captures the answer to its own verbatim. Opener listens are
+        tagged with question_id="opener" in the transcript."""
         opener = self._rubric.opener
         if opener is None or not opener.introduction:
             await self._say(_INTRO_TEXT, "INTRO", question_id=None)
             return
-        small_talk = opener.small_talk_prompts[0] if opener.small_talk_prompts else ""
-        text = _join_nonempty(opener.greeting, small_talk, opener.introduction)
-        await self._say(text, "INTRO", question_id=None)
+        if opener.greeting:
+            await self._say(opener.greeting, "INTRO", question_id=None)
+            await self._listen("opener")
+        if opener.small_talk_prompts:
+            await self._say(
+                opener.small_talk_prompts[0], "INTRO", question_id=None
+            )
+            await self._listen("opener")
+        await self._say(opener.introduction, "INTRO", question_id=None)
+        await self._listen("opener")
 
     async def _speak_question(self, question: object) -> None:
         """Speak a question's transition_in + verbatim_text as one utterance.
