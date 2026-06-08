@@ -1,6 +1,10 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { allowedAuthDomainsLabel } from "@/lib/auth/allowed-domains";
+import { noindexMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = noindexMetadata;
 
 export default function NotAuthorizedPage() {
   return (

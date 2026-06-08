@@ -6,6 +6,7 @@ export interface PublicFooterLink {
 }
 
 const legalLinks: readonly PublicFooterLink[] = [
+  { label: "Resources", href: "/resources" },
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
   { label: "AI interview disclosure", href: "/ai-interview-disclosure" },

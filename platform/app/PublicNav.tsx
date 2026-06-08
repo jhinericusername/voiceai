@@ -23,6 +23,7 @@ const trustLinks = [
 const directLinks = [
   { label: "Sample Report", href: "/sample-report" },
   { label: "Candidates", href: "/candidates" },
+  { label: "Resources", href: "/resources" },
 ];
 
 interface PublicNavProps {
