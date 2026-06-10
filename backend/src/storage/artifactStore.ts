@@ -5,22 +5,37 @@ export interface S3LikeClient {
   send(command: unknown): Promise<unknown>;
 }
 
-export type SignedUrlFn = (
-  client: S3LikeClient,
+export type SignedUrlFn<Client extends S3LikeClient = S3Client> = (
+  client: Client,
   command: GetObjectCommand,
   options: { readonly expiresIn: number },
 ) => Promise<string>;
+
+export interface SignedArtifactUrlInput {
+  readonly bucket: string;
+  readonly storagePath: string;
+  readonly expiresInSeconds: number;
+}
 
 export function createArtifactS3Client(region = process.env.AWS_REGION): S3Client {
   return new S3Client({ region });
 }
 
 export function artifactS3Key(storagePath: string): string {
-  return storagePath.replace(/^\/+/, "");
+  const key = storagePath.replace(/^\/+/, "");
+  if (!key) {
+    throw new Error("storagePath must produce a non-empty S3 key");
+  }
+  return key;
 }
 
-const defaultSignedUrl: SignedUrlFn = (client, command, options) =>
-  getSignedUrl(client as S3Client, command, options);
+function jsonStringify(value: unknown, label: string, space?: number): string {
+  const serialized = JSON.stringify(value, null, space);
+  if (serialized === undefined) {
+    throw new Error(`${label} must be JSON-serializable`);
+  }
+  return serialized;
+}
 
 export async function putJsonArtifact(
   client: S3LikeClient,
@@ -34,7 +49,7 @@ export async function putJsonArtifact(
     new PutObjectCommand({
       Bucket: input.bucket,
       Key: artifactS3Key(input.storagePath),
-      Body: `${JSON.stringify(input.body, null, 2)}\n`,
+      Body: `${jsonStringify(input.body, "body", 2)}\n`,
       ContentType: "application/json",
     }),
   );
@@ -48,7 +63,7 @@ export async function putJsonLinesArtifact(
     readonly rows: readonly unknown[];
   },
 ): Promise<void> {
-  const body = input.rows.map((row) => JSON.stringify(row)).join("\n");
+  const body = input.rows.map((row, index) => jsonStringify(row, `rows[${index}]`)).join("\n");
   await client.send(
     new PutObjectCommand({
       Bucket: input.bucket,
@@ -59,21 +74,27 @@ export async function putJsonLinesArtifact(
   );
 }
 
-export async function signedArtifactUrl(
-  client: S3LikeClient,
-  signer: SignedUrlFn = defaultSignedUrl,
-  input: {
-    readonly bucket: string;
-    readonly storagePath: string;
-    readonly expiresInSeconds: number;
-  },
+export function signedArtifactUrl(
+  client: S3Client,
+  input: SignedArtifactUrlInput,
+): Promise<string>;
+export function signedArtifactUrl<Client extends S3LikeClient>(
+  client: Client,
+  input: SignedArtifactUrlInput,
+  signer: SignedUrlFn<Client>,
+): Promise<string>;
+export async function signedArtifactUrl<Client extends S3LikeClient>(
+  client: S3Client | Client,
+  input: SignedArtifactUrlInput,
+  signer?: SignedUrlFn<Client>,
 ): Promise<string> {
-  return signer(
-    client,
-    new GetObjectCommand({
-      Bucket: input.bucket,
-      Key: artifactS3Key(input.storagePath),
-    }),
-    { expiresIn: input.expiresInSeconds },
-  );
+  const command = new GetObjectCommand({
+    Bucket: input.bucket,
+    Key: artifactS3Key(input.storagePath),
+  });
+  const options = { expiresIn: input.expiresInSeconds };
+  if (signer) {
+    return signer(client as Client, command, options);
+  }
+  return getSignedUrl(client as S3Client, command, options);
 }
