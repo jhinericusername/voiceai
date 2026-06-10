@@ -13,12 +13,13 @@ for production):
 
 from livekit.agents import WorkerOptions, cli
 
-from agent.worker.entrypoint import entrypoint
+from agent.worker.entrypoint import entrypoint, prewarm
 
 if __name__ == "__main__":  # pragma: no cover — live LiveKit worker process
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
+            prewarm_fnc=prewarm,
             agent_name="puddle-interviewer",
         )
     )

@@ -40,6 +40,13 @@ def build_session_context(ctx: Any) -> InterviewJobContext:
     )
 
 
+def prewarm(proc: Any) -> None:  # pragma: no cover - exercised via test_worker_prewarm
+    """Load the Silero VAD once per worker process into proc.userdata."""
+    from livekit.plugins import silero
+
+    proc.userdata["vad"] = silero.VAD.load()
+
+
 async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
     """LiveKit Agents entrypoint: one worker process runs one interview.
 
@@ -79,6 +86,7 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
             ctx,
             stt=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]),
             tts=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]),
+            vad=ctx.proc.userdata.get("vad"),
         )
 
         repo_root = Path(__file__).resolve().parents[4]
