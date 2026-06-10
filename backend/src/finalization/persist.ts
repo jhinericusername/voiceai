@@ -4,7 +4,6 @@ import {
   type CategoryScoreInput,
 } from "../assessments/repository.js";
 import {
-  recordingArtifactStatusUpdateStatement,
   recordingArtifactUpsertStatement,
 } from "../recordings/repository.js";
 import { storagePaths } from "../storage/layout.js";
@@ -121,16 +120,9 @@ export async function persistFinalizedInterview(
       kind,
       storagePath,
       contentType,
-      status: "expected",
-    });
-    await pool.query(upsert.sql, [...upsert.params]);
-
-    const update = recordingArtifactStatusUpdateStatement({
-      sessionId: input.sessionId,
-      kind,
       status: "available",
     });
-    await pool.query(update.sql, [...update.params]);
+    await pool.query(upsert.sql, [...upsert.params]);
   }
 
   await markSessionReviewReadyIfComplete(pool, input.sessionId);

@@ -1,10 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { assembleTranscript } from "../src/finalization/transcript.js";
 import { buildArtifactManifest } from "../src/finalization/finalize.js";
 import {
   buildFinalizationArtifacts,
+  persistFinalizedInterview,
   type FinalizedInterviewInput,
 } from "../src/finalization/persist.js";
+import { finalizationSessionStatement } from "../src/finalization/routes.js";
 import {
   REQUIRED_REVIEW_ARTIFACTS,
   markSessionReviewReadyIfComplete,
@@ -36,6 +38,17 @@ describe("assembleTranscript", () => {
     ]);
     expect(Object.keys(transcript.byQuestion)).toEqual(["q1", "q2"]);
     expect(transcript.byQuestion.q2[1].text).toBe("a2");
+  });
+
+  it("groups missing, blank, and prototype-like question ids safely", () => {
+    const transcript = assembleTranscript([
+      { turnIndex: 0, speaker: "agent", text: "intro", questionId: null },
+      { turnIndex: 1, speaker: "candidate", text: "blank", questionId: "   " },
+      { turnIndex: 2, speaker: "candidate", text: "special", questionId: "__proto__" },
+    ]);
+
+    expect(transcript.byQuestion.unassigned).toHaveLength(2);
+    expect(transcript.byQuestion.__proto__[0].text).toBe("special");
   });
 });
 
@@ -103,6 +116,61 @@ describe("finalized interview artifact payload", () => {
     );
     expect(artifacts.integrityFlags.body).toEqual([]);
     expect(artifacts.agentEvents.rows).toEqual(finalized.agentEvents);
+  });
+
+  it("persists the packet and marks finalized artifacts available", async () => {
+    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    const pool = {
+      query: async (sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        if (sql.includes("SELECT kind, status FROM recording_artifacts")) {
+          return {
+            rows: REQUIRED_REVIEW_ARTIFACTS.map((kind) => ({
+              kind,
+              status: "available",
+            })) satisfies ArtifactStatusRow[],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+    const s3 = { send: vi.fn(async () => ({})) };
+
+    await persistFinalizedInterview(pool, s3, "puddle-artifacts", finalized);
+
+    expect(queries.some((query) => query.sql.includes("INSERT INTO transcript_turns"))).toBe(
+      true,
+    );
+    expect(queries.some((query) => query.sql.includes("INSERT INTO assessments"))).toBe(
+      true,
+    );
+    expect(s3.send).toHaveBeenCalledTimes(4);
+
+    const artifactUpserts = queries.filter((query) =>
+      query.sql.includes("INSERT INTO recording_artifacts"),
+    );
+    expect(artifactUpserts).toHaveLength(4);
+    expect(artifactUpserts.map((query) => query.params[5])).toEqual([
+      "available",
+      "available",
+      "available",
+      "available",
+    ]);
+    expect(
+      queries.some((query) => query.sql.includes("UPDATE recording_artifacts")),
+    ).toBe(false);
+    expect(queries.at(-1)?.sql).toContain("UPDATE sessions SET status = $2");
+    expect(queries.at(-1)?.params).toEqual(["sess1", "review_ready"]);
+  });
+});
+
+describe("finalization route helpers", () => {
+  it("builds the authoritative session lookup", () => {
+    const stmt = finalizationSessionStatement("sess1");
+
+    expect(stmt.sql).toContain("SELECT session_id, org_id, script_version FROM sessions");
+    expect(stmt.sql).toContain("WHERE session_id = $1");
+    expect(stmt.params).toEqual(["sess1"]);
   });
 });
 
