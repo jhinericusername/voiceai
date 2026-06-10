@@ -4,7 +4,6 @@ const PROTECTED_POST_PATHS = [
   "/integration/",
   "/integrations/",
   "/candidate/invites/",
-  "/internal/",
 ] as const;
 
 function bearerToken(header: string | undefined): string | null {
@@ -17,16 +16,24 @@ function bearerToken(header: string | undefined): string | null {
   return token || null;
 }
 
-function requiresInternalAuth(request: FastifyRequest): boolean {
-  if (request.method !== "POST") {
-    return false;
-  }
-
-  if (request.url === "/sessions") {
+export function internalRouteRequiresAuth(method: string, url: string): boolean {
+  if (url.startsWith("/internal/")) {
     return true;
   }
 
-  return PROTECTED_POST_PATHS.some((path) => request.url.startsWith(path));
+  if (method !== "POST") {
+    return false;
+  }
+
+  if (url === "/sessions") {
+    return true;
+  }
+
+  return PROTECTED_POST_PATHS.some((path) => url.startsWith(path));
+}
+
+function requiresInternalAuth(request: FastifyRequest): boolean {
+  return internalRouteRequiresAuth(request.method, request.url);
 }
 
 export function internalAuthTokenFromEnv(

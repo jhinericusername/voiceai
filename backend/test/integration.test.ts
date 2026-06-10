@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  internalRouteRequiresAuth,
+} from "../src/integration/internal-auth.js";
+import {
   validateCreateSessionRequest,
   toAssessmentResponse,
   INTEGRATION_API_VERSION,
@@ -74,5 +77,13 @@ describe("integration contract", () => {
     });
     expect(response.humanSignedOff).toBe(false);
     expect(response.recommendation).toBe("below_bar");
+  });
+});
+
+describe("internal auth route matching", () => {
+  it("requires auth for all internal routes regardless of method", () => {
+    expect(internalRouteRequiresAuth("GET", "/internal/interviews")).toBe(true);
+    expect(internalRouteRequiresAuth("POST", "/internal/sessions/sess1/finalize")).toBe(true);
+    expect(internalRouteRequiresAuth("GET", "/healthz")).toBe(false);
   });
 });
