@@ -25,6 +25,8 @@ describe("assessment persistence", () => {
 
     expect(stmt.sql).toContain("INSERT INTO assessments");
     expect(stmt.sql).toContain("ON CONFLICT (session_id) DO UPDATE");
+    expect(stmt.sql).toContain("VALUES ($1, $2, $3::jsonb, $4, $5::jsonb)");
+    expect(stmt.sql).toContain("reviewer_email = NULL, signed_off_at = NULL");
     expect(stmt.params[0]).toBe("sess1");
     expect(stmt.params[1]).toBe("pilot-v1");
     expect(JSON.parse(String(stmt.params[2]))).toEqual([

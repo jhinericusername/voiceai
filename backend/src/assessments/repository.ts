@@ -51,7 +51,8 @@ export function assessmentUpsertStatement(input: AssessmentInput): SqlStatement 
       "script_version = EXCLUDED.script_version, " +
       "category_scores = EXCLUDED.category_scores, " +
       "meets_bare_minimum = EXCLUDED.meets_bare_minimum, " +
-      "integrity_flags = EXCLUDED.integrity_flags",
+      "integrity_flags = EXCLUDED.integrity_flags, " +
+      "reviewer_email = NULL, signed_off_at = NULL",
     params: [
       input.sessionId,
       input.scriptVersion,
