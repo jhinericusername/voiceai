@@ -65,13 +65,24 @@ export function sessionIdFromRoomName(name: string): string | null {
   return sessionId || null;
 }
 
+export function liveKitApiUrl(host: string): string {
+  if (host.startsWith("wss://")) {
+    return `https://${host.slice("wss://".length)}`;
+  }
+  if (host.startsWith("ws://")) {
+    return `http://${host.slice("ws://".length)}`;
+  }
+  return host;
+}
+
 function liveKitClients(config: LiveKitConfig): {
   readonly rooms: RoomClient;
   readonly dispatch: DispatchClient;
 } {
+  const apiUrl = liveKitApiUrl(config.host);
   return {
-    rooms: new RoomServiceClient(config.host, config.apiKey, config.apiSecret),
-    dispatch: new AgentDispatchClient(config.host, config.apiKey, config.apiSecret),
+    rooms: new RoomServiceClient(apiUrl, config.apiKey, config.apiSecret),
+    dispatch: new AgentDispatchClient(apiUrl, config.apiKey, config.apiSecret),
   };
 }
 

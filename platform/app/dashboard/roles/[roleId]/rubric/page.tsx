@@ -25,7 +25,7 @@ export default async function RubricPage({ params }: { readonly params: Promise<
   }
 
   return (
-    <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">
+    <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
       <header className="rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
@@ -70,7 +70,7 @@ export default async function RubricPage({ params }: { readonly params: Promise<
         </div>
       </section>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <SectionPanel title="Dimension definitions" eyebrow="Scoring bar">
           <TableScroller>
             <table className="min-w-[960px] w-full border-separate border-spacing-0">

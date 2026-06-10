@@ -81,33 +81,33 @@ export function SampleReportClient({ variant = "page" }: { readonly variant?: "p
       id={isLanding ? "review-packet" : undefined}
       className={
         isLanding
-          ? "puddle-grid-band relative z-10 scroll-mt-24 overflow-hidden border-y border-slate-200 px-5 py-16 sm:px-6 md:py-20"
+          ? "puddle-grid-band relative z-10 scroll-mt-24 overflow-hidden border-y border-slate-200 px-5 py-12 sm:px-6 md:py-16"
           : "puddle-grid-band relative z-10 overflow-hidden border-b border-slate-200 px-5 pb-20 pt-32 sm:px-6 lg:pt-36"
       }
     >
-      <div className="relative z-10 mx-auto max-w-7xl">
+      <div className="relative z-10 mx-auto max-w-6xl">
         <div className="mx-auto max-w-[92vw] text-center xl:max-w-[75vw]">
           <span className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-700">{eyebrow}</span>
           {isLanding ? (
-            <h2 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 md:text-5xl xl:whitespace-nowrap">
+            <h2 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 xl:text-4xl">
               {title}
             </h2>
           ) : (
-            <h1 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 md:text-5xl xl:whitespace-nowrap">
+            <h1 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 xl:text-4xl">
               {title}
             </h1>
           )}
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-600">{description}</p>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600">{description}</p>
         </div>
 
-        <div className="mx-auto mt-8 grid max-w-5xl items-stretch gap-2 rounded-lg border border-slate-200 bg-white/88 p-2 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mx-auto mt-8 grid max-w-4xl items-stretch gap-2 rounded-lg border border-slate-200 bg-white/88 p-2 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur sm:grid-cols-2 lg:grid-cols-4">
           {evaluationViews.map((evaluationView, index) => (
             <button
               key={evaluationView.label}
               type="button"
               aria-pressed={active === index}
               onClick={() => setActive(index)}
-              className={`grid min-h-28 grid-rows-[1.5rem_3rem] content-center gap-2 rounded-md border px-4 py-3 text-left transition ${
+              className={`grid min-h-24 grid-rows-[1.5rem_3rem] content-center gap-2 rounded-md border px-3 py-2.5 text-left transition ${
                 active === index
                   ? "border-cyan-300 bg-cyan-50 shadow-[0_10px_24px_rgba(14,116,144,0.1)]"
                   : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
@@ -124,7 +124,7 @@ export function SampleReportClient({ variant = "page" }: { readonly variant?: "p
           ))}
         </div>
 
-        <div className="mx-auto mt-8 max-w-6xl">
+        <div className="mx-auto mt-8 max-w-5xl">
           <ScorecardArtifact active={active} view={view} />
         </div>
       </div>
@@ -141,17 +141,17 @@ function ScorecardArtifact({
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.12)]">
-      <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-4 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">10-minute screen output</div>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">Scorecard for Prakul Singh</h2>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">Scorecard for Prakul Singh</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
             A rubric-specific report with enough evidence for the hiring manager to agree, disagree, or replay the
             original answer.
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 text-center sm:min-w-72">
+        <div className="grid grid-cols-3 gap-2 text-center sm:min-w-64">
           {[
             { label: "Score", value: `${totalScore}/${maxScore}` },
             { label: "AI risk", value: "10%" },
@@ -167,7 +167,7 @@ function ScorecardArtifact({
 
       <div className="grid lg:grid-cols-[1.55fr_0.75fr]">
         <div className="border-b border-slate-200 lg:border-b-0 lg:border-r">
-          <div className="grid border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 sm:grid-cols-[12rem_minmax(0,1fr)]">
+          <div className="grid border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 sm:grid-cols-[12rem_minmax(0,1fr)]">
             <div>Dimension</div>
             <div className="hidden sm:block">Evidence note</div>
           </div>
@@ -175,7 +175,7 @@ function ScorecardArtifact({
           {scorecardRows.map((row) => (
             <div
               key={row.dimension}
-              className="grid gap-3 border-b border-slate-100 px-5 py-4 last:border-b-0 sm:grid-cols-[12rem_minmax(0,1fr)]"
+              className="grid gap-3 border-b border-slate-100 px-4 py-3.5 last:border-b-0 sm:grid-cols-[12rem_minmax(0,1fr)]"
             >
               <div className="flex items-center justify-between gap-3 sm:block">
                 <div className="text-sm font-semibold text-slate-950">{row.dimension}</div>
@@ -189,13 +189,13 @@ function ScorecardArtifact({
         </div>
 
         <div className="border-t border-slate-200 bg-gradient-to-b from-cyan-50/70 via-white to-slate-50 lg:border-l lg:border-t-0">
-          <div className="border-b border-slate-200 px-5 py-5">
+          <div className="border-b border-slate-200 px-4 py-4">
             <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">{view.label}</div>
-            <h3 className="mt-2 text-2xl font-semibold text-slate-950">{view.title}</h3>
+            <h3 className="mt-2 text-xl font-semibold text-slate-950">{view.title}</h3>
             <p className="mt-3 text-sm leading-6 text-slate-600">{view.detail}</p>
           </div>
 
-          <div className="px-5 py-5">
+          <div className="px-4 py-4">
             <ScorecardFocusPanel active={active} />
           </div>
         </div>
@@ -263,7 +263,7 @@ function ScorecardFocusPanel({ active }: { readonly active: number }) {
       <div className="flex items-end justify-between border-b border-slate-200 pb-4">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Final scores</div>
-          <div className="mt-2 text-5xl font-semibold tracking-normal text-slate-950">{totalScore}</div>
+          <div className="mt-2 text-4xl font-semibold tracking-normal text-slate-950">{totalScore}</div>
         </div>
         <div className="pb-1 text-sm font-semibold text-slate-500">out of {maxScore}</div>
       </div>

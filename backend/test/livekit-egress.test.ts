@@ -12,7 +12,12 @@ import {
   liveKitTimestampToIso,
   recordingStatusForEgressEvent,
 } from "../src/livekit/webhooks.js";
-import { ensureRoomReady, roomName, sessionIdFromRoomName } from "../src/livekit/provision.js";
+import {
+  ensureRoomReady,
+  liveKitApiUrl,
+  roomName,
+  sessionIdFromRoomName,
+} from "../src/livekit/provision.js";
 
 describe("LiveKit Egress output configuration", () => {
   it("keeps recordings disabled unless explicitly enabled", () => {
@@ -138,6 +143,12 @@ describe("LiveKit room readiness", () => {
     apiKey: "key",
     apiSecret: "secret",
   };
+
+  it("normalizes websocket hosts for LiveKit server API clients", () => {
+    expect(liveKitApiUrl("wss://livekit.example")).toBe("https://livekit.example");
+    expect(liveKitApiUrl("ws://localhost:7880")).toBe("http://localhost:7880");
+    expect(liveKitApiUrl("https://livekit.example")).toBe("https://livekit.example");
+  });
 
   it("creates a missing room and dispatches the interviewer on candidate join", async () => {
     const createdRooms: unknown[] = [];

@@ -1,6 +1,6 @@
 export default function DashboardLoading() {
   return (
-    <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5" aria-label="Loading dashboard">
+    <div className="mx-auto grid min-w-0 max-w-6xl gap-5" aria-label="Loading dashboard">
       <div className="rounded-md border border-slate-200 bg-white px-4 py-4">
         <div className="h-3 w-36 animate-pulse rounded bg-slate-200" />
         <div className="mt-4 h-8 w-72 max-w-full animate-pulse rounded bg-slate-200" />
@@ -15,7 +15,7 @@ export default function DashboardLoading() {
           </div>
         ))}
       </div>
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="rounded-md border border-slate-200 bg-white p-4">
           <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />
           <div className="mt-4 grid gap-3">

@@ -119,7 +119,7 @@ export function DashboardChrome({ children, displayName, email, allowedDomains, 
 
       <div className="min-w-0 overflow-x-clip">
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex flex-col gap-3 px-4 py-3 sm:px-5 xl:px-6">
+          <div className="flex flex-col gap-3 px-4 py-3 sm:px-5">
             <div className="flex items-center justify-between gap-3 lg:hidden">
               <Link href="/dashboard" className="flex items-center gap-2" aria-label="Puddle dashboard">
                 <Image src="/puddle-symbol-black-nobg.png" alt="" width={32} height={32} className="h-8 w-8" />
@@ -189,7 +189,7 @@ export function DashboardChrome({ children, displayName, email, allowedDomains, 
           </div>
         </header>
 
-        <main className="min-w-0 overflow-x-clip px-4 py-5 sm:px-5 xl:px-6">{children}</main>
+        <main className="min-w-0 overflow-x-clip px-4 py-5 sm:px-5">{children}</main>
       </div>
 
       {activeDialog ? (

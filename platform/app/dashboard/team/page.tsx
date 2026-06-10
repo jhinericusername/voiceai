@@ -8,7 +8,7 @@ export default function TeamPage() {
   const domains = allowedAuthDomains();
 
   return (
-    <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">
+    <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
       <header className="min-w-0 rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Team</div>
         <div className="mt-2 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -24,7 +24,7 @@ export default function TeamPage() {
         </div>
       </header>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <SectionPanel title="Access policy" eyebrow="Workspace">
           <div className="grid gap-3 sm:grid-cols-2">
             {domains.map((domain) => (

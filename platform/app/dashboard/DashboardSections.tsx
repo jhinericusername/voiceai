@@ -3,10 +3,12 @@ import {
   demoActivity,
   demoCandidates,
   demoRoles,
+  getActiveInterviewSessions,
+  getCandidateById,
   getDashboardStats,
-  getReviewQueue,
+  getReviewPackets,
   getRole,
-  type DemoCandidate,
+  type ReviewPacket,
 } from "./demo-data";
 import {
   EmptyState,
@@ -24,28 +26,28 @@ import {
 
 const healthItems = [
   {
-    label: "Recording pipeline",
+    label: "Review packet pipeline",
     value: "1 finalizing",
     status: "Recording finalizing",
-    detail: "All completed rooms have egress jobs attached.",
+    detail: "One completed room is copying media before transcript scoring.",
   },
   {
-    label: "Transcript jobs",
+    label: "Transcript evidence",
     value: "6 ready",
     status: "Available",
-    detail: "One transcript waits on recording finalization.",
+    detail: "Ready packets include speaker turns and evidence markers.",
   },
   {
-    label: "Consent capture",
+    label: "Human decision gate",
     value: "100%",
     status: "Accepted",
-    detail: "Every joined candidate accepted disclosure before recording.",
+    detail: "No recommendation advances without reviewer sign-off.",
   },
   {
     label: "Review SLA",
     value: "3 packets",
     status: "In review",
-    detail: "Three packets are waiting for a hiring-manager decision.",
+    detail: "Open packets need an owner, calibration note, or final decision.",
   },
 ];
 
@@ -53,73 +55,91 @@ export function WorkspaceMetricStrip() {
   const stats = getDashboardStats();
 
   return (
-    <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Workspace metrics">
-      <MetricCard label="Active roles" value={String(stats.activeRoles)} detail="Roles accepting candidate screens" />
-      <MetricCard label="Candidates screened" value={String(stats.screenedCandidates)} detail="Completed or finalizing sessions" />
-      <MetricCard label="Review-ready sessions" value={String(stats.reviewReadySessions)} detail="Packets with scorecards attached" />
-      <MetricCard label="Avg screen length" value={`${stats.avgScreenLength}m`} detail="Across completed pilot screens" />
+    <section className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5" aria-label="Workspace metrics">
+      <MetricCard label="Needs review" value={String(stats.reviewReadySessions)} detail="Open packets with scorecards attached" />
+      <MetricCard label="Unassigned" value={String(stats.unassignedReviews)} detail="Packets waiting for a human owner" />
+      <MetricCard label="Oldest review" value={`${stats.oldestReviewHours}h`} detail="Time since the oldest packet updated" />
+      <MetricCard label="Completed today" value={String(stats.completedToday)} detail="Interviews ended in the demo workspace" />
       <MetricCard label="Integrity items" value={String(stats.flaggedIntegrityItems)} detail="Flags needing reviewer inspection" />
     </section>
   );
 }
 
 export function NeedsReviewQueue({
-  candidates = getReviewQueue(),
+  packets = getReviewPackets(),
   limit,
   actionHref = "/dashboard/review-queue",
   actionLabel = "View queue",
 }: {
-  readonly candidates?: readonly DemoCandidate[];
+  readonly packets?: readonly ReviewPacket[];
   readonly limit?: number;
   readonly actionHref?: string;
   readonly actionLabel?: string;
 }) {
-  const visibleCandidates = typeof limit === "number" ? candidates.slice(0, limit) : candidates;
+  const visiblePackets = typeof limit === "number" ? packets.slice(0, limit) : packets;
 
   return (
     <SectionPanel
-      title="Needs review"
-      eyebrow="Decision queue"
+      title="Interview packets needing review"
+      eyebrow="Human review queue"
       action={
         <Link href={actionHref} className={secondaryButtonClass}>
           {actionLabel}
         </Link>
       }
     >
-      {visibleCandidates.length ? (
+      {visiblePackets.length ? (
         <TableScroller>
-          <table className="min-w-[760px] w-full border-separate border-spacing-0">
+          <table className="min-w-[860px] w-full border-separate border-spacing-0">
             <thead>
               <tr>
                 <th className={`${tableHeaderClass} rounded-l-md px-3 py-2`}>Candidate</th>
                 <th className={`${tableHeaderClass} px-3 py-2`}>Role</th>
                 <th className={`${tableHeaderClass} px-3 py-2`}>Score</th>
                 <th className={`${tableHeaderClass} px-3 py-2`}>Recommendation</th>
-                <th className={`${tableHeaderClass} px-3 py-2`}>AI risk</th>
-                <th className={`${tableHeaderClass} rounded-r-md px-3 py-2`}>Updated</th>
+                <th className={`${tableHeaderClass} px-3 py-2`}>Artifacts</th>
+                <th className={`${tableHeaderClass} px-3 py-2`}>Integrity</th>
+                <th className={`${tableHeaderClass} px-3 py-2`}>Reviewer</th>
+                <th className={`${tableHeaderClass} rounded-r-md px-3 py-2`}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {visibleCandidates.map((candidate) => {
-                const role = getRole(candidate.roleId);
+              {visiblePackets.map((packet) => {
+                const { candidate, role, session } = packet;
                 return (
-                  <tr key={candidate.id}>
+                  <tr key={session.id}>
                     <td className={`${tableCellClass} font-medium text-slate-950`}>
-                      <Link href={`/dashboard/roles/${candidate.roleId}/candidates/${candidate.id}`} className="hover:text-cyan-700">
+                      <Link href={`/dashboard/interviews/${session.id}`} className="hover:text-cyan-700">
                         {candidate.name}
                       </Link>
-                      <div className="mt-0.5 text-xs font-normal text-slate-500">{candidate.source}</div>
+                      <div className="mt-0.5 text-xs font-normal text-slate-500">
+                        {session.durationMinutes}m interview - updated {packet.packetAgeHours}h ago
+                      </div>
                     </td>
-                    <td className={tableCellClass}>{role?.title ?? "Unknown role"}</td>
+                    <td className={tableCellClass}>
+                      <Link href={`/dashboard/roles/${role.id}`} className="font-medium text-cyan-700 hover:text-cyan-900">
+                        {role.title}
+                      </Link>
+                      <div className="mt-0.5 text-xs text-slate-500">{role.owner}</div>
+                    </td>
                     <td className={tableCellClass}>
                       <ScoreBadge score={candidate.score} maxScore={candidate.maxScore} />
                     </td>
                     <td className={tableCellClass}>{candidate.recommendation ? <StatusPill status={candidate.recommendation} /> : "Pending"}</td>
                     <td className={tableCellClass}>
-                      <div className="font-medium text-slate-900">{candidate.aiRisk}</div>
-                      <div className="text-xs text-slate-500">{candidate.aiRiskPercent}% risk score</div>
+                      <div className="font-medium text-slate-900">{packet.artifactReadiness}</div>
+                      <div className="text-xs text-slate-500">Video {session.media.videoStatus.toLowerCase()} / transcript {session.media.transcriptStatus.toLowerCase()}</div>
                     </td>
-                    <td className={tableCellClass}>{formatDateTime(candidate.lastActivityAt)}</td>
+                    <td className={tableCellClass}>
+                      <div className="font-medium text-slate-900">{candidate.aiRisk}</div>
+                      <div className="text-xs text-slate-500">{candidate.integrityFlags} flags / {candidate.aiRiskPercent}% risk</div>
+                    </td>
+                    <td className={tableCellClass}>{candidate.reviewer}</td>
+                    <td className={tableCellClass}>
+                      <Link href={`/dashboard/interviews/${session.id}`} className="font-medium text-cyan-700 hover:text-cyan-900">
+                        Open review
+                      </Link>
+                    </td>
                   </tr>
                 );
               })}
@@ -127,7 +147,7 @@ export function NeedsReviewQueue({
           </table>
         </TableScroller>
       ) : (
-        <EmptyState title="No candidates need review" detail="Completed screens will appear here after transcript, scorecard, and artifact processing finish." />
+        <EmptyState title="No interviews need review" detail="Completed screens will appear here after transcript, scorecard, and artifact processing finish." />
       )}
     </SectionPanel>
   );
@@ -282,6 +302,55 @@ export function RecentActivity({ limit }: { readonly limit?: number }) {
           );
         })}
       </div>
+    </SectionPanel>
+  );
+}
+
+export function ActiveInterviewPanel() {
+  const activeSessions = getActiveInterviewSessions();
+
+  return (
+    <SectionPanel title="Live and finalizing" eyebrow="Interview operations">
+      {activeSessions.length ? (
+        <div className="grid gap-3">
+          {activeSessions.map((session) => {
+            const candidate = getCandidateById(session.candidateId);
+            const role = getRole(session.roleId);
+
+            return (
+              <Link
+                key={session.id}
+                href={`/dashboard/interviews/${session.id}`}
+                className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 transition hover:border-cyan-200 hover:bg-cyan-50/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-950">{candidate?.name ?? "Unknown candidate"}</div>
+                    <div className="mt-1 truncate text-xs text-slate-500">{role?.title ?? "Unknown role"}</div>
+                  </div>
+                  <StatusPill status={session.lifecycleStatus} />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <div className="font-semibold text-slate-950">{session.media.videoStatus}</div>
+                    <div className="mt-0.5 text-slate-500">Video</div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-950">{session.media.audioStatus}</div>
+                    <div className="mt-0.5 text-slate-500">Audio</div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-950">{session.media.transcriptStatus}</div>
+                    <div className="mt-0.5 text-slate-500">Transcript</div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      ) : (
+        <EmptyState title="No active interviews" detail="Live and finalizing sessions appear here before they become review packets." />
+      )}
     </SectionPanel>
   );
 }

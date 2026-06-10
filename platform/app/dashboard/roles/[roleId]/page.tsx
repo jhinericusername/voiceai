@@ -40,7 +40,7 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
     .slice(0, 3);
 
   return (
-    <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">
+    <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
       <header className="min-w-0 rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
@@ -76,7 +76,7 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
         </div>
       </header>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
           <RoleWorkspaceTabs role={role} candidates={candidates} sessions={sessions} />
         </div>
