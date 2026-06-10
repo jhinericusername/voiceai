@@ -20,6 +20,7 @@ import {
 } from "./invites/repository.js";
 import { generateInviteToken } from "./invites/tokens.js";
 import { registerInternalAuth } from "./integration/internal-auth.js";
+import { registerAshbyRoutes } from "./ashby/routes.js";
 
 // Reads the LiveKit credentials the room-provisioning code needs from the env.
 // Throws if any are missing — the server must never start half-configured.
@@ -86,6 +87,7 @@ export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   registerCandidateInviteRoutes(app, liveKitConfig);
   registerInternalSessionRoutes(app);
   registerLiveKitWebhookRoutes(app, liveKitConfig);
+  registerAshbyRoutes(app);
   return app;
 }
 

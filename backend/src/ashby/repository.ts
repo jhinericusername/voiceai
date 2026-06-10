@@ -32,6 +32,13 @@ export function integrationLookupStatement(identity: CompanyIdentity): SqlStatem
   };
 }
 
+export function integrationByIdStatement(integrationId: string): SqlStatement {
+  return {
+    sql: "SELECT * FROM ashby_company_integrations WHERE integration_id = $1 LIMIT 1",
+    params: [integrationId],
+  };
+}
+
 export function integrationSetupUpsertStatement(input: {
   readonly organizationId?: string | null;
   readonly emailDomain: string;
@@ -96,8 +103,14 @@ export function webhookEventInsertStatement(input: {
 }): SqlStatement {
   return {
     sql:
+      "WITH inserted AS (" +
       "INSERT INTO ashby_webhook_events (webhook_action_id, integration_id, action, payload) " +
-      "VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (webhook_action_id) DO NOTHING",
+      "VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (webhook_action_id) DO NOTHING " +
+      "RETURNING true AS inserted, processed_at" +
+      ") SELECT inserted, processed_at FROM inserted " +
+      "UNION ALL " +
+      "SELECT false AS inserted, processed_at FROM ashby_webhook_events " +
+      "WHERE webhook_action_id = $1 AND NOT EXISTS (SELECT 1 FROM inserted)",
     params: [input.webhookActionId, input.integrationId, input.action, jsonParam(input.payload)],
   };
 }

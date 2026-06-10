@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeApplicationUpsertStatement,
   inactiveCandidateApplicationsStatement,
+  integrationByIdStatement,
   integrationLookupStatement,
   integrationSetupUpsertStatement,
   isValidEmailDomain,
@@ -21,6 +22,13 @@ describe("Ashby repository statements", () => {
     expect(normalizeEmailDomain(" UsePuddle.COM ")).toBe("usepuddle.com");
     expect(stmt.sql).toContain("ashby_company_integrations");
     expect(stmt.params).toEqual([null, "usepuddle.com"]);
+  });
+
+  it("builds integration lookup by id", () => {
+    const stmt = integrationByIdStatement("int_1");
+
+    expect(stmt.sql).toContain("WHERE integration_id = $1");
+    expect(stmt.params).toEqual(["int_1"]);
   });
 
   it("validates email domains", () => {
@@ -70,6 +78,8 @@ describe("Ashby repository statements", () => {
     });
 
     expect(stmt.sql).toContain("ON CONFLICT (webhook_action_id) DO NOTHING");
+    expect(stmt.sql).toContain("RETURNING true AS inserted, processed_at");
+    expect(stmt.sql).toContain("SELECT false AS inserted, processed_at FROM ashby_webhook_events");
     expect(stmt.params).toEqual([
       "action_1",
       "int_1",
