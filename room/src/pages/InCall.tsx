@@ -8,9 +8,12 @@ interface InCallProps {
 }
 
 // In-call UI: connects to the LiveKit room, attaches agent audio, shows self-view.
+// Surfaces a "Tap to enable audio" affordance when the browser blocks autoplay,
+// so the candidate can always hear the agent's opener.
 export function InCall({ join, onComplete }: InCallProps): JSX.Element {
   const selfVideoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<"connecting" | "live" | "ended">("connecting");
+  const [needsAudioGesture, setNeedsAudioGesture] = useState(false);
   const connRef = useRef<RoomConnection | null>(null);
 
   useEffect(() => {
@@ -24,6 +27,7 @@ export function InCall({ join, onComplete }: InCallProps): JSX.Element {
           selfVideoRef.current.srcObject = new MediaStream([videoTrack]);
         }
       },
+      (canPlayback) => setNeedsAudioGesture(!canPlayback),
     )
       .then((conn) => {
         if (cancelled) {
@@ -40,6 +44,10 @@ export function InCall({ join, onComplete }: InCallProps): JSX.Element {
     };
   }, [join]);
 
+  const enableAudio = (): void => {
+    void connRef.current?.startAudio().then(() => setNeedsAudioGesture(false));
+  };
+
   const end = (): void => {
     void connRef.current?.disconnect();
     setStatus("ended");
@@ -49,6 +57,11 @@ export function InCall({ join, onComplete }: InCallProps): JSX.Element {
   return (
     <main>
       <div aria-label="status">{status}</div>
+      {needsAudioGesture && (
+        <button aria-label="enable-audio" onClick={enableAudio}>
+          Tap to enable audio
+        </button>
+      )}
       <video aria-label="self-view" ref={selfVideoRef} autoPlay muted playsInline />
       <button onClick={end}>End interview</button>
     </main>
