@@ -44,3 +44,10 @@ class VoiceAgent(abc.ABC):
     @abc.abstractmethod
     def set_mode(self, mode: VoiceMode) -> None:
         """Set the voice mode — adjusts pacing/turn sensitivity, not content."""
+
+    def user_is_speaking(self) -> bool:
+        """Whether the candidate is currently speaking (VAD-driven).
+
+        Default False; cascaded adapters with a VAD override this so the
+        controller can avoid nagging mid-answer."""
+        return False

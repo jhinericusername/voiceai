@@ -68,6 +68,7 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         self._participant_state_changed = asyncio.Event()
         self._room: Any | None = None
         self._closed = False
+        self._user_speaking = False
         self._session.on("user_input_transcribed", self._on_user_input_transcribed)
         self._session.on("agent_state_changed", self._on_agent_state_changed)
         self._session.on("user_state_changed", self._on_user_state_changed)
@@ -300,13 +301,19 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         )
 
     def _on_user_state_changed(self, event: Any) -> None:
+        new_state = getattr(event, "new_state", None)
+        self._user_speaking = new_state == "speaking"
         logger.info(
             "user state changed",
             extra={
                 "old_state": getattr(event, "old_state", None),
-                "new_state": getattr(event, "new_state", None),
+                "new_state": new_state,
             },
         )
+
+    def user_is_speaking(self) -> bool:
+        """True while the candidate is actively speaking (VAD user state)."""
+        return self._user_speaking
 
     def _on_speech_created(self, event: Any) -> None:
         logger.info("speech created", extra={"source": getattr(event, "source", None)})

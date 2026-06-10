@@ -148,6 +148,22 @@ async def test_listen_returns_after_pause_window() -> None:
     assert result.transcript == "Just one clause."
 
 
+async def test_user_is_speaking_tracks_user_state_events() -> None:
+    session = FakeSession()
+    voice = LiveKitSessionVoiceAgent(session)
+    assert voice.user_is_speaking() is False
+
+    session.handlers["user_state_changed"](
+        SimpleNamespace(old_state="listening", new_state="speaking")
+    )
+    assert voice.user_is_speaking() is True
+
+    session.handlers["user_state_changed"](
+        SimpleNamespace(old_state="speaking", new_state="listening")
+    )
+    assert voice.user_is_speaking() is False
+
+
 async def test_livekit_session_listen_survives_participant_reconnect() -> None:
     session = FakeSession()
     room = FakeRoom()
