@@ -57,7 +57,7 @@ def _positive_float_env(name: str, default: float) -> float:
 
 _LISTEN_INITIAL_TIMEOUT_SECONDS = _positive_float_env(
     "PUDDLE_LISTEN_INITIAL_TIMEOUT_SECONDS",
-    8.0,
+    20.0,
 )
 _LISTEN_REPAIR_TIMEOUT_SECONDS = _positive_float_env(
     "PUDDLE_LISTEN_REPAIR_TIMEOUT_SECONDS",
@@ -320,6 +320,17 @@ class InterviewRunner:
         )
         self._turn_index += 1
 
+    def _candidate_is_speaking(self) -> bool:
+        """True when the voice layer reports the candidate is mid-utterance
+        (VAD). Defensive: any non-VAD voice reports False."""
+        probe = getattr(self._voice, "user_is_speaking", None)
+        if not callable(probe):
+            return False
+        try:
+            return bool(probe())
+        except Exception:
+            return False
+
     async def _listen(self, question_id: str) -> None:
         """Capture one candidate turn into the transcript."""
         repair_attempts = 0
@@ -340,6 +351,13 @@ class InterviewRunner:
                 )
                 break
             except TimeoutError:
+                if self._candidate_is_speaking():
+                    logger.info(
+                        "listen timeout while candidate speaking; extending",
+                        extra={"question_id": question_id},
+                    )
+                    timeout_seconds = _LISTEN_REPAIR_TIMEOUT_SECONDS
+                    continue
                 repair_text = _AUDIO_REPAIR_LINES[
                     min(repair_attempts, len(_AUDIO_REPAIR_LINES) - 1)
                 ]
