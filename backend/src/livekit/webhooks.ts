@@ -17,6 +17,7 @@ import {
   type RecordingStatus,
 } from "../recordings/repository.js";
 import { sessionStatusUpdateStatement } from "../scheduler/sessions.js";
+import { markSessionReviewReadyIfComplete } from "../finalization/reviewReady.js";
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -136,6 +137,7 @@ async function persistEgressWebhook(event: WebhookEvent): Promise<boolean> {
       endedAt: endedAt ?? undefined,
     });
     await pool.query(sessionStmt.sql, [...sessionStmt.params]);
+    await markSessionReviewReadyIfComplete(pool, sessionId);
   }
 
   return true;
