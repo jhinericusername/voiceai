@@ -3,9 +3,11 @@ import { assembleTranscript } from "../src/finalization/transcript.js";
 import { buildArtifactManifest } from "../src/finalization/finalize.js";
 import {
   REQUIRED_REVIEW_ARTIFACTS,
+  markSessionReviewReadyIfComplete,
   reviewReadyArtifactStatusesStatement,
   sessionReviewReadyStatement,
   shouldMarkReviewReady,
+  type ArtifactStatusRow,
 } from "../src/finalization/reviewReady.js";
 
 describe("assembleTranscript", () => {
@@ -97,5 +99,49 @@ describe("review-ready gate", () => {
     const stmt = sessionReviewReadyStatement("sess1");
     expect(stmt.sql).toContain("UPDATE sessions SET status = $2");
     expect(stmt.params).toEqual(["sess1", "review_ready"]);
+  });
+
+  it("does not update the session when required artifacts are incomplete", async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const pool = {
+      query: async (sql: string, params: unknown[]) => {
+        calls.push({ sql, params });
+        return {
+          rows: [
+            { kind: "composite_video", status: "available" },
+            { kind: "transcript", status: "available" },
+          ] satisfies ArtifactStatusRow[],
+        };
+      },
+    };
+
+    await expect(markSessionReviewReadyIfComplete(pool, "sess1")).resolves.toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain("FROM recording_artifacts");
+    expect(calls[0].params).toEqual(["sess1", REQUIRED_REVIEW_ARTIFACTS]);
+  });
+
+  it("updates the session when all required artifacts are available", async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const pool = {
+      query: async (sql: string, params: unknown[]) => {
+        calls.push({ sql, params });
+        if (calls.length === 1) {
+          return {
+            rows: REQUIRED_REVIEW_ARTIFACTS.map((kind) => ({
+              kind,
+              status: "available",
+            })) satisfies ArtifactStatusRow[],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+
+    await expect(markSessionReviewReadyIfComplete(pool, "sess1")).resolves.toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].params).toEqual(["sess1", REQUIRED_REVIEW_ARTIFACTS]);
+    expect(calls[1].sql).toContain("UPDATE sessions SET status = $2");
+    expect(calls[1].params).toEqual(["sess1", "review_ready"]);
   });
 });

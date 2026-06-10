@@ -137,7 +137,6 @@ async function persistEgressWebhook(event: WebhookEvent): Promise<boolean> {
       endedAt: endedAt ?? undefined,
     });
     await pool.query(sessionStmt.sql, [...sessionStmt.params]);
-    await markSessionReviewReadyIfComplete(pool, sessionId);
   }
 
   return true;
@@ -170,6 +169,21 @@ export function registerLiveKitWebhookRoutes(
         event.event === "egress_ended")
         ? await persistEgressWebhook(event)
         : false;
+
+    if (persisted && event.event === "egress_ended") {
+      const room = event.egressInfo ? egressRoomName(event.egressInfo) : null;
+      const sessionId = room ? sessionIdFromRoomName(room) : null;
+      if (sessionId) {
+        try {
+          await markSessionReviewReadyIfComplete(getPool(), sessionId);
+        } catch (error) {
+          request.log.warn(
+            { err: error, sessionId },
+            "failed to evaluate review readiness after LiveKit webhook",
+          );
+        }
+      }
+    }
 
     return reply.code(200).send({ ok: true, persisted });
   });

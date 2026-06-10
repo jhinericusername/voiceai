@@ -24,7 +24,7 @@ export function reviewReadyArtifactStatusesStatement(sessionId: string): SqlStat
     sql:
       "SELECT kind, status FROM recording_artifacts " +
       "WHERE session_id = $1 AND kind = ANY($2::text[])",
-    params: [sessionId, REQUIRED_REVIEW_ARTIFACTS as string[]],
+    params: [sessionId, REQUIRED_REVIEW_ARTIFACTS],
   };
 }
 
