@@ -23,6 +23,7 @@ _INSTRUCTIONS = (
     "Do not generate autonomous replies. The controller supplies every word."
 )
 _DEFAULT_RECONNECT_GRACE_SECONDS = 300.0
+_DEFAULT_COALESCE_WINDOW_SECONDS = 0.8
 _AGENT_RECORD_ENV = "PUDDLE_LIVEKIT_AGENT_RECORD"
 
 
@@ -54,12 +55,14 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         session: Any,
         *,
         participant_reconnect_grace_seconds: float = _DEFAULT_RECONNECT_GRACE_SECONDS,
+        coalesce_window_seconds: float = _DEFAULT_COALESCE_WINDOW_SECONDS,
     ) -> None:
         self._session = session
         self._mode: VoiceMode = "scripted"
         self._last_spoken: str | None = None
         self._transcripts: asyncio.Queue[str] = asyncio.Queue()
         self._participant_reconnect_grace_seconds = participant_reconnect_grace_seconds
+        self._coalesce_window_seconds = coalesce_window_seconds
         self._participant_identity: str | None = None
         self._participant_connected = True
         self._participant_state_changed = asyncio.Event()
@@ -91,6 +94,12 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
                 os.environ.get(
                     "PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS",
                     _DEFAULT_RECONNECT_GRACE_SECONDS,
+                )
+            ),
+            coalesce_window_seconds=float(
+                os.environ.get(
+                    "PUDDLE_TRANSCRIPT_COALESCE_SECONDS",
+                    _DEFAULT_COALESCE_WINDOW_SECONDS,
                 )
             ),
         )
@@ -144,7 +153,29 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         logger.info("finished utterance playout", extra={"mode": mode, "characters": len(text)})
 
     async def listen(self) -> ListenResult:
-        """Wait for the next final candidate transcript from LiveKit STT."""
+        """Wait for a full candidate turn: the first final transcript plus any
+        further finals that arrive within `coalesce_window_seconds` (so a
+        multi-clause answer isn't truncated to its first segment)."""
+        first = await self._next_final_transcript()
+        parts = [first]
+        while True:
+            try:
+                nxt = await asyncio.wait_for(
+                    self._transcripts.get(), timeout=self._coalesce_window_seconds
+                )
+            except TimeoutError:
+                break
+            parts.append(nxt)
+        transcript = " ".join(p.strip() for p in parts if p.strip())
+        logger.info(
+            "received coalesced candidate turn",
+            extra={"participant": self._participant_identity, "segments": len(parts)},
+        )
+        return ListenResult(transcript=transcript, end_of_turn=True)
+
+    async def _next_final_transcript(self) -> str:
+        """Block until the first final transcript of a turn (or a participant
+        state change) is available, honoring reconnect grace."""
         logger.info(
             "waiting for final candidate transcript",
             extra={"participant": self._participant_identity},
@@ -168,15 +199,7 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
                     task.cancel()
 
             if transcript_task in done:
-                transcript = transcript_task.result()
-                logger.info(
-                    "received final candidate transcript",
-                    extra={
-                        "participant": self._participant_identity,
-                        "characters": len(transcript),
-                    },
-                )
-                return ListenResult(transcript=transcript, end_of_turn=True)
+                return transcript_task.result()
 
             self._participant_state_changed.clear()
 

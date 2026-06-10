@@ -102,7 +102,7 @@ async def test_livekit_session_speak_uses_agent_session_say() -> None:
 
 async def test_livekit_session_listen_returns_next_final_transcript() -> None:
     session = FakeSession()
-    voice = LiveKitSessionVoiceAgent(session)
+    voice = LiveKitSessionVoiceAgent(session, coalesce_window_seconds=0.01)
 
     listen_task = asyncio.create_task(voice.listen())
     session.handlers["user_input_transcribed"](
@@ -120,10 +120,40 @@ async def test_livekit_session_listen_returns_next_final_transcript() -> None:
     assert result.end_of_turn is True
 
 
+async def test_listen_coalesces_multiple_finals_into_one_turn() -> None:
+    session = FakeSession()
+    voice = LiveKitSessionVoiceAgent(session, coalesce_window_seconds=0.05)
+
+    listen_task = asyncio.create_task(voice.listen())
+    push = session.handlers["user_input_transcribed"]
+    push(SimpleNamespace(transcript="I rewrote the scheduler", is_final=True))
+    await asyncio.sleep(0.01)
+    push(SimpleNamespace(transcript="using backpressure.", is_final=True))
+    result = await listen_task
+
+    assert result.transcript == "I rewrote the scheduler using backpressure."
+    assert result.end_of_turn is True
+
+
+async def test_listen_returns_after_pause_window() -> None:
+    session = FakeSession()
+    voice = LiveKitSessionVoiceAgent(session, coalesce_window_seconds=0.05)
+
+    listen_task = asyncio.create_task(voice.listen())
+    session.handlers["user_input_transcribed"](
+        SimpleNamespace(transcript="Just one clause.", is_final=True)
+    )
+    result = await listen_task
+
+    assert result.transcript == "Just one clause."
+
+
 async def test_livekit_session_listen_survives_participant_reconnect() -> None:
     session = FakeSession()
     room = FakeRoom()
-    voice = LiveKitSessionVoiceAgent(session, participant_reconnect_grace_seconds=1.0)
+    voice = LiveKitSessionVoiceAgent(
+        session, participant_reconnect_grace_seconds=1.0, coalesce_window_seconds=0.01
+    )
     voice._link_participant(room, "candidate-1")
 
     listen_task = asyncio.create_task(voice.listen())
