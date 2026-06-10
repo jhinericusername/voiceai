@@ -150,6 +150,10 @@ class InterviewRunner:
             confidence_threshold=SCORING.confidence_threshold,
         )
 
+    def transcript_turns(self) -> list[TranscriptTurn]:
+        """Return a copy of the transcript turns captured so far."""
+        return list(self._transcript)
+
     async def _run_question(self, question: object) -> dict[str, CategoryAssessment]:
         """Run the answer/score/probe loop for one base question."""
         targets = list(question.rubric_categories)  # type: ignore[attr-defined]

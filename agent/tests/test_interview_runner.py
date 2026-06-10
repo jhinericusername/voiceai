@@ -2,6 +2,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from agent.controller import interview as interview_module
 from agent.controller.event_log import EventLog
 from agent.controller.interview import InterviewRunner
@@ -33,6 +35,35 @@ def _simulated_voice() -> MagicMock:
         return_value=ListenResult(transcript="A full answer.", end_of_turn=True)
     )
     return voice
+
+
+@pytest.fixture
+def fake_runner_with_completed_turns(tmp_path: Path) -> InterviewRunner:
+    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    voice = _simulated_voice()
+    scorer = MagicMock()
+    scorer.score.side_effect = lambda si: _confident(si.target_categories[0])
+    event_log = EventLog(session_id="s-transcript", path=tmp_path / "events.jsonl")
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=scorer,
+        probe_generator=MagicMock(),
+        event_log=event_log,
+        clock_now=iter([float(i) for i in range(0, 4000, 5)]).__next__,
+    )
+    asyncio.run(runner.run(session_id="s-transcript"))
+    return runner
+
+
+def test_runner_exposes_transcript_after_turns(
+    fake_runner_with_completed_turns: InterviewRunner,
+) -> None:
+    turns = fake_runner_with_completed_turns.transcript_turns()
+
+    assert turns
+    assert turns[0].turn_index == 0
+    assert turns[0].speaker in {"agent", "candidate"}
 
 
 async def test_runner_asks_every_base_question_verbatim(tmp_path: Path) -> None:
