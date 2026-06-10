@@ -197,6 +197,37 @@ async def test_livekit_session_listen_fails_after_reconnect_grace() -> None:
         await voice.listen()
 
 
+async def test_await_candidate_ready_resolves_on_attr_and_track() -> None:
+    session = FakeSession()
+    room = FakeRoom()
+    voice = LiveKitSessionVoiceAgent(session)
+    voice._link_participant(room, "candidate-1")
+    participant = SimpleNamespace(identity="candidate-1", attributes={})
+
+    wait_task = asyncio.create_task(
+        voice._await_candidate_ready(participant, timeout=1.0)
+    )
+    await asyncio.sleep(0)
+    room.handlers["track_subscribed"](
+        SimpleNamespace(kind="audio"), SimpleNamespace(), SimpleNamespace(identity="candidate-1")
+    )
+    room.handlers["participant_attributes_changed"](
+        SimpleNamespace(identity="candidate-1", attributes={"ready": "true"})
+    )
+    await asyncio.wait_for(wait_task, timeout=1.0)  # returns without raising
+
+
+async def test_await_candidate_ready_fails_open_on_timeout() -> None:
+    session = FakeSession()
+    room = FakeRoom()
+    voice = LiveKitSessionVoiceAgent(session)
+    voice._link_participant(room, "candidate-1")
+    participant = SimpleNamespace(identity="candidate-1", attributes={})
+
+    # No events fire; helper must return (not raise) after the timeout.
+    await voice._await_candidate_ready(participant, timeout=0.05)
+
+
 async def test_livekit_session_interrupt_and_close_delegate_to_session() -> None:
     session = FakeSession()
     room = FakeRoom()

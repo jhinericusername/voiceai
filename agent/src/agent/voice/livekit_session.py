@@ -24,7 +24,24 @@ _INSTRUCTIONS = (
 )
 _DEFAULT_RECONNECT_GRACE_SECONDS = 300.0
 _DEFAULT_COALESCE_WINDOW_SECONDS = 0.8
+_DEFAULT_CANDIDATE_READY_TIMEOUT_SECONDS = 10.0
 _AGENT_RECORD_ENV = "PUDDLE_LIVEKIT_AGENT_RECORD"
+
+
+def _is_audio_track(track: Any) -> bool:
+    """True when a LiveKit track (or test stand-in) is an audio track."""
+    kind = getattr(track, "kind", None)
+    return "audio" in str(kind).lower()
+
+
+def _attribute_ready(attributes: Any) -> bool:
+    """True when participant attributes carry ready == 'true'."""
+    if not attributes:
+        return False
+    try:
+        return str(attributes.get("ready", "")).strip().lower() == "true"
+    except AttributeError:
+        return False
 
 
 def _agent_session_recording_enabled(env: Mapping[str, str] = os.environ) -> bool:
@@ -128,6 +145,15 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
             participant = await job.wait_for_participant()
         session.room_io.set_participant(participant.identity)
         voice._link_participant(job.room, participant.identity)
+        await voice._await_candidate_ready(
+            participant,
+            timeout=float(
+                os.environ.get(
+                    "PUDDLE_CANDIDATE_READY_TIMEOUT_SECONDS",
+                    _DEFAULT_CANDIDATE_READY_TIMEOUT_SECONDS,
+                )
+            ),
+        )
         logger.info(
             "linked LiveKit participant",
             extra={"room": job.room.name, "participant": participant.identity},
@@ -273,6 +299,63 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
                     f"participant {self._participant_identity} did not reconnect"
                 ) from exc
         logger.info("participant reconnected", extra={"participant": self._participant_identity})
+
+    async def _await_candidate_ready(self, participant: Any, timeout: float) -> None:
+        """Block until the candidate can both hear (autoplay unblocked, signalled
+        via a `ready` participant attribute) and be heard (mic audio track
+        subscribed). Bounded and fails open: on timeout we log and proceed so a
+        flaky client never deadlocks the interview."""
+        if self._room is None:
+            return
+        identity = participant.identity
+        ready = asyncio.Event()
+        state = {
+            "attr": _attribute_ready(getattr(participant, "attributes", None)),
+            "track": False,
+        }
+
+        def _maybe_done() -> None:
+            if state["attr"] and state["track"]:
+                ready.set()
+
+        publications = getattr(participant, "track_publications", None)
+        if hasattr(publications, "values"):
+            for pub in publications.values():
+                if getattr(pub, "subscribed", False) and _is_audio_track(
+                    getattr(pub, "track", None)
+                ):
+                    state["track"] = True
+
+        def on_attrs(changed: Any) -> None:
+            if getattr(changed, "identity", None) != identity:
+                return
+            if _attribute_ready(getattr(changed, "attributes", None)):
+                state["attr"] = True
+                _maybe_done()
+
+        def on_track(track: Any, publication: Any, p: Any) -> None:
+            if getattr(p, "identity", None) != identity:
+                return
+            if _is_audio_track(track):
+                state["track"] = True
+                _maybe_done()
+
+        _maybe_done()
+        self._room.on("participant_attributes_changed", on_attrs)
+        self._room.on("track_subscribed", on_track)
+        try:
+            await asyncio.wait_for(ready.wait(), timeout=timeout)
+            logger.info("candidate ready", extra={"participant": identity})
+        except TimeoutError:
+            logger.warning(
+                "candidate readiness wait timed out; proceeding",
+                extra={"participant": identity, "ready_state": state},
+            )
+        finally:
+            with contextlib.suppress(Exception):
+                self._room.off("participant_attributes_changed", on_attrs)
+            with contextlib.suppress(Exception):
+                self._room.off("track_subscribed", on_track)
 
     def _on_participant_disconnected(self, participant: Any) -> None:
         if getattr(participant, "identity", None) != self._participant_identity:
