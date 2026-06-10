@@ -42,3 +42,23 @@ async def test_deepgram_stt_marks_low_confidence_as_unreliable() -> None:
     transcript = await stt.next_final_transcript()
     assert transcript.unreliable is True
     assert transcript.text == "??? garbled"
+
+
+def test_build_deepgram_stt_sets_explicit_interview_config(monkeypatch) -> None:  # noqa: ANN001
+    captured = {}
+
+    import livekit.plugins.deepgram as deepgram
+
+    monkeypatch.setattr(deepgram, "STT", lambda **kwargs: captured.update(kwargs) or object())
+
+    from agent.voice.stt import build_deepgram_stt
+
+    build_deepgram_stt("dg-key")
+
+    assert captured["model"] == "nova-3"
+    assert captured["language"] == "en-US"
+    assert captured["interim_results"] is True
+    assert captured["smart_format"] is True
+    assert captured["no_delay"] is True
+    assert captured["endpointing_ms"] == 200
+    assert captured["filler_words"] is False

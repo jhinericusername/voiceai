@@ -15,7 +15,13 @@ def build_cartesia_tts(api_key: str) -> Any:  # pragma: no cover — vendor wiri
     configured)."""
     from livekit.plugins import cartesia
 
-    kwargs: dict[str, Any] = {"model": "sonic-3", "api_key": api_key}
+    kwargs: dict[str, Any] = {
+        "model": "sonic-3",
+        "api_key": api_key,
+        "language": "en",
+        "speed": 1.05,
+        "text_pacing": True,
+    }
     voice_id = os.environ.get("CARTESIA_VOICE_ID", "").strip()
     if voice_id:
         kwargs["voice"] = voice_id

@@ -48,3 +48,22 @@ async def test_tts_synthesize_rejects_empty_text() -> None:
     tts = CartesiaTTS(plugin=MagicMock())
     with pytest.raises(ValueError, match="empty"):
         await tts.synthesize("")
+
+
+def test_build_cartesia_tts_uses_sonic3_with_pacing(monkeypatch) -> None:  # noqa: ANN001
+    captured = {}
+
+    import livekit.plugins.cartesia as cartesia
+
+    monkeypatch.setattr(cartesia, "TTS", lambda **kwargs: captured.update(kwargs) or object())
+    monkeypatch.delenv("CARTESIA_VOICE_ID", raising=False)
+
+    from agent.voice.tts import build_cartesia_tts
+
+    build_cartesia_tts("ct-key")
+
+    assert captured["model"] == "sonic-3"
+    assert captured["language"] == "en"
+    assert captured["speed"] == 1.05
+    assert captured["text_pacing"] is True
+    assert "voice" not in captured  # no CARTESIA_VOICE_ID set

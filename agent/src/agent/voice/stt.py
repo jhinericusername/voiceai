@@ -18,10 +18,25 @@ class SttTranscript(BaseModel):
 
 
 def build_deepgram_stt(api_key: str) -> Any:  # pragma: no cover — vendor wiring
-    """Construct the LiveKit Deepgram plugin configured for Nova-3 streaming."""
+    """Construct the LiveKit Deepgram plugin tuned for an English interview.
+
+    Defaults are made explicit: nova-3 + en-US, interim results for
+    responsiveness, smart_format for clean numbers/dates, no_delay so finals
+    aren't held back, a 200ms endpoint so one answer coalesces into fewer
+    segments, and filler_words off (no semantic EOU model in this pipeline)."""
     from livekit.plugins import deepgram
 
-    return deepgram.STT(model="nova-3", api_key=api_key, interim_results=True)
+    return deepgram.STT(
+        model="nova-3",
+        language="en-US",
+        api_key=api_key,
+        interim_results=True,
+        punctuate=True,
+        smart_format=True,
+        no_delay=True,
+        endpointing_ms=200,
+        filler_words=False,
+    )
 
 
 class DeepgramSTT:
