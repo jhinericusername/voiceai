@@ -2,7 +2,7 @@ export interface RawTurn {
   readonly turnIndex: number;
   readonly speaker: "agent" | "candidate";
   readonly text: string;
-  readonly questionId: string;
+  readonly questionId?: string | null;
 }
 
 export interface AssembledTranscript {
@@ -16,7 +16,8 @@ export function assembleTranscript(turns: readonly RawTurn[]): AssembledTranscri
   const ordered = [...turns].sort((a, b) => a.turnIndex - b.turnIndex);
   const byQuestion: Record<string, RawTurn[]> = {};
   for (const turn of ordered) {
-    (byQuestion[turn.questionId] ??= []).push(turn);
+    const questionId = turn.questionId?.trim() || "unassigned";
+    (byQuestion[questionId] ??= []).push(turn);
   }
   return { version: "v1", turns: ordered, byQuestion };
 }

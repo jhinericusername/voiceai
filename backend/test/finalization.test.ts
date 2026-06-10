@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { assembleTranscript } from "../src/finalization/transcript.js";
 import { buildArtifactManifest } from "../src/finalization/finalize.js";
 import {
+  buildFinalizationArtifacts,
+  type FinalizedInterviewInput,
+} from "../src/finalization/persist.js";
+import {
   REQUIRED_REVIEW_ARTIFACTS,
   markSessionReviewReadyIfComplete,
   reviewReadyArtifactStatusesStatement,
@@ -32,6 +36,73 @@ describe("assembleTranscript", () => {
     ]);
     expect(Object.keys(transcript.byQuestion)).toEqual(["q1", "q2"]);
     expect(transcript.byQuestion.q2[1].text).toBe("a2");
+  });
+});
+
+describe("finalized interview artifact payload", () => {
+  const finalized: FinalizedInterviewInput = {
+    sessionId: "sess1",
+    orgId: "org1",
+    scriptVersion: "pilot-v1",
+    transcriptTurns: [
+      {
+        turnIndex: 0,
+        speaker: "agent",
+        questionId: null,
+        text: "Thanks for joining.",
+      },
+      {
+        turnIndex: 1,
+        speaker: "candidate",
+        questionId: "q1",
+        text: "I owned the rollout.",
+      },
+    ],
+    assessment: {
+      categoryScores: [
+        {
+          category: "agency",
+          score: 4,
+          confidence: 0.9,
+          evidenceQuotes: ["I owned the rollout."],
+          rationale: "Clear ownership.",
+          lowConfidence: false,
+        },
+      ],
+      meetsBareMinimum: true,
+      integrityFlags: [],
+    },
+    agentEvents: [
+      {
+        session_id: "sess1",
+        utterance: "Thanks for joining.",
+        reason_code: "INTRO",
+        question_id: null,
+        category: null,
+        missing_element: null,
+      },
+    ],
+  };
+
+  it("builds transcript, scores, integrity flags, and agent event artifacts", () => {
+    const artifacts = buildFinalizationArtifacts(finalized);
+
+    expect(artifacts.transcript.storagePath).toBe(
+      "/org1/interviews/sess1/transcripts/transcript.v1.json",
+    );
+    expect(artifacts.transcript.body).toEqual({
+      version: "v1",
+      turns: finalized.transcriptTurns,
+      byQuestion: {
+        unassigned: [finalized.transcriptTurns[0]],
+        q1: [finalized.transcriptTurns[1]],
+      },
+    });
+    expect(artifacts.scores.storagePath).toBe(
+      "/org1/interviews/sess1/assessment/scores.json",
+    );
+    expect(artifacts.integrityFlags.body).toEqual([]);
+    expect(artifacts.agentEvents.rows).toEqual(finalized.agentEvents);
   });
 });
 

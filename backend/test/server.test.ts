@@ -58,6 +58,40 @@ describe("buildServer", () => {
     }
   });
 
+  it("registers the finalization route and rejects session id mismatches", async () => {
+    const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/internal/sessions/sess1/finalize",
+        headers: { "content-type": "application/json" },
+        payload: {
+          sessionId: "other-session",
+          orgId: "org1",
+          scriptVersion: "pilot-v1",
+          transcriptTurns: [],
+          assessment: {
+            categoryScores: [],
+            meetsBareMinimum: false,
+            integrityFlags: [],
+          },
+          agentEvents: [],
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "session id mismatch" });
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+      } else {
+        process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousToken;
+      }
+      await app.close();
+    }
+  });
+
   it("requires internal auth when the backend token is configured", async () => {
     const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
     process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";

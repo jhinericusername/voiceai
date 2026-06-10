@@ -13,6 +13,7 @@ import { registerIntegrationRoutes } from "./integration/routes.js";
 import type { CreateSessionRequest, CreateSessionResponse } from "./integration/contract.js";
 import { registerCandidateInviteRoutes } from "./invites/routes.js";
 import { registerInternalSessionRoutes } from "./internal/routes.js";
+import { registerFinalizationRoutes } from "./finalization/routes.js";
 import {
   buildCandidateInviteRecord,
   createCandidateInviteInsert,
@@ -86,6 +87,7 @@ export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   registerIntegrationRoutes(app, (body) => createSession(liveKitConfig, body));
   registerCandidateInviteRoutes(app, liveKitConfig);
   registerInternalSessionRoutes(app);
+  registerFinalizationRoutes(app);
   registerLiveKitWebhookRoutes(app, liveKitConfig);
   registerAshbyRoutes(app);
   return app;
