@@ -16,10 +16,11 @@ import {
   tableCellClass,
   tableHeaderClass,
 } from "../../dashboard-ui";
+import { ScoreTab } from "./ScoreTab";
 
-type RoleTab = "Pipeline" | "Rubric" | "Interviews" | "Reports";
+type RoleTab = "Pipeline" | "Score" | "Rubric" | "Interviews" | "Reports";
 
-const tabs: readonly RoleTab[] = ["Pipeline", "Rubric", "Interviews", "Reports"];
+const tabs: readonly RoleTab[] = ["Pipeline", "Score", "Rubric", "Interviews", "Reports"];
 
 export function RoleWorkspaceTabs({
   role,
@@ -58,6 +59,7 @@ export function RoleWorkspaceTabs({
 
       <div className="p-4">
         {activeTab === "Pipeline" ? <PipelineTab role={role} candidates={candidates} /> : null}
+        {activeTab === "Score" ? <ScoreTab roleId={role.id} /> : null}
         {activeTab === "Rubric" ? <RubricTab role={role} /> : null}
         {activeTab === "Interviews" ? <InterviewsTab role={role} sessions={sessions} candidates={candidates} /> : null}
         {activeTab === "Reports" ? <ReportsTab role={role} candidates={candidates} /> : null}
