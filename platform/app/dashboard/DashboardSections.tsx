@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { AshbyCompanyState, RecentScreen } from "@/lib/ashby/server";
 import {
   demoActivity,
   demoCandidates,
@@ -383,6 +384,92 @@ export function ReadinessPanel() {
         title="No blocked review packets"
         detail="When a candidate has missing consent, transcript, or recording artifacts, the blocked packet state appears here before it reaches reviewers."
       />
+    </SectionPanel>
+  );
+}
+
+export function AshbySetupPanel({
+  state,
+  webhookUrl,
+}: {
+  readonly state: AshbyCompanyState;
+  readonly webhookUrl: string;
+}) {
+  return (
+    <SectionPanel title="Connect Ashby" eyebrow="Internal setup">
+      <div className="grid gap-4">
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+          <div className="text-sm font-semibold text-slate-950">{state.emailDomain}</div>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            One Ashby integration is shared by teammates on this company domain after setup is complete.
+          </p>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Webhook URL</div>
+          <code className="mt-2 block break-all rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">
+            {webhookUrl}
+          </code>
+        </div>
+        <div className="grid gap-2 text-sm text-slate-700">
+          {[
+            "ping",
+            "applicationSubmit",
+            "applicationUpdate",
+            "candidateStageChange",
+            "candidateDelete",
+            "candidateMerge",
+            "candidateHire",
+          ].map((event) => (
+            <div key={event} className="rounded-md border border-slate-200 bg-white px-3 py-2 font-medium">
+              {event}
+            </div>
+          ))}
+        </div>
+      </div>
+    </SectionPanel>
+  );
+}
+
+export function RecentScreensTable({ screens }: { readonly screens: readonly RecentScreen[] }) {
+  return (
+    <SectionPanel title="Recent screens" eyebrow="Screens">
+      {screens.length ? (
+        <TableScroller>
+          <table className="min-w-[900px] w-full border-separate border-spacing-0">
+            <thead>
+              <tr>
+                <th className={`${tableHeaderClass} rounded-l-md px-3 py-2`}>Candidate</th>
+                <th className={`${tableHeaderClass} px-3 py-2`}>Role</th>
+                <th className={`${tableHeaderClass} px-3 py-2`}>Stage</th>
+                <th className={`${tableHeaderClass} px-3 py-2`}>Score</th>
+                <th className={`${tableHeaderClass} px-3 py-2`}>Reviewer</th>
+                <th className={`${tableHeaderClass} rounded-r-md px-3 py-2`}>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {screens.map((screen) => (
+                <tr key={screen.score_id}>
+                  <td className={`${tableCellClass} font-medium text-slate-950`}>
+                    {screen.candidate_name}
+                    <div className="mt-0.5 text-xs font-normal text-slate-500">
+                      {screen.candidate_email ?? "No email"}
+                    </div>
+                  </td>
+                  <td className={tableCellClass}>{screen.role_id}</td>
+                  <td className={tableCellClass}>{screen.current_stage ?? screen.status}</td>
+                  <td className={tableCellClass}>
+                    <ScoreBadge score={Number(screen.total_score)} maxScore={16} />
+                  </td>
+                  <td className={tableCellClass}>{screen.reviewer_email}</td>
+                  <td className={tableCellClass}>{formatDateTime(screen.updated_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroller>
+      ) : (
+        <EmptyState title="No screens yet" detail="Saved scorecards for active Ashby candidates will appear here." />
+      )}
     </SectionPanel>
   );
 }
