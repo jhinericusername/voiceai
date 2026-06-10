@@ -58,6 +58,10 @@ export interface PuddleEnvConfig {
     deletionProtection: boolean;
     allowRealCandidateDataExternal: boolean;
   };
+  devTunnel: {
+    enabled: boolean;
+    instanceType: string;
+  };
   liveKit: {
     url?: string;
     recordingsEnabled: boolean;
@@ -170,6 +174,10 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
         'allowRealCandidateDataOnExternalDatabase',
         false,
       ),
+    },
+    devTunnel: {
+      enabled: readBooleanContext(app, 'enableDevTunnel', envName === 'dev'),
+      instanceType: readStringContext(app, 'devTunnelInstanceType') ?? 't3.nano',
     },
     liveKit: {
       url: readStringContext(app, 'liveKitUrl'),

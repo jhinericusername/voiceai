@@ -39,6 +39,16 @@ interface RuntimeRoles {
   platformExecutionRole: iam.Role;
 }
 
+interface StackSecurityGroups {
+  backendTasks: ec2.SecurityGroup;
+  backendLoadBalancer: ec2.SecurityGroup;
+  platformLoadBalancer: ec2.SecurityGroup;
+  platformTasks: ec2.SecurityGroup;
+  agentTasks: ec2.SecurityGroup;
+  futureDatabase: ec2.SecurityGroup;
+  devTunnel?: ec2.SecurityGroup;
+}
+
 interface BackendDeployment {
   service: ecs.FargateService;
   taskDefinition: ecs.FargateTaskDefinition;
@@ -58,6 +68,10 @@ interface PlatformDeployment {
   loadBalancer: elbv2.ApplicationLoadBalancer;
   listener: elbv2.ApplicationListener;
   publicBaseUrl: string;
+}
+
+interface DevTunnelDeployment {
+  instance: ec2.Instance;
 }
 
 const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
@@ -113,6 +127,7 @@ export class InfraStack extends cdk.Stack {
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
       vpc,
     });
+    const devTunnelDeployment = this.createDevTunnelDeployment({ vpc, securityGroups });
 
     const runtimeRoles = this.createRuntimeRoles(runtimeSecrets, artifactsBucket, database);
     const githubCiRole = this.createGithubCiRole(repositories, webBuckets);
@@ -166,6 +181,7 @@ export class InfraStack extends cdk.Stack {
       backendDeployment,
       agentDeployment,
       platformDeployment,
+      devTunnelDeployment,
     });
   }
 
@@ -184,6 +200,10 @@ export class InfraStack extends cdk.Stack {
 
     if (this.cfg.vpc.natGateways > this.cfg.vpc.maxAzs) {
       throw new Error('natGateways cannot exceed maxAzs.');
+    }
+
+    if (this.cfg.envName === 'prod' && this.cfg.devTunnel.enabled) {
+      throw new Error('Dev tunnel target is not allowed in prod.');
     }
 
     if (!this.cfg.database.external) {
@@ -342,56 +362,72 @@ export class InfraStack extends cdk.Stack {
     });
   }
 
-  private createSecurityGroups(vpc: ec2.IVpc): Record<string, ec2.SecurityGroup> {
-    const backendTasks = new ec2.SecurityGroup(this, 'BackendTasksSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('backend-tasks-sg'),
-      description: 'Backend ECS tasks. No public ingress.',
-      allowAllOutbound: true,
-    });
-
-    const backendLoadBalancer = new ec2.SecurityGroup(
-      this,
-      'BackendLoadBalancerSecurityGroup',
-      {
+  private createSecurityGroups(vpc: ec2.IVpc): StackSecurityGroups {
+    const groups: StackSecurityGroups = {
+      backendTasks: new ec2.SecurityGroup(this, 'BackendTasksSecurityGroup', {
         vpc,
-        securityGroupName: this.name('backend-alb-sg'),
-        description: 'Internal backend load balancer ingress from application tasks.',
+        securityGroupName: this.name('backend-tasks-sg'),
+        description: 'Backend ECS tasks. No public ingress.',
         allowAllOutbound: true,
-      },
-    );
-
-    const platformLoadBalancer = new ec2.SecurityGroup(
-      this,
-      'PlatformLoadBalancerSecurityGroup',
-      {
+      }),
+      backendLoadBalancer: new ec2.SecurityGroup(
+        this,
+        'BackendLoadBalancerSecurityGroup',
+        {
+          vpc,
+          securityGroupName: this.name('backend-alb-sg'),
+          description: 'Internal backend load balancer ingress from application tasks.',
+          allowAllOutbound: true,
+        },
+      ),
+      platformLoadBalancer: new ec2.SecurityGroup(
+        this,
+        'PlatformLoadBalancerSecurityGroup',
+        {
+          vpc,
+          securityGroupName: this.name('platform-alb-sg'),
+          description: 'Public platform load balancer ingress.',
+          allowAllOutbound: true,
+        },
+      ),
+      platformTasks: new ec2.SecurityGroup(this, 'PlatformTasksSecurityGroup', {
         vpc,
-        securityGroupName: this.name('platform-alb-sg'),
-        description: 'Public platform load balancer ingress.',
+        securityGroupName: this.name('platform-tasks-sg'),
+        description: 'Platform ECS tasks. No public ingress.',
         allowAllOutbound: true,
-      },
-    );
+      }),
+      agentTasks: new ec2.SecurityGroup(this, 'AgentTasksSecurityGroup', {
+        vpc,
+        securityGroupName: this.name('agent-tasks-sg'),
+        description: 'Agent ECS tasks. No inbound access.',
+        allowAllOutbound: true,
+      }),
+      futureDatabase: new ec2.SecurityGroup(this, 'FutureDatabaseSecurityGroup', {
+        vpc,
+        securityGroupName: this.name('data-sg'),
+        description: 'Future RDS/Aurora ingress from application tasks only.',
+        allowAllOutbound: false,
+      }),
+    };
 
-    const platformTasks = new ec2.SecurityGroup(this, 'PlatformTasksSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('platform-tasks-sg'),
-      description: 'Platform ECS tasks. No public ingress.',
-      allowAllOutbound: true,
-    });
+    if (this.cfg.devTunnel.enabled) {
+      groups.devTunnel = new ec2.SecurityGroup(this, 'DevTunnelSecurityGroup', {
+        vpc,
+        securityGroupName: this.name('dev-tunnel-sg'),
+        description: 'SSM tunnel target for local development access.',
+        allowAllOutbound: true,
+      });
+    }
 
-    const agentTasks = new ec2.SecurityGroup(this, 'AgentTasksSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('agent-tasks-sg'),
-      description: 'Agent ECS tasks. No inbound access.',
-      allowAllOutbound: true,
-    });
-
-    const futureDatabase = new ec2.SecurityGroup(this, 'FutureDatabaseSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('data-sg'),
-      description: 'Future RDS/Aurora ingress from application tasks only.',
-      allowAllOutbound: false,
-    });
+    const {
+      backendTasks,
+      backendLoadBalancer,
+      platformLoadBalancer,
+      platformTasks,
+      agentTasks,
+      futureDatabase,
+      devTunnel,
+    } = groups;
 
     futureDatabase.addIngressRule(
       backendTasks,
@@ -408,6 +444,19 @@ export class InfraStack extends cdk.Stack {
       ec2.Port.tcp(5432),
       'Postgres from agent tasks',
     );
+
+    if (devTunnel) {
+      backendLoadBalancer.addIngressRule(
+        devTunnel,
+        ec2.Port.tcp(80),
+        'Backend load balancer access from the dev tunnel',
+      );
+      futureDatabase.addIngressRule(
+        devTunnel,
+        ec2.Port.tcp(5432),
+        'Postgres from the dev tunnel',
+      );
+    }
 
     backendTasks.addIngressRule(
       platformTasks,
@@ -455,14 +504,42 @@ export class InfraStack extends cdk.Stack {
       'Platform app traffic from the platform load balancer',
     );
 
-    return {
-      backendTasks,
-      backendLoadBalancer,
-      platformLoadBalancer,
-      platformTasks,
-      agentTasks,
-      futureDatabase,
-    };
+    return groups;
+  }
+
+  private createDevTunnelDeployment(params: {
+    vpc: ec2.IVpc;
+    securityGroups: StackSecurityGroups;
+  }): DevTunnelDeployment | undefined {
+    if (!this.cfg.devTunnel.enabled) {
+      return undefined;
+    }
+
+    if (!params.securityGroups.devTunnel) {
+      throw new Error('Dev tunnel deployment requires a dev tunnel security group.');
+    }
+
+    const role = new iam.Role(this, 'DevTunnelInstanceRole', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+      ],
+    });
+
+    const instance = new ec2.Instance(this, 'DevTunnelInstance', {
+      vpc: params.vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      instanceType: new ec2.InstanceType(this.cfg.devTunnel.instanceType),
+      machineImage: ec2.MachineImage.latestAmazonLinux2023(),
+      role,
+      securityGroup: params.securityGroups.devTunnel,
+      requireImdsv2: true,
+      instanceName: this.name('dev-tunnel'),
+    });
+
+    return { instance };
   }
 
   private createAccessLogsBucket(
@@ -869,7 +946,7 @@ export class InfraStack extends cdk.Stack {
   private createBackendDeployment(params: {
     vpc: ec2.IVpc;
     cluster: ecs.ICluster;
-    securityGroups: Record<string, ec2.ISecurityGroup>;
+    securityGroups: StackSecurityGroups;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
     logGroups: Record<string, logs.ILogGroup>;
@@ -1074,7 +1151,7 @@ export class InfraStack extends cdk.Stack {
   private createAgentDeployment(params: {
     vpc: ec2.IVpc;
     cluster: ecs.ICluster;
-    securityGroups: Record<string, ec2.ISecurityGroup>;
+    securityGroups: StackSecurityGroups;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
     logGroups: Record<string, logs.ILogGroup>;
@@ -1180,7 +1257,7 @@ export class InfraStack extends cdk.Stack {
   private createPlatformDeployment(params: {
     vpc: ec2.IVpc;
     cluster: ecs.ICluster;
-    securityGroups: Record<string, ec2.SecurityGroup>;
+    securityGroups: StackSecurityGroups;
     accessLogsBucket: s3.IBucket;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
@@ -1395,7 +1472,7 @@ export class InfraStack extends cdk.Stack {
 
   private createOutputs(values: {
     vpc: ec2.IVpc;
-    securityGroups: Record<string, ec2.ISecurityGroup>;
+    securityGroups: StackSecurityGroups;
     cluster: ecs.ICluster;
     accessLogsBucket: s3.IBucket;
     artifactsBucket: s3.IBucket;
@@ -1409,6 +1486,7 @@ export class InfraStack extends cdk.Stack {
     backendDeployment?: BackendDeployment;
     agentDeployment?: AgentDeployment;
     platformDeployment?: PlatformDeployment;
+    devTunnelDeployment?: DevTunnelDeployment;
   }): void {
     new cdk.CfnOutput(this, 'EnvironmentName', {
       value: this.cfg.envName,
@@ -1483,6 +1561,9 @@ export class InfraStack extends cdk.Stack {
     }
 
     for (const [name, securityGroup] of Object.entries(values.securityGroups)) {
+      if (!securityGroup) {
+        continue;
+      }
       new cdk.CfnOutput(this, `${this.toPascalCase(name)}SecurityGroupId`, {
         value: securityGroup.securityGroupId,
       });
@@ -1542,6 +1623,12 @@ export class InfraStack extends cdk.Stack {
       });
       new cdk.CfnOutput(this, 'PlatformPublicBaseUrl', {
         value: values.platformDeployment.publicBaseUrl,
+      });
+    }
+
+    if (values.devTunnelDeployment) {
+      new cdk.CfnOutput(this, 'DevTunnelInstanceId', {
+        value: values.devTunnelDeployment.instance.instanceId,
       });
     }
   }

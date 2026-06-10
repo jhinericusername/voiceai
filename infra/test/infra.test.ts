@@ -17,6 +17,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
+    template.resourceCountIs('AWS::EC2::Instance', 1);
 
     template.hasResourceProperties('AWS::EC2::VPC', {
       Tags: Match.arrayWith([
@@ -41,6 +42,56 @@ describe('InfraStack', () => {
       StorageEncrypted: true,
       StorageType: 'gp3',
     });
+  });
+
+  test('creates a dev SSM tunnel target by default for dev stacks', () => {
+    const stack = createStack();
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::EC2::Instance', 1);
+    template.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't3.nano',
+      Tags: Match.arrayWith([
+        Match.objectLike({
+          Key: 'Name',
+          Value: 'puddle-videoagent-dev-tunnel',
+        }),
+      ]),
+    });
+    template.hasResourceProperties('AWS::IAM::Role', {
+      ManagedPolicyArns: Match.arrayWith([
+        {
+          'Fn::Join': [
+            '',
+            Match.arrayWith([
+              Match.objectLike({ Ref: 'AWS::Partition' }),
+              ':iam::aws:policy/AmazonSSMManagedInstanceCore',
+            ]),
+          ],
+        },
+      ]),
+    });
+    template.hasOutput('DevTunnelInstanceId', {});
+  });
+
+  test('can disable the dev SSM tunnel target', () => {
+    const stack = createStack({
+      devTunnel: { enabled: false, instanceType: 't3.nano' },
+    });
+    const template = Template.fromStack(stack);
+    template.resourceCountIs('AWS::EC2::Instance', 0);
+  });
+
+  test('blocks dev tunnel target in prod', () => {
+    expect(() =>
+      createStack({
+        envName: 'prod',
+        resourcePrefix: 'puddle-prod',
+        vpc: { maxAzs: 2, natGateways: 2 },
+        devTunnel: { enabled: true, instanceType: 't3.nano' },
+        logs: { retentionDays: 90 },
+      }),
+    ).toThrow('Dev tunnel target is not allowed in prod.');
   });
 
   test('blocks public backend exposure without auth', () => {
@@ -222,6 +273,7 @@ describe('InfraStack', () => {
           maxAzs: 2,
           natGateways: 2,
         },
+        devTunnel: { enabled: false, instanceType: 't3.nano' },
         database: {
           ...defaultConfig().database,
           external: true,
@@ -244,6 +296,7 @@ describe('InfraStack', () => {
           maxAzs: 2,
           natGateways: 2,
         },
+        devTunnel: { enabled: false, instanceType: 't3.nano' },
         database: {
           ...defaultConfig().database,
           external: true,
@@ -506,6 +559,7 @@ function defaultConfig(): PuddleEnvConfig {
       deletionProtection: false,
       allowRealCandidateDataExternal: false,
     },
+    devTunnel: { enabled: true, instanceType: 't3.nano' },
     liveKit: {
       recordingsEnabled: false,
     },
