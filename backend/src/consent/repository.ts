@@ -18,9 +18,11 @@ export function validateConsent(input: ConsentInput): ConsentValidation {
   return { ok: true };
 }
 
+export type SqlParam = string | number | boolean | null | readonly string[] | readonly number[] | readonly boolean[];
+
 export interface SqlStatement {
   readonly sql: string;
-  readonly params: readonly (string | number | boolean | null)[];
+  readonly params: readonly SqlParam[];
 }
 
 export function consentInsertStatement(input: ConsentInput): SqlStatement {

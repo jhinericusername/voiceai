@@ -32,7 +32,7 @@ CREATE INDEX ashby_webhook_events_integration_idx
   ON ashby_webhook_events(integration_id, received_at DESC);
 
 CREATE TABLE ashby_applications (
-  application_id   TEXT PRIMARY KEY,
+  application_id   TEXT NOT NULL,
   integration_id   TEXT NOT NULL REFERENCES ashby_company_integrations(integration_id) ON DELETE CASCADE,
   candidate_id     TEXT NOT NULL,
   candidate_name   TEXT NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE ashby_applications (
   raw_payload      JSONB NOT NULL,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (integration_id, application_id)
+  PRIMARY KEY (integration_id, application_id)
 );
 
 CREATE INDEX ashby_applications_integration_job_status_idx
@@ -70,7 +70,7 @@ CREATE TABLE ashby_candidate_scores (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (total_score = problem_solving + agency + competitiveness + curiosity),
   FOREIGN KEY (integration_id, application_id) REFERENCES ashby_applications(integration_id, application_id) ON DELETE CASCADE,
-  UNIQUE (application_id, reviewer_email)
+  UNIQUE (integration_id, application_id, reviewer_email)
 );
 
 CREATE INDEX ashby_candidate_scores_recent_idx
