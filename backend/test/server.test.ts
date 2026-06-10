@@ -100,4 +100,26 @@ describe("buildServer", () => {
       await app.close();
     }
   });
+
+  it("requires internal auth for plural integrations routes", async () => {
+    const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";
+    const app = buildServer(FAKE_LK);
+    try {
+      const unauthenticated = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/company-state",
+        headers: { "content-type": "application/json" },
+        payload: { emailDomain: "usepuddle.com" },
+      });
+      expect(unauthenticated.statusCode).toBe(401);
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+      } else {
+        process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousToken;
+      }
+      await app.close();
+    }
+  });
 });

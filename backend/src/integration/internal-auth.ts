@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 const PROTECTED_POST_PATHS = [
   "/integration/",
+  "/integrations/",
   "/candidate/invites/",
   "/internal/",
 ] as const;
