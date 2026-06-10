@@ -1,3 +1,5 @@
+import "server-only";
+
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 import { emailDomain } from "@/lib/auth/email-domain";
 

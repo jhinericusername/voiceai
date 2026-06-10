@@ -1,3 +1,5 @@
+import "server-only";
+
 export function backendBaseUrl(): string {
   return (process.env.PUDDLE_BACKEND_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 }
