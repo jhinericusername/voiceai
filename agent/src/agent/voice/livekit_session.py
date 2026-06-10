@@ -100,12 +100,15 @@ class LiveKitSessionVoiceAgent(VoiceAgent):
         *,
         stt: Any,
         tts: Any,
+        vad: Any = None,
         participant_identity: str | None = None,
     ) -> LiveKitSessionVoiceAgent:
         """Start LiveKit room I/O and link to the interview participant."""
-        from livekit.agents import Agent, AgentSession, room_io
+        from livekit.agents import Agent, room_io
 
-        session = AgentSession(stt=stt, tts=tts, llm=None)
+        from agent.voice.session import build_agent_session
+
+        session = build_agent_session(stt=stt, tts=tts, vad=vad)
         voice = cls(
             session,
             participant_reconnect_grace_seconds=float(
