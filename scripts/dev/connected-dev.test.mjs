@@ -294,6 +294,12 @@ test("backend connected runner clears inherited DATABASE_URL", async () => {
   assert.match(source, /DATABASE_URL:\s*""/);
 });
 
+test("backend connected runner binds local backend to loopback", async () => {
+  const source = await readFile(new URL("./dev-backend-connected.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /^\s*HOST:\s*"127\.0\.0\.1",$/m);
+});
+
 test("runbook documents connected local development commands", async () => {
   const runbook = await readFile(new URL("../../docs/RUNBOOK.md", import.meta.url), "utf8");
   assert.match(runbook, /pnpm dev:connected/);
