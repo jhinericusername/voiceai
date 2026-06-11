@@ -170,82 +170,107 @@ class InterviewRunner:
             self.state_machine.transition(InterviewState.QUESTION_ANSWERING)
             await self._listen(question.question_id)  # type: ignore[attr-defined]
             timer = TurnTimer(question.question_id)  # type: ignore[attr-defined]
-            self.state_machine.transition(InterviewState.QUESTION_SCORING)
-            logger.info(
-                "scoring candidate answer",
-                extra={"question_id": question.question_id},  # type: ignore[attr-defined]
-            )
-            scorer_input = ScorerInput(
-                script_version=self._rubric.script_version,
-                question_id=question.question_id,  # type: ignore[attr-defined]
-                target_categories=targets,
-                transcript=list(self._transcript),
-            )
-            timer.mark("score_started")
-            # The Anthropic call runs in a worker thread so the acknowledgment
-            # plays immediately — and so the LiveKit audio tasks sharing this
-            # event loop are never starved by a blocking HTTP call.
-            score_task = asyncio.create_task(
-                asyncio.to_thread(self._scorer.score, scorer_input)
-            )
+            try:
+                output = await self._score_behind_ack(question, targets, timer)
+                for assessment in output.assessments:
+                    latest[assessment.category] = assessment
+
+                directive = decide_next_action(
+                    scorer_output=output,
+                    target_categories=targets,
+                    confidence_threshold=SCORING.confidence_threshold,
+                    probes_used=probes_used,
+                    max_probes=question.max_probes,  # type: ignore[attr-defined]
+                    time_exhausted=self._clock.must_move_on(),
+                )
+                if directive.action == "advance":
+                    timer.mark("next_prompt_started")
+                    if self._clock.must_move_on():
+                        await self._say(
+                            HUMANE_BOUNDARY_LINE,
+                            "TIMEBOX_MOVE_ON",
+                            question.question_id,  # type: ignore[attr-defined]
+                        )
+                    return latest
+
+                self.state_machine.transition(InterviewState.QUESTION_PROBING)
+                logger.info(
+                    "generating probe",
+                    extra={
+                        "question_id": question.question_id,  # type: ignore[attr-defined]
+                        "category": directive.probe_category,
+                    },
+                )
+                # Snapshot taken after the ack was spoken — probe generation
+                # sees the full turn including the agent's acknowledgment
+                # (the scorer intentionally sees only up to the answer).
+                probe_request = ProbeRequest(
+                    category_assessment=latest[directive.probe_category],  # type: ignore[index]
+                    transcript=list(self._transcript),
+                    probes_used=probes_used,
+                    max_probes=question.max_probes,  # type: ignore[attr-defined]
+                )
+                timer.mark("probe_started")
+                # Off the event loop for the same reason as scoring.
+                probe_text = await asyncio.to_thread(
+                    self._probe_generator.generate, probe_request
+                )
+                timer.mark("probe_finished")
+                probes_used += 1
+                timer.mark("next_prompt_started")
+                await self._say(
+                    probe_text,
+                    "PROBE_LOW_CONFIDENCE",
+                    question.question_id,  # type: ignore[attr-defined]
+                    category=directive.probe_category,
+                    missing_element=directive.missing_element,
+                )
+            finally:
+                # Also fires when scoring/probing raises, so latency data has
+                # no gaps for failed turns (emit is idempotent).
+                timer.emit()
+
+    async def _score_behind_ack(
+        self, question: object, targets: list[str], timer: TurnTimer
+    ) -> object:
+        """Score the just-captured answer concurrently with the spoken ack.
+
+        The Anthropic call runs in a worker thread so the acknowledgment plays
+        immediately — and so the LiveKit audio tasks sharing this event loop
+        are never starved by a blocking HTTP call. Without configured
+        acknowledgments this degrades to awaiting the scorer directly.
+        """
+        self.state_machine.transition(InterviewState.QUESTION_SCORING)
+        logger.info(
+            "scoring candidate answer",
+            extra={"question_id": question.question_id},  # type: ignore[attr-defined]
+        )
+        # Snapshot ends at the candidate's answer; the concurrent ack is
+        # deliberately not part of what the scorer sees.
+        scorer_input = ScorerInput(
+            script_version=self._rubric.script_version,
+            question_id=question.question_id,  # type: ignore[attr-defined]
+            target_categories=targets,
+            transcript=list(self._transcript),
+        )
+        timer.mark("score_started")
+        score_task = asyncio.create_task(
+            asyncio.to_thread(self._scorer.score, scorer_input)
+        )
+        try:
             ack = self._next_acknowledgment()
             if ack:
                 timer.mark("ack_started")
                 await self._say(ack, "ACK", question.question_id)  # type: ignore[attr-defined]
             output = await score_task
-            timer.mark("score_finished")
-            for assessment in output.assessments:
-                latest[assessment.category] = assessment
-
-            directive = decide_next_action(
-                scorer_output=output,
-                target_categories=targets,
-                confidence_threshold=SCORING.confidence_threshold,
-                probes_used=probes_used,
-                max_probes=question.max_probes,  # type: ignore[attr-defined]
-                time_exhausted=self._clock.must_move_on(),
-            )
-            if directive.action == "advance":
-                timer.mark("next_prompt_started")
-                timer.emit()
-                if self._clock.must_move_on():
-                    await self._say(
-                        HUMANE_BOUNDARY_LINE,
-                        "TIMEBOX_MOVE_ON",
-                        question.question_id,  # type: ignore[attr-defined]
-                    )
-                return latest
-
-            self.state_machine.transition(InterviewState.QUESTION_PROBING)
-            logger.info(
-                "generating probe",
-                extra={
-                    "question_id": question.question_id,  # type: ignore[attr-defined]
-                    "category": directive.probe_category,
-                },
-            )
-            probe_request = ProbeRequest(
-                category_assessment=latest[directive.probe_category],  # type: ignore[index]
-                transcript=list(self._transcript),
-                probes_used=probes_used,
-                max_probes=question.max_probes,  # type: ignore[attr-defined]
-            )
-            timer.mark("probe_started")
-            # Off the event loop for the same reason as scoring above.
-            probe_text = await asyncio.to_thread(
-                self._probe_generator.generate, probe_request
-            )
-            timer.mark("probe_finished")
-            probes_used += 1
-            timer.mark("next_prompt_started")
-            timer.emit()
-            await self._say(
-                probe_text,
-                "PROBE_LOW_CONFIDENCE",
-                question.question_id,  # type: ignore[attr-defined]
-                category=directive.probe_category,
-                missing_element=directive.missing_element,
-            )
+        except BaseException:
+            # _say can raise (e.g. participant disconnect). Don't leak the
+            # scorer task or let its exception go unretrieved; cancelling only
+            # detaches the asyncio wrapper — the worker thread itself runs out.
+            score_task.cancel()
+            raise
+        timer.mark("score_finished")
+        return output
 
     async def _speak_opener(self) -> None:
         """Speak the opener block — uses rubric.opener when defined, else the

@@ -51,3 +51,15 @@ def test_turn_timer_emit_logs_one_structured_line(
     assert len(records) == 1
     assert records[0].turn_latency["question_id"] == "q2"
     assert summary["ack_latency_seconds"] == pytest.approx(0.3, abs=1e-6)
+
+
+def test_turn_timer_emit_is_idempotent(caplog: pytest.LogCaptureFixture) -> None:
+    timer = TurnTimer("q3", now=_fake_clock([0.0, 0.2]))
+    timer.mark("ack_started")
+
+    with caplog.at_level(logging.INFO, logger="agent.controller.turn_metrics"):
+        timer.emit()
+        timer.emit()  # e.g. explicit emit followed by a finally-block emit
+
+    records = [r for r in caplog.records if r.message == "turn latency"]
+    assert len(records) == 1

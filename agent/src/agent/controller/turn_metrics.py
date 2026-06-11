@@ -38,6 +38,7 @@ class TurnTimer:
         self._now = now
         self._question_id = question_id
         self._marks: dict[str, float] = {}
+        self._emitted = False
         self.mark("answer_received")
 
     def mark(self, name: str) -> None:
@@ -55,7 +56,10 @@ class TurnTimer:
         return result
 
     def emit(self) -> dict[str, float | str | None]:
-        """Log the turn's latency summary and return it."""
+        """Log the turn's latency summary and return it. Idempotent — safe to
+        call again from a finally block; only the first call logs."""
         summary = self.summary()
-        logger.info("turn latency", extra={"turn_latency": summary})
+        if not self._emitted:
+            self._emitted = True
+            logger.info("turn latency", extra={"turn_latency": summary})
         return summary
