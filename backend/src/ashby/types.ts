@@ -8,6 +8,21 @@ export interface AshbySetupRequest extends CompanyIdentity {
   readonly selectedJobIds: readonly string[];
 }
 
+export interface AshbyApiKeyOnboardingRequest extends CompanyIdentity {
+  readonly reviewerEmail: string;
+  readonly ashbyApiKey: string;
+}
+
+export interface AshbyJobSelectionRequest extends CompanyIdentity {
+  readonly reviewerEmail: string;
+  readonly selectedJobIds: readonly string[];
+  readonly publicBaseUrl: string;
+}
+
+export interface AshbySyncRequest extends CompanyIdentity {
+  readonly reviewerEmail?: string;
+}
+
 export interface AshbyJob {
   readonly id: string;
   readonly name: string;

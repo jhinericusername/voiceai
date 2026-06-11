@@ -3,15 +3,21 @@ import { getPool } from "../db/pool.js";
 import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
+  generateIntegrationSecret,
   integrationSecretKeyFromEnv,
 } from "./crypto.js";
-import { listActiveApplicationsForJob, syncedApplicationFromAshby } from "./client.js";
+import { listActiveApplicationsForJob, listJobs, syncedApplicationFromAshby } from "./client.js";
 import {
   activeApplicationUpsertStatement,
   inactiveCandidateApplicationsStatement,
+  integrationApiKeyUpsertStatement,
   integrationByIdStatement,
+  integrationIdentityLockStatement,
+  integrationJobsUpdateStatement,
   integrationLookupStatement,
+  integrationSecretLookupStatement,
   integrationSetupUpsertStatement,
+  markIntegrationSyncedStatement,
   isValidEmailDomain,
   markIntegrationPingStatement,
   normalizeEmailDomain,
@@ -22,7 +28,10 @@ import {
   webhookEventProcessedStatement,
 } from "./repository.js";
 import type {
+  AshbyApiKeyOnboardingRequest,
+  AshbyJobSelectionRequest,
   AshbySetupRequest,
+  AshbySyncRequest,
   AshbyWebhookEnvelope,
   AshbyWebhookPayload,
   CompanyIdentity,
@@ -33,9 +42,12 @@ interface IntegrationRow {
   readonly integration_id?: unknown;
   readonly email_domain?: unknown;
   readonly ashby_api_key_ciphertext?: unknown;
+  readonly ashby_webhook_secret_ciphertext?: unknown;
   readonly selected_job_ids?: unknown;
   readonly connected_at?: unknown;
   readonly last_ping_at?: unknown;
+  readonly last_sync_at?: unknown;
+  readonly setup_status?: unknown;
 }
 
 interface SetupRow {
@@ -56,6 +68,16 @@ const ACTIVE_APPLICATION_ACTIONS = new Set([
 ]);
 
 const INACTIVE_CANDIDATE_ACTIONS = new Set(["candidateDelete", "candidateMerge"]);
+
+const REQUIRED_WEBHOOK_EVENTS = [
+  "ping",
+  "applicationSubmit",
+  "applicationUpdate",
+  "candidateStageChange",
+  "candidateDelete",
+  "candidateMerge",
+  "candidateHire",
+] as const;
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -79,6 +101,25 @@ function selectedJobIds(value: unknown): string[] {
         .filter((item): item is string => item !== null),
     ),
   ];
+}
+
+function publicBaseUrl(value: unknown): string | null {
+  const text = stringValue(value);
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const url = new URL(text);
+    const isLocalHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    const hasAllowedProtocol = url.protocol === "https:" || (isLocalHost && url.protocol === "http:");
+    if (!hasAllowedProtocol) {
+      return null;
+    }
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
 }
 
 function companyIdentity(body: unknown): CompanyIdentity | null {
@@ -167,6 +208,133 @@ function candidateIdFromPayload(payload: AshbyWebhookPayload): string | null {
 }
 
 export function registerAshbyRoutes(app: FastifyInstance): void {
+  app.post<{ Body: AshbyApiKeyOnboardingRequest }>(
+    "/integrations/ashby/onboarding/api-key",
+    async (request, reply) => {
+      const identity = companyIdentity(request.body);
+      const body = objectValue(request.body);
+      const reviewerEmail = stringValue(body?.reviewerEmail);
+      const apiKey = stringValue(body?.ashbyApiKey);
+      if (!identity || !reviewerEmail || !apiKey) {
+        return reply
+          .code(400)
+          .send({ error: "emailDomain, reviewerEmail, and ashbyApiKey are required" });
+      }
+
+      let jobs: Awaited<ReturnType<typeof listJobs>>;
+      try {
+        jobs = await listJobs({ apiKey });
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : "Ashby API key validation failed",
+        });
+      }
+
+      const secretKey = integrationSecretKeyFromEnv();
+      const encryptedApiKey = encryptIntegrationSecret(apiKey, secretKey);
+      const encryptedWebhookSecret = encryptIntegrationSecret(generateIntegrationSecret(), secretKey);
+      const lock = integrationIdentityLockStatement(identity);
+      const upsert = integrationApiKeyUpsertStatement({
+        organizationId: identity.organizationId,
+        emailDomain: identity.emailDomain,
+        reviewerEmail,
+        ashbyApiKeyCiphertext: encryptedApiKey,
+        ashbyWebhookSecretCiphertext: encryptedWebhookSecret,
+      });
+
+      const client = await getPool().connect();
+      let rows: (SetupRow & { readonly ashby_webhook_secret_ciphertext?: unknown })[] = [];
+      let committed = false;
+      try {
+        await client.query("BEGIN");
+        await client.query(lock.sql, [...lock.params]);
+        const result = await client.query<
+          SetupRow & { readonly ashby_webhook_secret_ciphertext?: unknown }
+        >(upsert.sql, [...upsert.params]);
+        rows = result.rows;
+        await client.query("COMMIT");
+        committed = true;
+      } catch (error) {
+        if (!committed) {
+          try {
+            await client.query("ROLLBACK");
+          } catch (rollbackError) {
+            request.log.error({ err: rollbackError }, "failed to roll back Ashby onboarding transaction");
+          }
+        }
+        throw error;
+      } finally {
+        client.release();
+      }
+
+      const row = rows[0];
+      if (row?.identity_conflict) {
+        return reply.code(409).send({
+          error: "Ashby identity conflict: organizationId and emailDomain match different integrations.",
+        });
+      }
+
+      const integrationId = stringValue(row?.integration_id);
+      if (!integrationId) {
+        return reply
+          .code(500)
+          .send({ error: "Ashby onboarding did not return an integration id" });
+      }
+
+      return reply.code(201).send({
+        integrationId,
+        emailDomain: identity.emailDomain,
+        setupStatus: "job_selection_pending",
+        jobs,
+      });
+    },
+  );
+
+  app.post<{ Body: AshbyJobSelectionRequest }>(
+    "/integrations/ashby/onboarding/jobs",
+    async (request, reply) => {
+      const identity = companyIdentity(request.body);
+      const body = objectValue(request.body);
+      const reviewerEmail = stringValue(body?.reviewerEmail);
+      const jobs = selectedJobIds(body?.selectedJobIds);
+      const baseUrl = publicBaseUrl(body?.publicBaseUrl);
+      if (!identity || !reviewerEmail || jobs.length === 0 || !baseUrl) {
+        return reply.code(400).send({
+          error: "emailDomain, reviewerEmail, selectedJobIds, and publicBaseUrl are required",
+        });
+      }
+
+      const integration = await integrationForIdentity(identity);
+      const integrationId = integrationIdFrom(integration);
+      if (!integrationId) {
+        return reply.code(404).send({ error: "Ashby integration is not configured" });
+      }
+
+      const update = integrationJobsUpdateStatement({
+        integrationId,
+        selectedJobIds: jobs,
+        reviewerEmail,
+      });
+      const { rows } = await getPool().query<IntegrationRow>(update.sql, [...update.params]);
+      const updated = rows[0];
+      const encryptedWebhookSecret = stringValue(updated?.ashby_webhook_secret_ciphertext);
+      if (!encryptedWebhookSecret) {
+        return reply.code(500).send({ error: "Ashby webhook secret is not configured" });
+      }
+
+      const webhookSecret = decryptIntegrationSecret(
+        encryptedWebhookSecret,
+        integrationSecretKeyFromEnv(),
+      );
+      return reply.send({
+        integrationId,
+        webhookUrl: `${baseUrl}/api/ashby/webhook?integrationId=${encodeURIComponent(integrationId)}`,
+        webhookSecret,
+        requiredEvents: REQUIRED_WEBHOOK_EVENTS,
+      });
+    },
+  );
+
   app.post<{ Body: AshbySetupRequest }>("/integrations/ashby/setup", async (request, reply) => {
     const identity = companyIdentity(request.body);
     const body = objectValue(request.body);
@@ -294,33 +462,47 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     return reply.send({ ok: true, action });
   });
 
-  app.post("/integrations/ashby/sync-active-applications", async (request, reply) => {
-    const identity = companyIdentity(request.body);
-    if (!identity) {
-      return reply.code(400).send({ error: "valid emailDomain is required" });
-    }
-
-    const integration = await integrationForIdentity(identity);
-    const integrationId = integrationIdFrom(integration);
-    const encryptedApiKey = stringValue(integration?.ashby_api_key_ciphertext);
-    const jobIds = stringArray(integration?.selected_job_ids);
-    if (!integrationId || !encryptedApiKey || jobIds.length === 0) {
-      return reply.code(404).send({ error: "Ashby integration is not configured" });
-    }
-
-    const apiKey = decryptIntegrationSecret(encryptedApiKey, integrationSecretKeyFromEnv());
-    let syncedCount = 0;
-    for (const jobId of jobIds) {
-      const applications = await listActiveApplicationsForJob({ apiKey, integrationId, jobId });
-      for (const application of applications) {
-        const stmt = activeApplicationUpsertStatement(application);
-        await getPool().query(stmt.sql, [...stmt.params]);
-        syncedCount += 1;
+  app.post<{ Body: AshbySyncRequest }>(
+    "/integrations/ashby/sync-active-applications",
+    async (request, reply) => {
+      const identity = companyIdentity(request.body);
+      if (!identity) {
+        return reply.code(400).send({ error: "valid emailDomain is required" });
       }
-    }
 
-    return reply.send({ ok: true, syncedCount });
-  });
+      const integration = await integrationForIdentity(identity);
+      const integrationId = integrationIdFrom(integration);
+      if (!integrationId) {
+        return reply.code(404).send({ error: "Ashby integration is not configured" });
+      }
+
+      const secretLookup = integrationSecretLookupStatement(integrationId);
+      const secretResult = await getPool().query<IntegrationRow>(secretLookup.sql, [
+        ...secretLookup.params,
+      ]);
+      const configuredIntegration = secretResult.rows[0];
+      const encryptedApiKey = stringValue(configuredIntegration?.ashby_api_key_ciphertext);
+      const jobIds = stringArray(configuredIntegration?.selected_job_ids);
+      if (!encryptedApiKey || jobIds.length === 0) {
+        return reply.code(404).send({ error: "Ashby integration is not configured" });
+      }
+
+      const apiKey = decryptIntegrationSecret(encryptedApiKey, integrationSecretKeyFromEnv());
+      let syncedCount = 0;
+      for (const jobId of jobIds) {
+        const applications = await listActiveApplicationsForJob({ apiKey, integrationId, jobId });
+        for (const application of applications) {
+          const stmt = activeApplicationUpsertStatement(application);
+          await getPool().query(stmt.sql, [...stmt.params]);
+          syncedCount += 1;
+        }
+      }
+
+      const synced = markIntegrationSyncedStatement(integrationId);
+      await getPool().query(synced.sql, [...synced.params]);
+      return reply.send({ ok: true, syncedCount });
+    },
+  );
 
   app.post("/integrations/ashby/applications/search", async (request, reply) => {
     const identity = companyIdentity(request.body);
