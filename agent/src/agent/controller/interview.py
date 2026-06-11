@@ -19,6 +19,7 @@ from agent.controller.event_log import EventLog
 from agent.controller.machine import InterviewStateMachine
 from agent.controller.states import InterviewState
 from agent.controller.timing import HUMANE_BOUNDARY_LINE, InterviewClock
+from agent.controller.turn_metrics import TurnTimer
 from agent.domain.types import Assessment, Rubric, TranscriptTurn
 from agent.scoring.io_types import CategoryAssessment, ScorerInput
 from agent.scoring.probe import ProbeGenerator, ProbeRequest
@@ -124,7 +125,7 @@ class InterviewRunner:
         await self._speak_opener()
 
         final: dict[str, CategoryAssessment] = {}
-        for q_idx, question in enumerate(self._rubric.questions):
+        for question in self._rubric.questions:
             logger.info(
                 "starting interview question",
                 extra={"session_id": session_id, "question_id": question.question_id},
@@ -134,11 +135,6 @@ class InterviewRunner:
             if self.state_machine.state != InterviewState.QUESTION_ASKING:
                 self.state_machine.transition(InterviewState.QUESTION_ASKING)
             self._clock.begin_question(question.soft_budget_seconds)
-            # Optional acknowledgment between questions (not before the first).
-            if q_idx > 0:
-                ack = self._next_acknowledgment()
-                if ack:
-                    await self._say(ack, "SCRIPTED_QUESTION", question.question_id)
             await self._speak_question(question)
             assessments = await self._run_question(question)
             for category, assessment in assessments.items():
@@ -173,19 +169,31 @@ class InterviewRunner:
         while True:
             self.state_machine.transition(InterviewState.QUESTION_ANSWERING)
             await self._listen(question.question_id)  # type: ignore[attr-defined]
+            timer = TurnTimer(question.question_id)  # type: ignore[attr-defined]
             self.state_machine.transition(InterviewState.QUESTION_SCORING)
             logger.info(
                 "scoring candidate answer",
                 extra={"question_id": question.question_id},  # type: ignore[attr-defined]
             )
-            output = self._scorer.score(
-                ScorerInput(
-                    script_version=self._rubric.script_version,
-                    question_id=question.question_id,  # type: ignore[attr-defined]
-                    target_categories=targets,
-                    transcript=list(self._transcript),
-                )
+            scorer_input = ScorerInput(
+                script_version=self._rubric.script_version,
+                question_id=question.question_id,  # type: ignore[attr-defined]
+                target_categories=targets,
+                transcript=list(self._transcript),
             )
+            timer.mark("score_started")
+            # The Anthropic call runs in a worker thread so the acknowledgment
+            # plays immediately — and so the LiveKit audio tasks sharing this
+            # event loop are never starved by a blocking HTTP call.
+            score_task = asyncio.create_task(
+                asyncio.to_thread(self._scorer.score, scorer_input)
+            )
+            ack = self._next_acknowledgment()
+            if ack:
+                timer.mark("ack_started")
+                await self._say(ack, "ACK", question.question_id)  # type: ignore[attr-defined]
+            output = await score_task
+            timer.mark("score_finished")
             for assessment in output.assessments:
                 latest[assessment.category] = assessment
 

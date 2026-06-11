@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 ReasonCode = Literal[
     "CONSENT",
     "INTRO",
+    "ACK",
     "SCRIPTED_QUESTION",
     "PROBE_LOW_CONFIDENCE",
     "AUDIO_REPAIR",

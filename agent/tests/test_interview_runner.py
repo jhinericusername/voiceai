@@ -1,4 +1,6 @@
 import asyncio
+import threading
+import time as time_module
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -320,3 +322,75 @@ async def test_runner_reconnect_grace_expiry_marks_incomplete_and_reports_status
         {"reconnect_count": 0},
         status="incomplete",
     )
+
+
+async def test_ack_is_spoken_while_scoring_runs(tmp_path: Path) -> None:
+    """The controller must NOT await scoring before acknowledging the answer.
+
+    The fake scorer (running in a worker thread) blocks until the ack has been
+    spoken; if the controller serialized score-then-speak this would time out.
+    """
+    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    acks = set(RUBRIC.style.acknowledgments)
+    ack_spoken = threading.Event()
+
+    voice = _simulated_voice()
+
+    async def speak(text: str, mode: str = "scripted") -> None:  # noqa: ARG001
+        if text in acks:
+            ack_spoken.set()
+
+    voice.speak = AsyncMock(side_effect=speak)
+
+    def blocking_score(si):  # noqa: ANN001
+        assert ack_spoken.wait(timeout=5.0), "ack not spoken while scoring ran"
+        return _confident(si.target_categories[0])
+
+    scorer = MagicMock()
+    scorer.score.side_effect = blocking_score
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=scorer,
+        probe_generator=MagicMock(),
+        event_log=EventLog(session_id="s-conc", path=tmp_path / "events.jsonl"),
+        clock_now=time_module.monotonic,
+    )
+
+    assessment = await asyncio.wait_for(runner.run(session_id="s-conc"), timeout=30)
+    assert assessment.session_id == "s-conc"
+
+
+async def test_each_candidate_answer_is_acknowledged_immediately(
+    tmp_path: Path,
+) -> None:
+    """After every question-loop candidate turn, the next agent utterance is an
+    acknowledgment from the rubric pool."""
+    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    voice = _simulated_voice()
+    scorer = MagicMock()
+    scorer.score.side_effect = lambda si: _confident(si.target_categories[0])
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=scorer,
+        probe_generator=MagicMock(),
+        event_log=EventLog(session_id="s-ack", path=tmp_path / "events.jsonl"),
+        clock_now=iter([float(i) for i in range(0, 4000, 5)]).__next__,
+    )
+    await runner.run(session_id="s-ack")
+
+    turns = runner.transcript_turns()
+    acks = set(RUBRIC.style.acknowledgments)
+    question_answer_indices = [
+        i
+        for i, t in enumerate(turns)
+        if t.speaker == "candidate" and t.question_id not in (None, "opener")
+    ]
+    assert question_answer_indices, "no question answers captured"
+    for i in question_answer_indices:
+        following_agent = next((t for t in turns[i + 1 :] if t.speaker == "agent"), None)
+        assert following_agent is not None
+        assert following_agent.text in acks, (
+            f"expected ack right after answer turn {i}, got: {following_agent.text!r}"
+        )
