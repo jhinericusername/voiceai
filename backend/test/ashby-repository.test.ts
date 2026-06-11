@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   activeApplicationUpsertStatement,
   inactiveCandidateApplicationsStatement,
+  integrationApiKeyUpsertStatement,
   integrationByIdStatement,
+  integrationIdentityLockStatement,
+  integrationJobsUpdateStatement,
   integrationLookupStatement,
+  integrationSecretLookupStatement,
   integrationSetupUpsertStatement,
   isValidEmailDomain,
   markIntegrationPingStatement,
+  markIntegrationSyncedStatement,
   normalizeEmailDomain,
   recentScreensStatement,
   scoreUpsertStatement,
@@ -67,6 +72,82 @@ describe("Ashby repository statements", () => {
     expect(stmt.sql).toContain("count(DISTINCT integration_id) > 1 AS has_conflict");
     expect(stmt.sql).toContain("AND NOT (SELECT has_conflict FROM identity_conflict)");
     expect(stmt.sql).toContain("NULL::text AS integration_id, true AS identity_conflict");
+  });
+
+  it("builds API key onboarding upsert with encrypted API and webhook secrets", () => {
+    const stmt = integrationApiKeyUpsertStatement({
+      organizationId: "org_1",
+      emailDomain: "UsePuddle.COM",
+      reviewerEmail: "admin@usepuddle.com",
+      ashbyApiKeyCiphertext: "api:ciphertext",
+      ashbyWebhookSecretCiphertext: "webhook:ciphertext",
+    });
+
+    expect(stmt.sql).toContain("ashby_company_integrations");
+    expect(stmt.sql).toContain("ashby_api_key_ciphertext");
+    expect(stmt.sql).toContain("ashby_webhook_secret_ciphertext");
+    expect(stmt.sql).toContain("created_by_email");
+    expect(stmt.sql).toContain("updated_by_email");
+    expect(stmt.sql).not.toContain("advisory_lock");
+    expect(stmt.sql).not.toContain("pg_advisory_xact_lock");
+    expect(stmt.sql).toContain("organization_id IS NOT NULL");
+    expect(stmt.sql).toContain("organization_id <> $2");
+    expect(stmt.sql).toContain("ashby_webhook_secret_ciphertext = COALESCE(ashby_webhook_secret_ciphertext, $5)");
+    expect(stmt.sql).toContain("organization_id = COALESCE(organization_id, $2)");
+    expect(stmt.params).toEqual([
+      expect.any(String),
+      "org_1",
+      "usepuddle.com",
+      "api:ciphertext",
+      "webhook:ciphertext",
+      "job_selection_pending",
+      "admin@usepuddle.com",
+    ]);
+  });
+
+  it("builds transaction-scoped company identity advisory lock statements", () => {
+    const withOrg = integrationIdentityLockStatement({
+      organizationId: "org_1",
+      emailDomain: " UsePuddle.COM ",
+    });
+
+    expect(withOrg.sql).toContain("pg_advisory_xact_lock");
+    expect(withOrg.sql).toContain("hashtextextended");
+    expect(withOrg.params).toEqual(["usepuddle.com", "org_1"]);
+
+    const withoutOrg = integrationIdentityLockStatement({
+      organizationId: null,
+      emailDomain: "UsePuddle.COM",
+    });
+
+    expect(withoutOrg.sql).toContain("CASE WHEN $2::text IS NOT NULL");
+    expect(withoutOrg.params).toEqual(["usepuddle.com", null]);
+  });
+
+  it("builds job selection update and exposes setup secret lookup", () => {
+    const update = integrationJobsUpdateStatement({
+      integrationId: "int_1",
+      selectedJobIds: ["job_1", "job_2"],
+      reviewerEmail: "admin@usepuddle.com",
+    });
+    expect(update.sql).toContain("selected_job_ids = $2");
+    expect(update.sql).toContain("setup_status = 'pending_webhook'");
+    expect(update.params).toEqual(["int_1", ["job_1", "job_2"], "admin@usepuddle.com"]);
+
+    const lookup = integrationSecretLookupStatement("int_1");
+    expect(lookup.sql).toContain("ashby_api_key_ciphertext");
+    expect(lookup.sql).toContain("ashby_webhook_secret_ciphertext");
+    expect(lookup.params).toEqual(["int_1"]);
+  });
+
+  it("builds sync timestamp and connected status updates", () => {
+    const sync = markIntegrationSyncedStatement("int_1");
+    expect(sync.sql).toContain("last_sync_at = now()");
+    expect(sync.params).toEqual(["int_1"]);
+
+    const connected = markIntegrationPingStatement("int_1");
+    expect(connected.sql).toContain("setup_status = 'connected'");
+    expect(connected.sql).toContain("connected_at = COALESCE");
   });
 
   it("deduplicates webhook events by Ashby webhookActionId", () => {
