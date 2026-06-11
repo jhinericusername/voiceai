@@ -23,6 +23,7 @@ const trustLinks = [
 const directLinks = [
   { label: "Sample Report", href: "/sample-report" },
   { label: "Candidates", href: "/candidates" },
+  { label: "Resources", href: "/resources" },
 ];
 
 interface PublicNavProps {
@@ -43,10 +44,10 @@ export function PublicNav({ homeHref = "/" }: PublicNavProps) {
   return (
     <nav aria-label="Global" className="fixed inset-x-0 top-0 z-50 w-screen bg-white/[0.94] backdrop-blur-xl">
       <div className="overflow-visible">
-        <div className="flex items-center justify-between gap-4 px-5 py-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between gap-4 px-5 py-2 sm:px-6 lg:px-7">
           <Link href={homeHref} className="flex min-w-0 flex-1 items-center gap-2" aria-label="Puddle home">
-            <Image src="/puddle-symbol-black-nobg.png" alt="" width={38} height={38} className="h-9 w-9" priority />
-            <span className="text-lg font-semibold text-slate-950">Puddle</span>
+            <Image src="/puddle-symbol-black-nobg.png" alt="" width={32} height={32} className="h-8 w-8" priority />
+            <span className="text-base font-semibold text-slate-950">Puddle</span>
           </Link>
 
           <div className="hidden items-center gap-1 lg:flex">
@@ -61,7 +62,7 @@ export function PublicNav({ homeHref = "/" }: PublicNavProps) {
               <Link
                 key={link.href}
                 href={link.href}
-                className="rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                className="rounded-md px-2.5 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
               >
                 {link.label}
               </Link>
@@ -79,13 +80,13 @@ export function PublicNav({ homeHref = "/" }: PublicNavProps) {
           <div className="hidden flex-1 items-center justify-end gap-2 sm:flex">
             <Link
               href="/dashboard"
-              className="rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+              className="rounded-md px-2.5 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
             >
               Sign in
             </Link>
             <a
               href="mailto:hello@usepuddle.com"
-              className="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold !text-white transition hover:bg-slate-800"
+              className="rounded-md bg-slate-950 px-3.5 py-1.5 text-sm font-semibold !text-white transition hover:bg-slate-800"
             >
               Book a pilot
             </a>
@@ -162,7 +163,7 @@ function NavMenu({
         type="button"
         aria-expanded={active}
         onClick={() => (active ? onClose() : onOpen())}
-        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold transition ${
+        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold transition ${
           active ? "bg-slate-100 text-slate-950" : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
         }`}
       >

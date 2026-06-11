@@ -17,6 +17,7 @@ import {
   type RecordingStatus,
 } from "../recordings/repository.js";
 import { sessionStatusUpdateStatement } from "../scheduler/sessions.js";
+import { markSessionReviewReadyIfComplete } from "../finalization/reviewReady.js";
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -168,6 +169,21 @@ export function registerLiveKitWebhookRoutes(
         event.event === "egress_ended")
         ? await persistEgressWebhook(event)
         : false;
+
+    if (persisted && event.event === "egress_ended") {
+      const room = event.egressInfo ? egressRoomName(event.egressInfo) : null;
+      const sessionId = room ? sessionIdFromRoomName(room) : null;
+      if (sessionId) {
+        try {
+          await markSessionReviewReadyIfComplete(getPool(), sessionId);
+        } catch (error) {
+          request.log.warn(
+            { err: error, sessionId },
+            "failed to evaluate review readiness after LiveKit webhook",
+          );
+        }
+      }
+    }
 
     return reply.code(200).send({ ok: true, persisted });
   });

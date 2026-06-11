@@ -94,7 +94,7 @@ async def test_livekit_session_speak_uses_agent_session_say() -> None:
     assert session.say_calls == [
         (
             ("Welcome to the interview.",),
-            {"allow_interruptions": True, "add_to_chat_ctx": False},
+            {"allow_interruptions": False, "add_to_chat_ctx": False},
         )
     ]
     session.handle.wait_for_playout.assert_awaited_once()
@@ -105,6 +105,7 @@ async def test_livekit_session_listen_returns_next_final_transcript() -> None:
     voice = LiveKitSessionVoiceAgent(session, coalesce_window_seconds=0.01)
 
     listen_task = asyncio.create_task(voice.listen())
+    await asyncio.sleep(0)
     session.handlers["user_input_transcribed"](
         SimpleNamespace(transcript="still typing", is_final=False)
     )
@@ -125,6 +126,7 @@ async def test_listen_coalesces_multiple_finals_into_one_turn() -> None:
     voice = LiveKitSessionVoiceAgent(session, coalesce_window_seconds=0.05)
 
     listen_task = asyncio.create_task(voice.listen())
+    await asyncio.sleep(0)  # let listen() start accepting transcripts
     push = session.handlers["user_input_transcribed"]
     push(SimpleNamespace(transcript="I rewrote the scheduler", is_final=True))
     await asyncio.sleep(0.01)
@@ -140,6 +142,7 @@ async def test_listen_returns_after_pause_window() -> None:
     voice = LiveKitSessionVoiceAgent(session, coalesce_window_seconds=0.05)
 
     listen_task = asyncio.create_task(voice.listen())
+    await asyncio.sleep(0)  # let listen() start accepting transcripts
     session.handlers["user_input_transcribed"](
         SimpleNamespace(transcript="Just one clause.", is_final=True)
     )
@@ -164,11 +167,37 @@ async def test_user_is_speaking_tracks_user_state_events() -> None:
     assert voice.user_is_speaking() is False
 
 
+async def test_livekit_session_listen_ignores_stale_transcripts() -> None:
+    session = FakeSession()
+    voice = LiveKitSessionVoiceAgent(session, coalesce_window_seconds=0.05)
+
+    session.handlers["user_input_transcribed"](
+        SimpleNamespace(transcript="captured while agent was speaking", is_final=True)
+    )
+    listen_task = asyncio.create_task(voice.listen())
+    await asyncio.sleep(0)
+
+    assert not listen_task.done()
+
+    session.handlers["user_input_transcribed"](
+        SimpleNamespace(transcript="I owned the migration plan.", is_final=True)
+    )
+    result = await listen_task
+
+    assert result.transcript == "I owned the migration plan."
+
+
 async def test_livekit_session_listen_survives_participant_reconnect() -> None:
     session = FakeSession()
     room = FakeRoom()
     voice = LiveKitSessionVoiceAgent(
         session, participant_reconnect_grace_seconds=1.0, coalesce_window_seconds=0.01
+    )
+    on_disconnect = MagicMock()
+    on_reconnect = MagicMock()
+    voice.set_participant_state_handlers(
+        on_disconnect=on_disconnect,
+        on_reconnect=on_reconnect,
     )
     voice._link_participant(room, "candidate-1")
 
@@ -176,8 +205,10 @@ async def test_livekit_session_listen_survives_participant_reconnect() -> None:
     room.handlers["participant_disconnected"](SimpleNamespace(identity="candidate-1"))
     await asyncio.sleep(0)
     assert not listen_task.done()
+    on_disconnect.assert_called_once()
 
     room.handlers["participant_connected"](SimpleNamespace(identity="candidate-1"))
+    on_reconnect.assert_called_once()
     session.handlers["user_input_transcribed"](
         SimpleNamespace(transcript="The scheduler used backpressure.", is_final=True)
     )
@@ -190,11 +221,14 @@ async def test_livekit_session_listen_fails_after_reconnect_grace() -> None:
     session = FakeSession()
     room = FakeRoom()
     voice = LiveKitSessionVoiceAgent(session, participant_reconnect_grace_seconds=0.01)
+    on_grace_expired = MagicMock()
+    voice.set_participant_state_handlers(on_reconnect_grace_expired=on_grace_expired)
     voice._link_participant(room, "candidate-1")
 
     room.handlers["participant_disconnected"](SimpleNamespace(identity="candidate-1"))
     with pytest.raises(ParticipantDisconnectedError):
         await voice.listen()
+    on_grace_expired.assert_called_once()
 
 
 async def test_await_candidate_ready_resolves_on_attr_and_track() -> None:

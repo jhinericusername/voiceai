@@ -44,6 +44,7 @@ export interface PuddleEnvConfig {
     domainName?: string;
     certificateArn?: string;
     allowedAuthDomains: string;
+    ashbyOnboardingAdminEmails?: string;
     defaultScriptVersion: string;
   };
   database: {
@@ -57,6 +58,10 @@ export interface PuddleEnvConfig {
     multiAz: boolean;
     deletionProtection: boolean;
     allowRealCandidateDataExternal: boolean;
+  };
+  devTunnel: {
+    enabled: boolean;
+    instanceType: string;
   };
   liveKit: {
     url?: string;
@@ -142,6 +147,9 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
       allowedAuthDomains:
         readStringContext(app, 'platformAllowedAuthDomains') ??
         'usepuddle.com,workweave.ai',
+      ashbyOnboardingAdminEmails:
+        readStringEnv('PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS') ??
+        readStringEnv('PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS'),
       defaultScriptVersion:
         readStringContext(app, 'platformDefaultScriptVersion') ?? 'pilot-v1',
     },
@@ -170,6 +178,10 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
         'allowRealCandidateDataOnExternalDatabase',
         false,
       ),
+    },
+    devTunnel: {
+      enabled: readBooleanContext(app, 'enableDevTunnel', envName === 'dev'),
+      instanceType: readStringContext(app, 'devTunnelInstanceType') ?? 't3.nano',
     },
     liveKit: {
       url: readStringContext(app, 'liveKitUrl'),
@@ -203,6 +215,15 @@ function readStringContext(app: cdk.App, key: string): string | undefined {
   }
 
   return String(value);
+}
+
+function readStringEnv(key: string): string | undefined {
+  const value = process.env[key];
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  return value;
 }
 
 function readBooleanContext(

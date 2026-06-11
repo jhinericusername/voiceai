@@ -8,7 +8,7 @@ import {
   type EgressInfo,
 } from "livekit-server-sdk";
 import type { RecordingStatus } from "../recordings/repository.js";
-import type { LiveKitConfig } from "./provision.js";
+import { liveKitApiUrl, type LiveKitConfig } from "./provision.js";
 
 export interface LiveKitEgressStorageConfig {
   readonly bucket: string;
@@ -131,7 +131,7 @@ export async function startRoomCompositeRecording(
   input: RoomCompositeRecordingInput,
 ): Promise<EgressInfo> {
   const egress = new EgressClient(
-    input.liveKitConfig.host,
+    liveKitApiUrl(input.liveKitConfig.host),
     input.liveKitConfig.apiKey,
     input.liveKitConfig.apiSecret,
   );

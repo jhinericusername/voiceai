@@ -24,7 +24,9 @@ interface RuntimeSecrets {
   cartesiaApiKey: secretsmanager.ISecret;
   geminiApiKey: secretsmanager.ISecret;
   backendInternalToken: secretsmanager.ISecret;
+  ashbyIntegrationSecretKey: secretsmanager.ISecret;
   platformAuthSecret: secretsmanager.ISecret;
+  ashbyWebhookSecret: secretsmanager.ISecret;
   workosApiKey: secretsmanager.ISecret;
   workosClientId: secretsmanager.ISecret;
   livekitEgressS3Credentials?: secretsmanager.ISecret;
@@ -37,6 +39,16 @@ interface RuntimeRoles {
   agentExecutionRole: iam.Role;
   platformTaskRole: iam.Role;
   platformExecutionRole: iam.Role;
+}
+
+interface StackSecurityGroups {
+  backendTasks: ec2.SecurityGroup;
+  backendLoadBalancer: ec2.SecurityGroup;
+  platformLoadBalancer: ec2.SecurityGroup;
+  platformTasks: ec2.SecurityGroup;
+  agentTasks: ec2.SecurityGroup;
+  futureDatabase: ec2.SecurityGroup;
+  devTunnel?: ec2.SecurityGroup;
 }
 
 interface BackendDeployment {
@@ -60,6 +72,10 @@ interface PlatformDeployment {
   publicBaseUrl: string;
 }
 
+interface DevTunnelDeployment {
+  instance: ec2.Instance;
+}
+
 const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   livekitApiKey: 'livekit/api-key',
   livekitApiSecret: 'livekit/api-secret',
@@ -68,7 +84,9 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   cartesiaApiKey: 'providers/cartesia-api-key',
   geminiApiKey: 'providers/gemini-api-key',
   backendInternalToken: 'backend/internal-token',
+  ashbyIntegrationSecretKey: 'integrations/ashby/secret-key',
   platformAuthSecret: 'platform/auth-secret',
+  ashbyWebhookSecret: 'integrations/ashby/webhook-secret',
   workosApiKey: 'platform/workos-api-key',
   workosClientId: 'platform/workos-client-id',
   livekitEgressS3Credentials: 'livekit/egress-s3-credentials',
@@ -113,6 +131,7 @@ export class InfraStack extends cdk.Stack {
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
       vpc,
     });
+    const devTunnelDeployment = this.createDevTunnelDeployment({ vpc, securityGroups });
 
     const runtimeRoles = this.createRuntimeRoles(runtimeSecrets, artifactsBucket, database);
     const githubCiRole = this.createGithubCiRole(repositories, webBuckets);
@@ -136,6 +155,7 @@ export class InfraStack extends cdk.Stack {
       logGroups,
       runtimeRoles,
       artifactsBucket,
+      backendDeployment,
     });
     const platformDeployment = this.createPlatformDeployment({
       vpc,
@@ -165,6 +185,7 @@ export class InfraStack extends cdk.Stack {
       backendDeployment,
       agentDeployment,
       platformDeployment,
+      devTunnelDeployment,
     });
   }
 
@@ -183,6 +204,20 @@ export class InfraStack extends cdk.Stack {
 
     if (this.cfg.vpc.natGateways > this.cfg.vpc.maxAzs) {
       throw new Error('natGateways cannot exceed maxAzs.');
+    }
+
+    if (this.cfg.envName === 'prod' && this.cfg.devTunnel.enabled) {
+      throw new Error('Dev tunnel target is not allowed in prod.');
+    }
+
+    if (
+      this.cfg.devTunnel.enabled &&
+      new ec2.InstanceType(this.cfg.devTunnel.instanceType).architecture !==
+        ec2.InstanceArchitecture.X86_64
+    ) {
+      throw new Error(
+        'devTunnelInstanceType must use an x86_64 instance type compatible with the default Amazon Linux 2023 AMI.',
+      );
     }
 
     if (!this.cfg.database.external) {
@@ -259,6 +294,10 @@ export class InfraStack extends cdk.Stack {
     }
 
     if (this.cfg.agent.deployService) {
+      if (!this.cfg.backend.deployService) {
+        throw new Error('deployAgentService requires deployBackendService=true.');
+      }
+
       if (!this.cfg.liveKit.url) {
         throw new Error('deployAgentService requires a liveKitUrl CDK context value.');
       }
@@ -337,56 +376,72 @@ export class InfraStack extends cdk.Stack {
     });
   }
 
-  private createSecurityGroups(vpc: ec2.IVpc): Record<string, ec2.SecurityGroup> {
-    const backendTasks = new ec2.SecurityGroup(this, 'BackendTasksSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('backend-tasks-sg'),
-      description: 'Backend ECS tasks. No public ingress.',
-      allowAllOutbound: true,
-    });
-
-    const backendLoadBalancer = new ec2.SecurityGroup(
-      this,
-      'BackendLoadBalancerSecurityGroup',
-      {
+  private createSecurityGroups(vpc: ec2.IVpc): StackSecurityGroups {
+    const groups: StackSecurityGroups = {
+      backendTasks: new ec2.SecurityGroup(this, 'BackendTasksSecurityGroup', {
         vpc,
-        securityGroupName: this.name('backend-alb-sg'),
-        description: 'Internal backend load balancer ingress from application tasks.',
+        securityGroupName: this.name('backend-tasks-sg'),
+        description: 'Backend ECS tasks. No public ingress.',
         allowAllOutbound: true,
-      },
-    );
-
-    const platformLoadBalancer = new ec2.SecurityGroup(
-      this,
-      'PlatformLoadBalancerSecurityGroup',
-      {
+      }),
+      backendLoadBalancer: new ec2.SecurityGroup(
+        this,
+        'BackendLoadBalancerSecurityGroup',
+        {
+          vpc,
+          securityGroupName: this.name('backend-alb-sg'),
+          description: 'Internal backend load balancer ingress from application tasks.',
+          allowAllOutbound: true,
+        },
+      ),
+      platformLoadBalancer: new ec2.SecurityGroup(
+        this,
+        'PlatformLoadBalancerSecurityGroup',
+        {
+          vpc,
+          securityGroupName: this.name('platform-alb-sg'),
+          description: 'Public platform load balancer ingress.',
+          allowAllOutbound: true,
+        },
+      ),
+      platformTasks: new ec2.SecurityGroup(this, 'PlatformTasksSecurityGroup', {
         vpc,
-        securityGroupName: this.name('platform-alb-sg'),
-        description: 'Public platform load balancer ingress.',
+        securityGroupName: this.name('platform-tasks-sg'),
+        description: 'Platform ECS tasks. No public ingress.',
         allowAllOutbound: true,
-      },
-    );
+      }),
+      agentTasks: new ec2.SecurityGroup(this, 'AgentTasksSecurityGroup', {
+        vpc,
+        securityGroupName: this.name('agent-tasks-sg'),
+        description: 'Agent ECS tasks. No inbound access.',
+        allowAllOutbound: true,
+      }),
+      futureDatabase: new ec2.SecurityGroup(this, 'FutureDatabaseSecurityGroup', {
+        vpc,
+        securityGroupName: this.name('data-sg'),
+        description: 'Future RDS/Aurora ingress from application tasks only.',
+        allowAllOutbound: false,
+      }),
+    };
 
-    const platformTasks = new ec2.SecurityGroup(this, 'PlatformTasksSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('platform-tasks-sg'),
-      description: 'Platform ECS tasks. No public ingress.',
-      allowAllOutbound: true,
-    });
+    if (this.cfg.devTunnel.enabled) {
+      groups.devTunnel = new ec2.SecurityGroup(this, 'DevTunnelSecurityGroup', {
+        vpc,
+        securityGroupName: this.name('dev-tunnel-sg'),
+        description: 'SSM tunnel target for local development access.',
+        allowAllOutbound: false,
+      });
+    }
 
-    const agentTasks = new ec2.SecurityGroup(this, 'AgentTasksSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('agent-tasks-sg'),
-      description: 'Agent ECS tasks. No inbound access.',
-      allowAllOutbound: true,
-    });
-
-    const futureDatabase = new ec2.SecurityGroup(this, 'FutureDatabaseSecurityGroup', {
-      vpc,
-      securityGroupName: this.name('data-sg'),
-      description: 'Future RDS/Aurora ingress from application tasks only.',
-      allowAllOutbound: false,
-    });
+    const {
+      backendTasks,
+      backendLoadBalancer,
+      platformLoadBalancer,
+      platformTasks,
+      agentTasks,
+      futureDatabase,
+      devTunnel,
+    } = groups;
 
     futureDatabase.addIngressRule(
       backendTasks,
@@ -403,6 +458,35 @@ export class InfraStack extends cdk.Stack {
       ec2.Port.tcp(5432),
       'Postgres from agent tasks',
     );
+
+    if (devTunnel) {
+      backendLoadBalancer.addIngressRule(
+        devTunnel,
+        ec2.Port.tcp(80),
+        'Backend load balancer access from the dev tunnel',
+      );
+      futureDatabase.addIngressRule(
+        devTunnel,
+        ec2.Port.tcp(5432),
+        'Postgres from the dev tunnel',
+      );
+      devTunnel.addEgressRule(
+        backendLoadBalancer,
+        ec2.Port.tcp(80),
+        'Backend load balancer egress from the dev tunnel',
+      );
+      devTunnel.addEgressRule(
+        futureDatabase,
+        ec2.Port.tcp(5432),
+        'Postgres egress from the dev tunnel',
+      );
+      // SSM port forwarding uses HTTPS; VPC DNS resolution is handled by the resolver.
+      devTunnel.addEgressRule(
+        ec2.Peer.anyIpv4(),
+        ec2.Port.tcp(443),
+        'HTTPS egress for SSM connectivity',
+      );
+    }
 
     backendTasks.addIngressRule(
       platformTasks,
@@ -450,14 +534,42 @@ export class InfraStack extends cdk.Stack {
       'Platform app traffic from the platform load balancer',
     );
 
-    return {
-      backendTasks,
-      backendLoadBalancer,
-      platformLoadBalancer,
-      platformTasks,
-      agentTasks,
-      futureDatabase,
-    };
+    return groups;
+  }
+
+  private createDevTunnelDeployment(params: {
+    vpc: ec2.IVpc;
+    securityGroups: StackSecurityGroups;
+  }): DevTunnelDeployment | undefined {
+    if (!this.cfg.devTunnel.enabled) {
+      return undefined;
+    }
+
+    if (!params.securityGroups.devTunnel) {
+      throw new Error('Dev tunnel deployment requires a dev tunnel security group.');
+    }
+
+    const role = new iam.Role(this, 'DevTunnelInstanceRole', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+      ],
+    });
+
+    const instance = new ec2.Instance(this, 'DevTunnelInstance', {
+      vpc: params.vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      instanceType: new ec2.InstanceType(this.cfg.devTunnel.instanceType),
+      machineImage: ec2.MachineImage.latestAmazonLinux2023(),
+      role,
+      securityGroup: params.securityGroups.devTunnel,
+      requireImdsv2: true,
+      instanceName: this.name('dev-tunnel'),
+    });
+
+    return { instance };
   }
 
   private createAccessLogsBucket(
@@ -654,9 +766,19 @@ export class InfraStack extends cdk.Stack {
         RUNTIME_SECRET_PATHS.backendInternalToken,
         removalPolicy,
       ),
+      ashbyIntegrationSecretKey: this.createSecret(
+        'AshbyIntegrationSecretKey',
+        RUNTIME_SECRET_PATHS.ashbyIntegrationSecretKey,
+        removalPolicy,
+      ),
       platformAuthSecret: this.createSecret(
         'PlatformAuthSecret',
         RUNTIME_SECRET_PATHS.platformAuthSecret,
+        removalPolicy,
+      ),
+      ashbyWebhookSecret: this.createSecret(
+        'AshbyWebhookSecret',
+        RUNTIME_SECRET_PATHS.ashbyWebhookSecret,
         removalPolicy,
       ),
       workosApiKey: secretsmanager.Secret.fromSecretNameV2(
@@ -795,6 +917,7 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.livekitApiKey,
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.backendInternalToken,
+      runtimeSecrets.ashbyIntegrationSecretKey,
       ...(runtimeSecrets.livekitEgressS3Credentials
         ? [runtimeSecrets.livekitEgressS3Credentials]
         : []),
@@ -806,6 +929,7 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.deepgramApiKey,
       runtimeSecrets.cartesiaApiKey,
       runtimeSecrets.geminiApiKey,
+      runtimeSecrets.backendInternalToken,
     ]);
     grantSecretsRead(platformExecutionRole, [
       runtimeSecrets.backendInternalToken,
@@ -863,7 +987,7 @@ export class InfraStack extends cdk.Stack {
   private createBackendDeployment(params: {
     vpc: ec2.IVpc;
     cluster: ecs.ICluster;
-    securityGroups: Record<string, ec2.ISecurityGroup>;
+    securityGroups: StackSecurityGroups;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
     logGroups: Record<string, logs.ILogGroup>;
@@ -936,6 +1060,9 @@ export class InfraStack extends cdk.Stack {
       ),
       PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.backendInternalToken,
+      ),
+      PUDDLE_INTEGRATION_SECRET_KEY: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.ashbyIntegrationSecretKey,
       ),
       ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
         ? {
@@ -1068,15 +1195,21 @@ export class InfraStack extends cdk.Stack {
   private createAgentDeployment(params: {
     vpc: ec2.IVpc;
     cluster: ecs.ICluster;
-    securityGroups: Record<string, ec2.ISecurityGroup>;
+    securityGroups: StackSecurityGroups;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
     logGroups: Record<string, logs.ILogGroup>;
     runtimeRoles: RuntimeRoles;
     artifactsBucket: s3.IBucket;
+    backendDeployment?: BackendDeployment;
   }): AgentDeployment | undefined {
     if (!this.cfg.agent.deployService) {
       return undefined;
+    }
+
+    const { backendDeployment } = params;
+    if (!backendDeployment) {
+      throw new Error('Agent service deployment requires a backend deployment.');
     }
 
     const liveKitUrl = this.cfg.liveKit.url;
@@ -1095,6 +1228,7 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS: String(
         this.cfg.agent.participantReconnectGraceSeconds,
       ),
+      PUDDLE_BACKEND_BASE_URL: `http://${backendDeployment.loadBalancer.loadBalancerDnsName}`,
       AWS_REGION: cdk.Stack.of(this).region,
       PYTHONUNBUFFERED: '1',
     };
@@ -1113,6 +1247,9 @@ export class InfraStack extends cdk.Stack {
         params.runtimeSecrets.cartesiaApiKey,
       ),
       GEMINI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.geminiApiKey),
+      PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.backendInternalToken,
+      ),
     };
 
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'AgentTaskDefinition', {
@@ -1164,7 +1301,7 @@ export class InfraStack extends cdk.Stack {
   private createPlatformDeployment(params: {
     vpc: ec2.IVpc;
     cluster: ecs.ICluster;
-    securityGroups: Record<string, ec2.SecurityGroup>;
+    securityGroups: StackSecurityGroups;
     accessLogsBucket: s3.IBucket;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
@@ -1211,6 +1348,12 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_ALLOWED_AUTH_DOMAINS: this.cfg.platform.allowedAuthDomains,
       PUDDLE_BACKEND_BASE_URL: `http://${backendDeployment.loadBalancer.loadBalancerDnsName}`,
       PUDDLE_DEFAULT_SCRIPT_VERSION: this.cfg.platform.defaultScriptVersion,
+      ...(this.cfg.platform.ashbyOnboardingAdminEmails
+        ? {
+            PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS:
+              this.cfg.platform.ashbyOnboardingAdminEmails,
+          }
+        : {}),
     };
     const containerSecrets = {
       WORKOS_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.workosApiKey),
@@ -1379,7 +1522,7 @@ export class InfraStack extends cdk.Stack {
 
   private createOutputs(values: {
     vpc: ec2.IVpc;
-    securityGroups: Record<string, ec2.ISecurityGroup>;
+    securityGroups: StackSecurityGroups;
     cluster: ecs.ICluster;
     accessLogsBucket: s3.IBucket;
     artifactsBucket: s3.IBucket;
@@ -1393,6 +1536,7 @@ export class InfraStack extends cdk.Stack {
     backendDeployment?: BackendDeployment;
     agentDeployment?: AgentDeployment;
     platformDeployment?: PlatformDeployment;
+    devTunnelDeployment?: DevTunnelDeployment;
   }): void {
     new cdk.CfnOutput(this, 'EnvironmentName', {
       value: this.cfg.envName,
@@ -1467,6 +1611,9 @@ export class InfraStack extends cdk.Stack {
     }
 
     for (const [name, securityGroup] of Object.entries(values.securityGroups)) {
+      if (!securityGroup) {
+        continue;
+      }
       new cdk.CfnOutput(this, `${this.toPascalCase(name)}SecurityGroupId`, {
         value: securityGroup.securityGroupId,
       });
@@ -1526,6 +1673,12 @@ export class InfraStack extends cdk.Stack {
       });
       new cdk.CfnOutput(this, 'PlatformPublicBaseUrl', {
         value: values.platformDeployment.publicBaseUrl,
+      });
+    }
+
+    if (values.devTunnelDeployment) {
+      new cdk.CfnOutput(this, 'DevTunnelInstanceId', {
+        value: values.devTunnelDeployment.instance.instanceId,
       });
     }
   }

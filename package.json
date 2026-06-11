@@ -7,9 +7,12 @@
   "scripts": {
     "dev": "corepack pnpm@9.12.0 --filter @puddle/platform dev",
     "dev:backend": "corepack pnpm@9.12.0 --filter @puddle/backend dev",
+    "dev:connected": "node scripts/dev/dev-connected.mjs",
+    "dev:backend:connected": "node scripts/dev/dev-backend-connected.mjs",
     "dev:platform": "corepack pnpm@9.12.0 --filter @puddle/platform dev",
     "migrate:backend": "corepack pnpm@9.12.0 --filter @puddle/backend migrate",
     "build": "pnpm -r build",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:connected-dev": "node --test scripts/dev/connected-dev.test.mjs"
   }
 }

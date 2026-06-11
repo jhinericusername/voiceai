@@ -108,15 +108,15 @@ export default function HomeClient() {
 
 function HeroSection() {
   return (
-    <section id="top" className="relative z-10 px-5 pb-10 pt-28 sm:px-6 lg:pb-12 lg:pt-32">
-      <div className="mx-auto max-w-7xl">
+    <section id="top" className="relative z-10 px-5 pb-10 pt-20 sm:px-6 lg:pb-12 lg:pt-24">
+      <div className="mx-auto max-w-6xl">
         <div data-reveal className="mx-auto max-w-5xl text-center">
           <div className="puddle-hero-kicker inline-flex items-center gap-2 rounded-md border border-cyan-200 bg-cyan-50/90 px-3 py-1.5 text-sm font-semibold text-cyan-900 shadow-[0_12px_34px_rgba(8,145,178,0.1)] backdrop-blur">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             Technical hiring infrastructure
           </div>
 
-          <h1 className="mx-auto mt-6 max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal text-slate-950 sm:text-5xl lg:text-7xl">
+          <h1 className="mx-auto mt-6 max-w-4xl text-4xl font-semibold leading-[1.02] tracking-normal text-slate-950 sm:text-5xl xl:text-6xl">
             Turn engineering hiring into an evidence-backed system.
           </h1>
           <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-600">
@@ -142,7 +142,7 @@ function HeroSection() {
 
         <div
           data-reveal
-          className="mx-auto mt-12 max-w-6xl rounded-lg border border-slate-200 bg-white px-5 py-5 shadow-[0_22px_70px_rgba(15,23,42,0.06)] sm:px-6 lg:py-6"
+          className="mx-auto mt-12 max-w-5xl rounded-lg border border-slate-200 bg-white px-5 py-5 shadow-[0_22px_70px_rgba(15,23,42,0.06)] sm:px-6 lg:py-6"
         >
           <div className="border-b border-slate-200 pb-4 text-center">
             <p className="text-xl font-semibold leading-7 text-slate-950">From hiring bar to review packet.</p>
@@ -271,7 +271,7 @@ function ArtifactPreview({ kind }: { kind: HeroArtifact["kind"] }) {
 function ProofStrip() {
   return (
     <section className="puddle-logo-strip relative z-10 px-5 pb-10 pt-9 sm:px-6 md:pb-12">
-      <div data-reveal className="mx-auto max-w-7xl">
+      <div data-reveal className="mx-auto max-w-6xl">
         <p className="text-center text-base font-semibold text-slate-700 sm:text-lg">
           Trusted by the next generation of companies.
         </p>
@@ -349,7 +349,7 @@ function WorkflowSection() {
   }, []);
 
   const getCrossfadeStyle = (index: number) => {
-    const fadeWidth = 0.04;
+    const fadeWidth = 0.026;
     const segmentStart = index / stepCount;
     const segmentEnd = (index + 1) / stepCount;
     const isFirst = index === 0;
@@ -382,12 +382,12 @@ function WorkflowSection() {
   return (
     <section
       id="system"
-      className="relative z-10 scroll-mt-24 overflow-visible bg-white px-5 pb-16 pt-0 sm:px-6 md:pb-24 lg:min-h-[300vh] lg:pb-0"
+      className="relative z-10 scroll-mt-24 overflow-visible bg-white px-5 pb-16 pt-0 sm:px-6 md:pb-24 lg:min-h-[230vh] lg:pb-0"
     >
-      <div className="relative z-10 mx-auto max-w-7xl pt-14 md:pt-16 lg:sticky lg:top-[60px] lg:flex lg:min-h-[calc(100svh-60px)] lg:flex-col lg:pb-6 lg:pt-8">
-        <div data-reveal className="puddle-how-heading-shell relative mx-auto max-w-4xl text-center">
+      <div className="relative z-10 mx-auto max-w-5xl pt-12 md:pt-14 lg:sticky lg:top-[52px] lg:flex lg:min-h-[calc(100svh-52px)] lg:flex-col lg:pb-5 lg:pt-7">
+        <div data-reveal className="puddle-how-heading-shell relative mx-auto max-w-3xl text-center">
           <span className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-700">How it works</span>
-          <h2 className="mt-3 text-3xl font-semibold leading-tight tracking-normal text-slate-950 md:text-4xl">
+          <h2 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-slate-950 md:text-3xl">
             From hiring bar to reviewer output.
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
@@ -396,13 +396,13 @@ function WorkflowSection() {
           </p>
         </div>
 
-        <div data-reveal className="mt-8 hidden gap-10 lg:grid lg:grid-cols-[0.76fr_1.24fr] lg:items-center">
+        <div data-reveal className="mt-7 hidden gap-6 lg:grid lg:grid-cols-[0.72fr_1fr] lg:items-center">
           <div>
-            <div className="relative min-h-[286px]">
+            <div className="relative min-h-[244px]">
               {howItWorksSteps.map((step, index) => (
                 <div
                   key={step.stage}
-                  className={`absolute inset-0 transition-[opacity,transform,filter] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  className={`absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                     activeStep === index ? "pointer-events-auto" : "pointer-events-none"
                   }`}
                   style={getCrossfadeStyle(index)}
@@ -436,11 +436,11 @@ function WorkflowSection() {
             </div>
           </div>
 
-          <div className="puddle-how-artifact-stage relative min-h-[440px]">
+          <div className="puddle-how-artifact-stage relative min-h-[340px]">
             {howItWorksSteps.map((step, index) => (
               <div
                 key={step.stage}
-                className={`absolute inset-0 transition-[opacity,transform,filter] duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                className={`absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                   activeStep === index ? "pointer-events-auto" : "pointer-events-none"
                 }`}
                 style={getCrossfadeStyle(index)}
@@ -484,13 +484,13 @@ function HowItWorksStepCard({
   return (
     <article
       onMouseEnter={onMouseEnter}
-      className={`puddle-how-step-card w-full rounded-lg border bg-white/86 p-5 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur transition duration-300 lg:p-6 ${
+      className={`puddle-how-step-card w-full rounded-lg border bg-white/86 p-4 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur transition duration-300 lg:p-5 ${
         active ? "border-cyan-300 shadow-[0_24px_70px_rgba(8,145,178,0.12)]" : "border-slate-200 lg:opacity-80"
       }`}
     >
       <div className="flex items-start gap-4">
         <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition ${
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-sm font-semibold transition ${
             active ? "border-cyan-300 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-500"
           }`}
         >
@@ -498,14 +498,17 @@ function HowItWorksStepCard({
         </span>
         <div className="min-w-0">
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">{step.stage}</div>
-          <h3 className="mt-3 text-2xl font-semibold leading-8 text-slate-950">{step.title}</h3>
+          <h3 className="mt-2.5 text-xl font-semibold leading-7 text-slate-950">{step.title}</h3>
           <p className="mt-3 text-sm leading-6 text-slate-600">{step.detail}</p>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-2 sm:grid-cols-3">
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
         {step.proof.map((item) => (
-          <div key={item} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+          <div
+            key={item}
+            className="rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"
+          >
             {item}
           </div>
         ))}
@@ -528,22 +531,22 @@ function HowItWorksArtifact({
   readonly activeStep: number;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 text-white shadow-[0_36px_110px_rgba(15,23,42,0.18)]">
-      <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">Process output</div>
-          <h3 className="mt-1.5 text-2xl font-semibold leading-tight">{step.stage}</h3>
+          <h3 className="mt-1 text-lg font-semibold leading-tight">{step.stage}</h3>
         </div>
-        <div className="rounded-md bg-emerald-300 px-3 py-2 text-sm font-semibold text-slate-950">{step.badge}</div>
+        <div className="rounded-md bg-emerald-300 px-2.5 py-1.5 text-xs font-semibold text-slate-950">{step.badge}</div>
       </div>
 
-      <div key={step.stage} className="puddle-how-artifact-motion p-5">
+      <div key={step.stage} className="puddle-how-artifact-motion p-4">
         {step.kind === "rubric" ? <HiringBarArtifact /> : null}
         {step.kind === "screen" ? <PuddleScreenArtifact /> : null}
         {step.kind === "packet" ? <ReviewerOutputArtifact /> : null}
       </div>
 
-      <div className="border-t border-white/10 px-5 py-4">
+      <div className="border-t border-white/10 px-4 py-3">
         <div className="grid grid-cols-3 gap-2">
           {howItWorksSteps.map((item, index) => (
             <div
@@ -577,7 +580,7 @@ function HiringBarArtifact() {
               ["Ownership", "Drives ambiguous work without hiding risk"],
               ["AI fluency", "Uses agents with judgment and verification"],
             ].map(([label, detail]) => (
-              <div key={label} className="rounded-md bg-slate-950/38 px-4 py-2.5">
+              <div key={label} className="rounded-md bg-slate-950/38 px-3 py-2">
                 <div className="text-sm font-semibold text-white">{label}</div>
                 <div className="mt-1 text-sm leading-5 text-slate-300">{detail}</div>
               </div>
@@ -606,10 +609,10 @@ function PuddleScreenArtifact() {
       </div>
 
       <div className="grid gap-0 lg:grid-cols-[1.08fr_0.92fr]">
-        <div className="border-b border-white/10 p-4 lg:border-b-0 lg:border-r">
-          <div className="rounded-lg bg-slate-950 p-4">
+        <div className="border-b border-white/10 p-3 lg:border-b-0 lg:border-r">
+          <div className="rounded-lg bg-slate-950 p-3">
             <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Current probe</div>
-            <p className="mt-3 text-xl font-semibold leading-tight text-white">
+            <p className="mt-3 text-lg font-semibold leading-tight text-white">
               Walk through the tradeoff you made when the first implementation failed.
             </p>
             <div className="mt-4 grid gap-2">
@@ -622,7 +625,7 @@ function PuddleScreenArtifact() {
           </div>
         </div>
 
-        <div className="p-4">
+        <div className="p-3">
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Live capture</div>
           <div className="mt-3 grid gap-2.5">
             {[
@@ -631,7 +634,7 @@ function PuddleScreenArtifact() {
               ["Coverage", "2 / 3 probes"],
               ["Follow-up", "Queued"],
             ].map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between gap-4 rounded-md bg-white/[0.06] px-4 py-2.5">
+              <div key={label} className="flex items-center justify-between gap-3 rounded-md bg-white/[0.06] px-3 py-2">
                 <span className="text-sm text-slate-300">{label}</span>
                 <span className="text-sm font-semibold text-white">{value}</span>
               </div>
@@ -645,11 +648,11 @@ function PuddleScreenArtifact() {
 
 function ReviewerOutputArtifact() {
   return (
-    <div className="grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
+    <div className="grid gap-2.5 lg:grid-cols-[0.9fr_1.1fr]">
       <div className="grid gap-2.5">
-        <div className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 p-3">
+        <div className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 p-2.5">
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Recommendation</div>
-          <div className="mt-2 text-3xl font-semibold leading-none text-white">Meet</div>
+          <div className="mt-1.5 text-2xl font-semibold leading-none text-white">Meet</div>
         </div>
 
         {[
@@ -657,7 +660,7 @@ function ReviewerOutputArtifact() {
           ["Evidence quality", "Strong"],
           ["Reviewer action", "Replay answers 2 and 4"],
         ].map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-4 rounded-md bg-white/[0.06] px-4 py-2.5">
+          <div key={label} className="flex items-center justify-between gap-3 rounded-md bg-white/[0.06] px-3 py-2">
             <span className="text-sm text-slate-300">{label}</span>
             <span className="text-right text-sm font-semibold text-white">{value}</span>
           </div>
@@ -666,20 +669,20 @@ function ReviewerOutputArtifact() {
 
       <div className="rounded-lg border border-white/10 p-3">
         <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Evidence trail</div>
-        <div className="mt-3 grid gap-2.5">
+        <div className="mt-3 grid gap-2">
           {[
             ["03:14", "Clarified missing requirements"],
             ["06:42", "Compared architecture tradeoffs"],
             ["08:51", "Covered failure handling"],
           ].map(([time, detail]) => (
-            <div key={time} className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-start gap-3">
+            <div key={time} className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-start gap-2.5">
               <span className="rounded bg-cyan-300/10 px-2 py-1 text-xs font-semibold text-cyan-100">{time}</span>
-              <span className="text-sm leading-6 text-slate-200">{detail}</span>
+              <span className="text-sm leading-5 text-slate-200">{detail}</span>
             </div>
           ))}
         </div>
 
-        <p className="mt-4 rounded-md bg-white/[0.06] px-4 py-2.5 text-sm leading-6 text-cyan-100">
+        <p className="mt-3 rounded-md bg-white/[0.06] px-3 py-2 text-sm leading-5 text-cyan-100">
           The panel gets the decision and the trail behind it without rewatching the full screen.
         </p>
       </div>
@@ -688,14 +691,14 @@ function ReviewerOutputArtifact() {
 }
 function FinalCta() {
   return (
-    <section className="relative z-10 px-5 py-16 sm:px-6 md:py-20">
-      <div data-reveal className="mx-auto grid max-w-7xl gap-8 rounded-lg border border-slate-200 bg-white p-6 shadow-[0_28px_90px_rgba(15,23,42,0.1)] md:grid-cols-[1fr_auto] md:p-8">
+    <section className="relative z-10 px-5 py-12 sm:px-6 md:py-16">
+      <div data-reveal className="mx-auto grid max-w-6xl gap-6 rounded-lg border border-slate-200 bg-white p-5 shadow-[0_28px_90px_rgba(15,23,42,0.1)] md:grid-cols-[1fr_auto] md:p-6">
         <div>
           <div className="flex items-center gap-2">
             <Image src="/puddle-symbol-black-nobg.png" alt="" width={34} height={34} className="h-8 w-8" />
             <span className="text-lg font-semibold text-slate-950">Puddle</span>
           </div>
-          <h2 className="mt-6 max-w-3xl text-3xl font-semibold leading-tight text-slate-950 md:text-4xl">
+          <h2 className="mt-6 max-w-3xl text-2xl font-semibold leading-tight text-slate-950 md:text-3xl">
             Start with one role and a small pilot cohort.
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">

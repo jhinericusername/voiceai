@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class InterviewJobContext(BaseModel):
@@ -20,14 +24,16 @@ class InterviewJobContext(BaseModel):
     room_name: str
 
 
-def build_session_context(ctx: Any) -> InterviewJobContext:
-    """Parse the dispatch metadata on a LiveKit JobContext.
+def build_session_context(job: Any) -> InterviewJobContext:
+    """Parse the dispatch metadata on a LiveKit job into an `InterviewJobContext`.
 
     Raises `ValueError` if required fields are absent — the worker must never
     join a room it cannot identify.
     """
-    raw = ctx.job.metadata if ctx.job is not None else None
-    meta = json.loads(raw) if raw else {}
+    try:
+        meta = json.loads(_job_metadata(job))
+    except json.JSONDecodeError as exc:
+        raise ValueError("job metadata must be valid JSON") from exc
     for field in ("session_id", "org_id", "script_version", "candidate_email"):
         if not meta.get(field):
             raise ValueError(f"job metadata missing required field: {field}")
@@ -36,8 +42,19 @@ def build_session_context(ctx: Any) -> InterviewJobContext:
         org_id=meta["org_id"],
         script_version=meta["script_version"],
         candidate_email=meta["candidate_email"],
-        room_name=ctx.room.name,
+        room_name=job.room.name,
     )
+
+
+def _job_metadata(job: Any) -> str:
+    """Read dispatch metadata from supported LiveKit job object shapes."""
+    metadata = getattr(job, "metadata", None)
+    if metadata is None:
+        metadata = getattr(getattr(job, "job", None), "metadata", None)
+    return metadata or "{}"
+
+
+RunInterview = Callable[[InterviewJobContext, Any], Awaitable[None]]
 
 
 def prewarm(proc: Any) -> None:  # pragma: no cover - exercised via test_worker_prewarm
@@ -47,15 +64,33 @@ def prewarm(proc: Any) -> None:  # pragma: no cover - exercised via test_worker_
     proc.userdata["vad"] = silero.VAD.load()
 
 
-async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
-    """LiveKit Agents entrypoint: one worker process runs one interview.
+async def entrypoint(
+    job: Any, _run_interview: RunInterview | None = None
+) -> None:
+    """LiveKit Agents entrypoint: connect to the room, await the candidate, run.
 
-    Uses the production-shaped `LiveKitSessionVoiceAgent` which handles
-    participant linking, audio track subscription, reconnect grace, and
-    proper event wiring. The earlier `LiveKitVoiceAgent` spike was missing
-    participant linking which caused STT to receive intermittent audio.
+    `_run_interview` is injectable for tests; in production it is the real
+    interview runner wired in Task 3.12.
     """
-    import os
+    ctx = build_session_context(job)
+    if _run_interview is not None:
+        await job.connect()
+        participant = await job.wait_for_participant()
+        await _run_interview(ctx, participant)
+        return
+
+    await job.connect()
+    voice = await _build_livekit_voice_agent(job)
+    try:
+        await _default_run_interview(ctx, voice)
+    finally:
+        await voice.aclose()
+
+
+async def _default_run_interview(
+    ctx: InterviewJobContext, voice: Any
+) -> None:  # pragma: no cover — exercised by the live integration env
+    """Production interview runner: build the components and run the interview."""
     import time
     from pathlib import Path
 
@@ -66,65 +101,93 @@ async def entrypoint(ctx: Any) -> None:  # pragma: no cover - live worker wiring
     from agent.rubric_loader import load_rubric
     from agent.scoring.probe import ProbeGenerator
     from agent.scoring.scorer import Scorer
-    from agent.voice.livekit_session import (
-        LiveKitSessionVoiceAgent,
-        ParticipantDisconnectedError,
+    from agent.voice.livekit_session import ParticipantDisconnectedError
+    from agent.worker.backend_status import post_interview_finalization
+
+    repo_root = Path(__file__).parents[4]
+    rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
+    anthropic_client = anthropic.Anthropic()
+    event_log = EventLog(
+        session_id=ctx.session_id,
+        path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
     )
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=Scorer(client=anthropic_client, rubric=rubric),
+        probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
+        event_log=event_log,
+        clock_now=time.monotonic,
+    )
+    logger.info(
+        "starting interview runner",
+        extra={"session_id": ctx.session_id, "room": ctx.room_name},
+    )
+    try:
+        assessment = await runner.run(session_id=ctx.session_id)
+        await post_interview_finalization(
+            ctx.session_id,
+            {
+                "sessionId": ctx.session_id,
+                "orgId": ctx.org_id,
+                "scriptVersion": ctx.script_version,
+                "transcriptTurns": [
+                    {
+                        "turnIndex": turn.turn_index,
+                        "speaker": turn.speaker,
+                        "questionId": turn.question_id,
+                        "text": turn.text,
+                    }
+                    for turn in runner.transcript_turns()
+                ],
+                "assessment": {
+                    "categoryScores": [
+                        {
+                            "category": score.category,
+                            "score": score.score,
+                            "confidence": score.confidence,
+                            "evidenceQuotes": score.evidence_quotes,
+                            "rationale": score.rationale,
+                            "lowConfidence": score.low_confidence,
+                        }
+                        for score in assessment.category_scores
+                    ],
+                    "meetsBareMinimum": assessment.meets_bare_minimum,
+                    "integrityFlags": assessment.integrity_flags,
+                },
+                "agentEvents": [
+                    event.model_dump(mode="json") for event in event_log.events()
+                ],
+            },
+        )
+    except ParticipantDisconnectedError:
+        logger.info(
+            "ending interview after participant reconnect grace expired",
+            extra={"session_id": ctx.session_id, "room": ctx.room_name},
+        )
+    else:
+        logger.info(
+            "interview runner completed",
+            extra={"session_id": ctx.session_id, "room": ctx.room_name},
+        )
+
+
+async def _build_livekit_voice_agent(job: Any) -> Any:  # pragma: no cover — vendor wiring
+    """Construct and start the LiveKit-backed VoiceAgent for the room.
+
+    Uses the production-shaped `LiveKitSessionVoiceAgent` which handles
+    participant linking, audio track subscription, reconnect grace, and
+    proper event wiring. The Silero VAD comes prewarmed from `prewarm()`.
+    """
+    import os
+
+    from agent.voice.livekit_session import LiveKitSessionVoiceAgent
     from agent.voice.stt import build_deepgram_stt
     from agent.voice.tts import build_cartesia_tts
-    from agent.worker.persistence import mark_session_incomplete, persist_assessment
 
-    interview = build_session_context(ctx)
-    # DATABASE_URL is optional — when unset, the agent runs the interview but
-    # skips assessment persistence (the event log still lands on disk via
-    # EventLog). Required only for the full prod persistence path.
-    database_url = os.environ.get("DATABASE_URL")
-    voice: Any = None
-    try:
-        await ctx.connect()
-        voice = await LiveKitSessionVoiceAgent.start(
-            ctx,
-            stt=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]),
-            tts=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]),
-            vad=ctx.proc.userdata.get("vad"),
-        )
-
-        repo_root = Path(__file__).resolve().parents[4]
-        rubric = load_rubric(
-            repo_root / "rubric" / f"{interview.script_version}.yaml"
-        )
-        anthropic_client = anthropic.Anthropic()
-        runner = InterviewRunner(
-            rubric=rubric,
-            voice=voice,
-            scorer=Scorer(client=anthropic_client, rubric=rubric),
-            probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
-            event_log=EventLog(
-                session_id=interview.session_id,
-                path=repo_root
-                / "artifacts"
-                / interview.session_id
-                / "agent_events.jsonl",
-            ),
-            clock_now=time.monotonic,
-        )
-        try:
-            assessment = await runner.run(session_id=interview.session_id)
-        except ParticipantDisconnectedError:
-            # Candidate failed to reconnect within the grace window. Mark
-            # incomplete and don't try to persist a partial assessment.
-            if database_url:
-                await mark_session_incomplete(database_url, interview.session_id)
-            return
-        if database_url:
-            await persist_assessment(database_url, assessment)
-    except Exception:
-        if database_url:
-            await mark_session_incomplete(database_url, interview.session_id)
-        raise
-    finally:
-        if voice is not None:
-            try:
-                await voice.aclose()
-            except Exception:
-                pass
+    return await LiveKitSessionVoiceAgent.start(
+        job,
+        stt=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]),
+        tts=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]),
+        vad=job.proc.userdata.get("vad"),
+    )

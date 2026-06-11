@@ -58,6 +58,8 @@ resourcePrefix=puddle-videoagent
 maxAzs=2
 natGateways=1
 logRetentionDays=30
+enableDevTunnel=true|false
+devTunnelInstanceType=t3.nano
 
 deployBackendService=false
 exposeBackendPublicly=false
@@ -146,6 +148,13 @@ account.
 `enableLiveKitRecordings=true` context flag. It also maps
 `PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS` (default `300`) to the CDK
 `participantReconnectGraceSeconds` context flag for the LiveKit agent service.
+For Ashby bootstrap admins, it maps
+`PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS` from `.env.local` or
+`PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS` from the shell into the child CDK
+process environment. Manual CDK runs should set
+`PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS` in the shell environment; this value
+is intentionally not accepted through CDK context so it does not appear in argv
+or shell history.
 
 After the service deploys, run migrations once with the emitted
 `BackendMigrationTaskDefinitionArn` in the private app subnets using
@@ -161,8 +170,21 @@ http://internal-Puddle-Backe-B0GCD7ar4tZv-1590581178.us-west-1.elb.amazonaws.com
 ```
 
 Treat this as stack-specific state. CDK wires the current
-`BackendInternalBaseUrl` into the platform ECS task automatically when both
-backend and platform services are enabled.
+`BackendInternalBaseUrl` into the platform and agent ECS tasks automatically
+when those services are enabled with the backend service.
+
+## Connected Local Development
+
+Dev stacks create a small private EC2 instance for AWS SSM port forwarding by
+default. The instance has no SSH ingress and uses the
+`AmazonSSMManagedInstanceCore` policy. CDK emits `DevTunnelInstanceId`; local
+scripts use it to forward:
+
+- local platform traffic to `BackendInternalBaseUrl`,
+- local backend database traffic to the private RDS endpoint.
+
+Disable it with `-c enableDevTunnel=false`. The tunnel target is blocked for
+`envName=prod`.
 
 ## Agent Image Build
 

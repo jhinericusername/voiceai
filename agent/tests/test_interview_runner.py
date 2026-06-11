@@ -2,6 +2,8 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from agent.controller import interview as interview_module
 from agent.controller.event_log import EventLog
 from agent.controller.interview import InterviewRunner
@@ -34,6 +36,35 @@ def _simulated_voice() -> MagicMock:
     )
     voice.user_is_speaking = MagicMock(return_value=False)
     return voice
+
+
+@pytest.fixture
+def fake_runner_with_completed_turns(tmp_path: Path) -> InterviewRunner:
+    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    voice = _simulated_voice()
+    scorer = MagicMock()
+    scorer.score.side_effect = lambda si: _confident(si.target_categories[0])
+    event_log = EventLog(session_id="s-transcript", path=tmp_path / "events.jsonl")
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=scorer,
+        probe_generator=MagicMock(),
+        event_log=event_log,
+        clock_now=iter([float(i) for i in range(0, 4000, 5)]).__next__,
+    )
+    asyncio.run(runner.run(session_id="s-transcript"))
+    return runner
+
+
+def test_runner_exposes_transcript_after_turns(
+    fake_runner_with_completed_turns: InterviewRunner,
+) -> None:
+    turns = fake_runner_with_completed_turns.transcript_turns()
+
+    assert turns
+    assert turns[0].turn_index == 0
+    assert turns[0].speaker in {"agent", "candidate"}
 
 
 async def test_runner_asks_every_base_question_verbatim(tmp_path: Path) -> None:
@@ -212,3 +243,80 @@ async def test_runner_includes_perception_integrity_flags(tmp_path: Path) -> Non
     )
     assessment = await runner.run(session_id="s4")
     assert sorted(assessment.integrity_flags) == ["multiple_faces", "reading_off_screen"]
+
+
+async def test_runner_reconnect_callbacks_pause_clock_and_report_events(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    post_event = AsyncMock()
+    monkeypatch.setattr(interview_module, "post_session_event", post_event)
+    voice = _simulated_voice()
+    handlers = {}
+
+    def set_participant_state_handlers(**kwargs):  # noqa: ANN003, ANN202
+        handlers.update(kwargs)
+
+    voice.set_participant_state_handlers = set_participant_state_handlers
+    now = {"value": 0.0}
+    runner = InterviewRunner(
+        rubric=RUBRIC,
+        voice=voice,
+        scorer=MagicMock(),
+        probe_generator=MagicMock(),
+        event_log=EventLog(session_id="s-reconnect", path=tmp_path / "events.jsonl"),
+        clock_now=lambda: now["value"],
+    )
+    runner._session_id = "s-reconnect"
+    runner._clock.start()
+
+    now["value"] = 100.0
+    handlers["on_disconnect"]()
+    now["value"] = 250.0
+
+    assert runner._clock.elapsed_seconds() == 100.0
+
+    handlers["on_reconnect"]()
+    now["value"] = 260.0
+
+    assert runner._clock.elapsed_seconds() == 110.0
+    await asyncio.sleep(0)
+    event_types = [call.args[1] for call in post_event.await_args_list]
+    assert "candidate_disconnect_started" in event_types
+    assert "candidate_reconnect_within_grace" in event_types
+
+
+async def test_runner_reconnect_grace_expiry_marks_incomplete_and_reports_status(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    post_event = AsyncMock()
+    monkeypatch.setattr(interview_module, "post_session_event", post_event)
+    voice = _simulated_voice()
+    handlers = {}
+
+    def set_participant_state_handlers(**kwargs):  # noqa: ANN003, ANN202
+        handlers.update(kwargs)
+
+    voice.set_participant_state_handlers = set_participant_state_handlers
+    runner = InterviewRunner(
+        rubric=RUBRIC,
+        voice=voice,
+        scorer=MagicMock(),
+        probe_generator=MagicMock(),
+        event_log=EventLog(session_id="s-expired", path=tmp_path / "events.jsonl"),
+        clock_now=lambda: 0.0,
+    )
+    runner._session_id = "s-expired"
+    runner.state_machine.transition(InterviewState.CANDIDATE_JOINED)
+
+    handlers["on_reconnect_grace_expired"]()
+
+    assert runner.state_machine.state == InterviewState.INCOMPLETE
+    await asyncio.sleep(0)
+    post_event.assert_awaited_with(
+        "s-expired",
+        "candidate_reconnect_grace_expired",
+        {"reconnect_count": 0},
+        status="incomplete",
+    )

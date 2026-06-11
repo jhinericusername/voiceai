@@ -30,6 +30,7 @@ class InterviewClock:
         self._downtime = 0.0
         self._paused_at: float | None = None
         self._question_start: float | None = None
+        self._question_downtime_at_start = 0.0
         self._question_budget = 0.0
 
     def start(self) -> None:
@@ -39,6 +40,7 @@ class InterviewClock:
     def begin_question(self, soft_budget_seconds: float) -> None:
         """Mark the start of a question and record its soft budget."""
         self._question_start = self._now()
+        self._question_downtime_at_start = self._downtime
         self._question_budget = soft_budget_seconds
 
     def pause_for_disconnect(self) -> None:
@@ -56,7 +58,9 @@ class InterviewClock:
         """Interview time elapsed, excluding disconnection downtime."""
         if self._start is None:
             return 0.0
-        return self._now() - self._start - self._downtime
+        now = self._now()
+        current_pause = now - self._paused_at if self._paused_at is not None else 0.0
+        return now - self._start - self._downtime - current_pause
 
     def remaining_seconds(self) -> float:
         """Time left under the total cap, never negative."""
@@ -70,7 +74,10 @@ class InterviewClock:
         """Time spent on the current question."""
         if self._question_start is None:
             return 0.0
-        return self._now() - self._question_start
+        now = self._now()
+        current_pause = now - self._paused_at if self._paused_at is not None else 0.0
+        question_downtime = self._downtime - self._question_downtime_at_start
+        return now - self._question_start - question_downtime - current_pause
 
     def soft_budget_exceeded(self) -> bool:
         """True if the current question is over its soft budget (advisory)."""

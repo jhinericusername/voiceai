@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { PuddleEnvConfig } from '../lib/config';
+import { configFromApp, PuddleEnvConfig } from '../lib/config';
 import { InfraStack } from '../lib/infra-stack';
 
 describe('InfraStack', () => {
@@ -13,10 +13,11 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 9);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
+    template.resourceCountIs('AWS::EC2::Instance', 1);
 
     template.hasResourceProperties('AWS::EC2::VPC', {
       Tags: Match.arrayWith([
@@ -41,6 +42,103 @@ describe('InfraStack', () => {
       StorageEncrypted: true,
       StorageType: 'gp3',
     });
+  });
+
+  test('creates a dev SSM tunnel target by default for dev stacks', () => {
+    const stack = createStack();
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::EC2::Instance', 1);
+    template.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't3.nano',
+      Tags: Match.arrayWith([
+        Match.objectLike({
+          Key: 'Name',
+          Value: 'puddle-videoagent-dev-tunnel',
+        }),
+      ]),
+    });
+    template.hasResourceProperties('AWS::IAM::Role', {
+      ManagedPolicyArns: Match.arrayWith([
+        {
+          'Fn::Join': [
+            '',
+            Match.arrayWith([
+              Match.objectLike({ Ref: 'AWS::Partition' }),
+              ':iam::aws:policy/AmazonSSMManagedInstanceCore',
+            ]),
+          ],
+        },
+      ]),
+    });
+    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+      GroupDescription: 'SSM tunnel target for local development access.',
+      SecurityGroupEgress: Match.arrayWith([
+        Match.objectLike({
+          CidrIp: '0.0.0.0/0',
+          Description: 'HTTPS egress for SSM connectivity',
+          FromPort: 443,
+          IpProtocol: 'tcp',
+          ToPort: 443,
+        }),
+      ]),
+    });
+    template.resourcePropertiesCountIs(
+      'AWS::EC2::SecurityGroup',
+      {
+        GroupDescription: 'SSM tunnel target for local development access.',
+        SecurityGroupEgress: Match.arrayWith([
+          Match.objectLike({
+            CidrIp: '0.0.0.0/0',
+            IpProtocol: '-1',
+          }),
+        ]),
+      },
+      0,
+    );
+    template.hasResourceProperties('AWS::EC2::SecurityGroupEgress', {
+      Description: 'Backend load balancer egress from the dev tunnel',
+      FromPort: 80,
+      IpProtocol: 'tcp',
+      ToPort: 80,
+    });
+    template.hasResourceProperties('AWS::EC2::SecurityGroupEgress', {
+      Description: 'Postgres egress from the dev tunnel',
+      FromPort: 5432,
+      IpProtocol: 'tcp',
+      ToPort: 5432,
+    });
+    template.hasOutput('DevTunnelInstanceId', {});
+  });
+
+  test('can disable the dev SSM tunnel target', () => {
+    const stack = createStack({
+      devTunnel: { enabled: false, instanceType: 't3.nano' },
+    });
+    const template = Template.fromStack(stack);
+    template.resourceCountIs('AWS::EC2::Instance', 0);
+  });
+
+  test('blocks dev tunnel target in prod', () => {
+    expect(() =>
+      createStack({
+        envName: 'prod',
+        resourcePrefix: 'puddle-prod',
+        vpc: { maxAzs: 2, natGateways: 2 },
+        devTunnel: { enabled: true, instanceType: 't3.nano' },
+        logs: { retentionDays: 90 },
+      }),
+    ).toThrow('Dev tunnel target is not allowed in prod.');
+  });
+
+  test('blocks ARM dev tunnel instance types', () => {
+    expect(() =>
+      createStack({
+        devTunnel: { enabled: true, instanceType: 't4g.nano' },
+      }),
+    ).toThrow(
+      'devTunnelInstanceType must use an x86_64 instance type compatible with the default Amazon Linux 2023 AMI.',
+    );
   });
 
   test('blocks public backend exposure without auth', () => {
@@ -125,8 +223,10 @@ describe('InfraStack', () => {
       },
     });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'puddle-videoagent-backend',
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
+          Name: 'backend',
           Environment: Match.arrayWith([
             Match.objectLike({
               Name: 'PORT',
@@ -150,6 +250,9 @@ describe('InfraStack', () => {
               Name: 'LIVEKIT_API_KEY',
             }),
             Match.objectLike({
+              Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+            Match.objectLike({
               Name: 'DATABASE_USER',
             }),
             Match.objectLike({
@@ -159,7 +262,82 @@ describe('InfraStack', () => {
         }),
       ]),
     });
+    expect(taskSecretNames(template, 'puddle-videoagent-backend', 'backend')).toEqual(
+      expect.arrayContaining(['PUDDLE_INTEGRATION_SECRET_KEY']),
+    );
+    expect(taskSecretNames(template, 'puddle-videoagent-backend-migrations', 'backend-migrations')).toEqual(
+      expect.arrayContaining(['PUDDLE_INTEGRATION_SECRET_KEY']),
+    );
+    expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'AshbyIntegrationSecretKey')).toBe(
+      true,
+    );
     template.resourceCountIs('AWS::IAM::User', 0);
+  });
+
+  test('injects the Ashby integration secret key only into backend tasks', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'test',
+      },
+      agent: {
+        ...defaultConfig().agent,
+        deployService: true,
+        imageTag: 'test',
+      },
+      platform: {
+        ...defaultConfig().platform,
+        hosting: 'container',
+        imageTag: 'test',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.hasOutput('AshbyIntegrationSecretKeySecretName', {
+      Value: Match.stringLikeRegexp('/integrations/ashby/secret-key$'),
+    });
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'backend',
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'backend-migrations',
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
+    const taskDefinitions = template.findResources('AWS::ECS::TaskDefinition');
+    const platformTask = Object.values(taskDefinitions).find((task) =>
+      JSON.stringify(task).includes('"Name":"platform"'),
+    );
+    const agentTask = Object.values(taskDefinitions).find((task) =>
+      JSON.stringify(task).includes('"Name":"agent"'),
+    );
+
+    expect(JSON.stringify(platformTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
+    expect(JSON.stringify(agentTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
   });
 
   test('creates LiveKit Egress S3 credentials only when recordings are enabled', () => {
@@ -222,6 +400,7 @@ describe('InfraStack', () => {
           maxAzs: 2,
           natGateways: 2,
         },
+        devTunnel: { enabled: false, instanceType: 't3.nano' },
         database: {
           ...defaultConfig().database,
           external: true,
@@ -244,6 +423,7 @@ describe('InfraStack', () => {
           maxAzs: 2,
           natGateways: 2,
         },
+        devTunnel: { enabled: false, instanceType: 't3.nano' },
         database: {
           ...defaultConfig().database,
           external: true,
@@ -256,15 +436,19 @@ describe('InfraStack', () => {
     ).not.toThrow();
   });
 
-  test('requires LiveKit URL before deploying the agent service', () => {
+  test('requires the backend service before deploying the agent service', () => {
     expect(() =>
       createStack({
         agent: {
           ...defaultConfig().agent,
           deployService: true,
         },
+        liveKit: {
+          recordingsEnabled: false,
+          url: 'wss://livekit.example',
+        },
       }),
-    ).toThrow('deployAgentService requires a liveKitUrl CDK context value.');
+    ).toThrow('deployAgentService requires deployBackendService=true.');
   });
 
   test('blocks static platform hosting during this pass', () => {
@@ -280,6 +464,11 @@ describe('InfraStack', () => {
 
   test('creates a private ECS agent service when enabled', () => {
     const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'backend-test',
+      },
       agent: {
         ...defaultConfig().agent,
         deployService: true,
@@ -292,9 +481,9 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 1);
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 1);
-    template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 0);
+    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 3);
+    template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
 
     template.hasResourceProperties('AWS::ECS::Service', {
       ServiceName: 'puddle-videoagent-agent-service',
@@ -324,6 +513,9 @@ describe('InfraStack', () => {
               Name: 'PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS',
               Value: '300',
             }),
+            Match.objectLike({
+              Name: 'PUDDLE_BACKEND_BASE_URL',
+            }),
           ]),
           Secrets: Match.arrayWith([
             Match.objectLike({
@@ -337,6 +529,9 @@ describe('InfraStack', () => {
             }),
             Match.objectLike({
               Name: 'CARTESIA_API_KEY',
+            }),
+            Match.objectLike({
+              Name: 'PUDDLE_BACKEND_INTERNAL_TOKEN',
             }),
           ]),
         }),
@@ -396,6 +591,7 @@ describe('InfraStack', () => {
       ]),
     });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'puddle-videoagent-platform',
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
           Name: 'platform',
@@ -423,8 +619,159 @@ describe('InfraStack', () => {
         }),
       ]),
     });
+    expect(taskSecretNames(template, 'puddle-videoagent-platform', 'platform')).not.toContain(
+      'PUDDLE_ASHBY_WEBHOOK_SECRET',
+    );
+    expect(
+      executionRolePolicyAllowsSecret(template, 'PlatformExecutionRole', 'AshbyWebhookSecret'),
+    ).toBe(
+      false,
+    );
+  });
+
+  test('injects Ashby onboarding admin bootstrap emails into platform tasks when configured', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'backend-test',
+      },
+      platform: {
+        ...defaultConfig().platform,
+        hosting: 'container',
+        imageTag: 'platform-test',
+        ashbyOnboardingAdminEmails: 'admin@usepuddle.com,owner@usepuddle.com',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'platform',
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS',
+              Value: 'admin@usepuddle.com,owner@usepuddle.com',
+            }),
+          ]),
+        }),
+      ]),
+    });
   });
 });
+
+describe('configFromApp', () => {
+  const previousPlatformAdmins = process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS;
+  const previousPuddleAdmins = process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+
+  afterEach(() => {
+    if (previousPlatformAdmins === undefined) {
+      delete process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    } else {
+      process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS = previousPlatformAdmins;
+    }
+    if (previousPuddleAdmins === undefined) {
+      delete process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    } else {
+      process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS = previousPuddleAdmins;
+    }
+  });
+
+  test('reads Ashby onboarding admin emails from environment when context is omitted', () => {
+    delete process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS = 'admin@usepuddle.com';
+
+    const config = configFromApp(new cdk.App());
+
+    expect(config.platform.ashbyOnboardingAdminEmails).toBe('admin@usepuddle.com');
+  });
+
+  test('does not read Ashby onboarding admin emails from CDK context', () => {
+    delete process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    delete process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    const app = new cdk.App({
+      context: {
+        platformAshbyOnboardingAdminEmails: 'admin@usepuddle.com',
+      },
+    });
+
+    const config = configFromApp(app);
+
+    expect(config.platform.ashbyOnboardingAdminEmails).toBeUndefined();
+  });
+});
+
+interface SynthResource {
+  readonly Type?: string;
+  readonly Properties?: Record<string, unknown>;
+}
+
+interface SynthContainerDefinition {
+  readonly Name?: string;
+  readonly Secrets?: Array<{ readonly Name?: string }>;
+}
+
+function synthResources(template: Template): Record<string, SynthResource> {
+  return template.toJSON().Resources as Record<string, SynthResource>;
+}
+
+function taskSecretNames(template: Template, family: string, containerName: string): string[] {
+  const task = Object.values(synthResources(template)).find(
+    (resource) =>
+      resource.Type === 'AWS::ECS::TaskDefinition' && resource.Properties?.Family === family,
+  );
+  const containers = task?.Properties?.ContainerDefinitions as SynthContainerDefinition[] | undefined;
+  const container = containers?.find((candidate) => candidate.Name === containerName);
+  return container?.Secrets?.map((secret) => secret.Name).filter((name): name is string => Boolean(name)) ?? [];
+}
+
+function executionRolePolicyAllowsSecret(
+  template: Template,
+  roleLogicalIdPart: string,
+  secretLogicalIdPart: string,
+): boolean {
+  const resources = synthResources(template);
+  const roleId = Object.entries(resources).find(
+    ([id, resource]) => resource.Type === 'AWS::IAM::Role' && id.includes(roleLogicalIdPart),
+  )?.[0];
+  const secretId = Object.entries(resources).find(
+    ([id, resource]) =>
+      resource.Type === 'AWS::SecretsManager::Secret' && id.includes(secretLogicalIdPart),
+  )?.[0];
+
+  return Object.values(resources).some((resource) => {
+    if (resource.Type !== 'AWS::IAM::Policy' || !roleId || !secretId) {
+      return false;
+    }
+
+    return (
+      referencesValue(resource.Properties?.Roles, roleId) &&
+      referencesValue(resource.Properties?.PolicyDocument, secretId) &&
+      referencesValue(resource.Properties?.PolicyDocument, 'secretsmanager:GetSecretValue')
+    );
+  });
+}
+
+function referencesValue(value: unknown, expected: string): boolean {
+  if (typeof value === 'string') {
+    return value.includes(expected);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => referencesValue(item, expected));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value).some((item) => referencesValue(item, expected));
+  }
+
+  return false;
+}
 
 function createStack(overrides: Partial<PuddleEnvConfig> = {}): InfraStack {
   const app = new cdk.App();
@@ -491,6 +838,7 @@ function defaultConfig(): PuddleEnvConfig {
       deletionProtection: false,
       allowRealCandidateDataExternal: false,
     },
+    devTunnel: { enabled: true, instanceType: 't3.nano' },
     liveKit: {
       recordingsEnabled: false,
     },

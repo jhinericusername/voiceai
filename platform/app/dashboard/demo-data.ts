@@ -92,6 +92,38 @@ export interface DemoArtifact {
   readonly detail: string;
 }
 
+export interface InterviewMediaSummary {
+  readonly videoStatus: DemoArtifact["status"];
+  readonly audioStatus: DemoArtifact["status"];
+  readonly transcriptStatus: DemoArtifact["status"];
+  readonly durationLabel: string;
+  readonly playbackPositionLabel: string;
+  readonly note: string;
+}
+
+export interface InterviewMediaMarker {
+  readonly timestamp: string;
+  readonly label: string;
+  readonly type: "Evidence" | "Question" | "Integrity";
+  readonly detail: string;
+}
+
+export interface InterviewTranscriptTurn {
+  readonly timestamp: string;
+  readonly speaker: "Interviewer" | "Candidate";
+  readonly question: string;
+  readonly text: string;
+  readonly evidenceTags: readonly string[];
+  readonly risk?: RiskLevel;
+}
+
+export interface InterviewReviewSummary {
+  readonly owner: string;
+  readonly dueAt: string;
+  readonly recommendationRationale: string;
+  readonly reviewFocus: readonly string[];
+}
+
 export interface DemoCandidate {
   readonly id: string;
   readonly roleId: string;
@@ -142,6 +174,10 @@ export interface DemoSession {
   readonly endedAt: string | null;
   readonly durationMinutes: number | null;
   readonly scriptVersion: string;
+  readonly media: InterviewMediaSummary;
+  readonly markers: readonly InterviewMediaMarker[];
+  readonly transcript: readonly InterviewTranscriptTurn[];
+  readonly reviewSummary: InterviewReviewSummary;
   readonly artifactChecklist: readonly DemoArtifact[];
   readonly transcriptPreview: readonly TranscriptExcerpt[];
   readonly timeline: readonly SessionTimelineEvent[];
@@ -158,6 +194,15 @@ export interface DemoActivity {
   readonly severity: "info" | "success" | "warning";
 }
 
+export interface ReviewPacket {
+  readonly session: DemoSession;
+  readonly candidate: DemoCandidate;
+  readonly role: DemoRole;
+  readonly updatedAt: string;
+  readonly packetAgeHours: number;
+  readonly artifactReadiness: string;
+}
+
 export const pipelineStatusOrder: readonly PipelineStatus[] = [
   "Sourced",
   "Invited",
@@ -168,6 +213,9 @@ export const pipelineStatusOrder: readonly PipelineStatus[] = [
   "Advanced",
   "Passed",
 ];
+
+const DEMO_NOW = new Date("2026-06-01T21:00:00.000Z");
+const DEMO_TODAY = "2026-06-01";
 
 /**
  * Role fixtures.
@@ -644,6 +692,215 @@ const finalizingArtifacts: readonly DemoArtifact[] = [
   },
 ];
 
+const missingMedia: InterviewMediaSummary = {
+  videoStatus: "Missing",
+  audioStatus: "Missing",
+  transcriptStatus: "Missing",
+  durationLabel: "Pending",
+  playbackPositionLabel: "00:00",
+  note: "Media appears here after the candidate joins and recording starts.",
+};
+
+const liveMedia: InterviewMediaSummary = {
+  videoStatus: "Finalizing",
+  audioStatus: "Finalizing",
+  transcriptStatus: "Missing",
+  durationLabel: "Live",
+  playbackPositionLabel: "08:14",
+  note: "Recording is active. Transcript and review artifacts unlock after the room ends.",
+};
+
+const finalizingMedia: InterviewMediaSummary = {
+  videoStatus: "Finalizing",
+  audioStatus: "Finalizing",
+  transcriptStatus: "Finalizing",
+  durationLabel: "15:22",
+  playbackPositionLabel: "15:22",
+  note: "Video and audio are copying before transcript post-processing completes.",
+};
+
+const mayaTranscript: readonly InterviewTranscriptTurn[] = [
+  {
+    timestamp: "00:02:11",
+    speaker: "Interviewer",
+    question: "Warmup",
+    text: "I am going to ask for specific examples and then follow up on tradeoffs.",
+    evidenceTags: ["Interview setup"],
+  },
+  {
+    timestamp: "00:04:18",
+    speaker: "Candidate",
+    question: "Production root-cause story",
+    text:
+      "The symptom looked like a payment retry issue, but the duplicate charge only happened when the webhook arrived before our local write completed.",
+    evidenceTags: ["Problem solving", "Root cause"],
+  },
+  {
+    timestamp: "00:08:42",
+    speaker: "Candidate",
+    question: "Created momentum without owner",
+    text:
+      "Nobody owned the migration, so I wrote the customer-facing plan first, then split the engineering work around the dates support had already promised.",
+    evidenceTags: ["Agency", "Cross-functional ownership"],
+  },
+  {
+    timestamp: "00:12:09",
+    speaker: "Candidate",
+    question: "Product tradeoff over code elegance",
+    text:
+      "We removed two configuration branches because the implementation was cleaner with them, but onboarding was failing when users had to choose.",
+    evidenceTags: ["Product judgment", "User impact"],
+  },
+];
+
+const mayaMarkers: readonly InterviewMediaMarker[] = [
+  {
+    timestamp: "00:04:18",
+    label: "Root cause evidence",
+    type: "Evidence",
+    detail: "Candidate isolates ordering bug and names reproduction path.",
+  },
+  {
+    timestamp: "00:08:42",
+    label: "Agency evidence",
+    type: "Evidence",
+    detail: "Candidate describes taking ownership across product, support, and infra.",
+  },
+  {
+    timestamp: "00:12:09",
+    label: "Product tradeoff",
+    type: "Question",
+    detail: "Answer ties implementation simplification to onboarding failure.",
+  },
+];
+
+const nolanTranscript: readonly InterviewTranscriptTurn[] = [
+  {
+    timestamp: "00:01:44",
+    speaker: "Interviewer",
+    question: "Production root-cause story",
+    text: "Walk me through the incident from first alert to the moment you knew the root cause.",
+    evidenceTags: ["Question"],
+  },
+  {
+    timestamp: "00:03:55",
+    speaker: "Candidate",
+    question: "Production root-cause story",
+    text:
+      "We had a caching layer that was not invalidating, and I coordinated the fix with the API team and support.",
+    evidenceTags: ["Problem solving"],
+  },
+  {
+    timestamp: "00:06:18",
+    speaker: "Interviewer",
+    question: "Production root-cause story",
+    text: "What metric told you that was the root cause rather than another downstream effect?",
+    evidenceTags: ["Probe"],
+  },
+  {
+    timestamp: "00:06:52",
+    speaker: "Candidate",
+    question: "Production root-cause story",
+    text: "I do not remember the exact metric, but the dashboards showed stale reads dropping after the fix.",
+    evidenceTags: ["Low specificity"],
+    risk: "Medium",
+  },
+  {
+    timestamp: "00:09:21",
+    speaker: "Candidate",
+    question: "Product tradeoff over code elegance",
+    text:
+      "I would probably still choose the cleaner abstraction, but I understand there are times when speed is more important.",
+    evidenceTags: ["Product judgment", "Below bar"],
+  },
+];
+
+const nolanMarkers: readonly InterviewMediaMarker[] = [
+  {
+    timestamp: "00:03:55",
+    label: "High-level incident answer",
+    type: "Evidence",
+    detail: "Candidate gives plausible incident but lacks metrics.",
+  },
+  {
+    timestamp: "00:06:52",
+    label: "Specificity drops",
+    type: "Integrity",
+    detail: "Follow-up answer becomes vague after direct metric probe.",
+  },
+  {
+    timestamp: "00:09:21",
+    label: "Product tradeoff concern",
+    type: "Question",
+    detail: "Candidate defaults to implementation cleanliness over user outcome.",
+  },
+];
+
+const emmaTranscript: readonly InterviewTranscriptTurn[] = [
+  {
+    timestamp: "00:02:48",
+    speaker: "Candidate",
+    question: "Production incident ownership",
+    text: "The provider outage mattered less than our failure to isolate workloads by customer promise.",
+    evidenceTags: ["Incident ownership"],
+  },
+  {
+    timestamp: "00:06:36",
+    speaker: "Candidate",
+    question: "Latency and provider failures",
+    text: "The fallback is not just another provider. It is a degraded product mode with a different latency promise.",
+    evidenceTags: ["Distributed systems", "Fallback design"],
+  },
+  {
+    timestamp: "00:11:02",
+    speaker: "Candidate",
+    question: "Eval signal changed rollout",
+    text: "We stopped the rollout when the holdout eval showed summarization quality regressing for longer support threads.",
+    evidenceTags: ["Model operations", "Rollout discipline"],
+  },
+];
+
+const emmaMarkers: readonly InterviewMediaMarker[] = [
+  {
+    timestamp: "00:06:36",
+    label: "Fallback architecture",
+    type: "Evidence",
+    detail: "Candidate distinguishes provider fallback from product degradation mode.",
+  },
+  {
+    timestamp: "00:11:02",
+    label: "Eval-gated rollout",
+    type: "Evidence",
+    detail: "Candidate ties eval drift to a deployment decision.",
+  },
+];
+
+const elenaTranscript: readonly InterviewTranscriptTurn[] = [
+  {
+    timestamp: "00:05:04",
+    speaker: "Candidate",
+    question: "Production root-cause story",
+    text: "The key was accepting that the failure was in our mental model of the queue, not in the queue itself.",
+    evidenceTags: ["Problem solving", "Systems thinking"],
+  },
+];
+
+const elenaMarkers: readonly InterviewMediaMarker[] = [
+  {
+    timestamp: "00:05:04",
+    label: "Systems framing",
+    type: "Evidence",
+    detail: "Candidate reframes incident around queue model and ownership.",
+  },
+];
+
+const emptyReviewSummary: InterviewReviewSummary = {
+  owner: "Unassigned",
+  dueAt: "2026-06-02T17:00:00.000Z",
+  recommendationRationale: "Review packet is not ready yet.",
+  reviewFocus: ["Wait for recording, transcript, and scorecard artifacts."],
+};
+
 /**
  * Candidate fixtures.
  * Source mapping:
@@ -977,6 +1234,27 @@ export const demoSessions: readonly DemoSession[] = [
     endedAt: "2026-05-31T18:32:00.000Z",
     durationMinutes: 15,
     scriptVersion: "founding-fs-v3.2",
+    media: {
+      videoStatus: "Available",
+      audioStatus: "Available",
+      transcriptStatus: "Available",
+      durationLabel: "15:02",
+      playbackPositionLabel: "04:18",
+      note: "Video, audio, transcript, and scorecard are ready for human review.",
+    },
+    markers: mayaMarkers,
+    transcript: mayaTranscript,
+    reviewSummary: {
+      owner: "Unassigned",
+      dueAt: "2026-06-01T22:00:00.000Z",
+      recommendationRationale:
+        "Advance recommendation is supported by above-bar problem solving and agency, with clear transcript evidence and no integrity flags.",
+      reviewFocus: [
+        "Confirm the product judgment score is calibrated at 3/4 rather than 4/4.",
+        "Check that the customer migration example maps to the role's agency bar.",
+        "Assign a reviewer before moving the candidate forward.",
+      ],
+    },
     artifactChecklist: availableArtifacts,
     transcriptPreview: [
       {
@@ -1041,6 +1319,27 @@ export const demoSessions: readonly DemoSession[] = [
     endedAt: "2026-05-31T16:09:00.000Z",
     durationMinutes: 13,
     scriptVersion: "founding-fs-v3.2",
+    media: {
+      videoStatus: "Available",
+      audioStatus: "Available",
+      transcriptStatus: "Available",
+      durationLabel: "13:14",
+      playbackPositionLabel: "06:52",
+      note: "Review should inspect one integrity marker and below-bar score evidence.",
+    },
+    markers: nolanMarkers,
+    transcript: nolanTranscript,
+    reviewSummary: {
+      owner: "Jordan Kim",
+      dueAt: "2026-06-01T18:00:00.000Z",
+      recommendationRationale:
+        "Hold recommendation reflects mixed agency evidence, weak product judgment, and one authenticity signal that needs inspection.",
+      reviewFocus: [
+        "Listen to the specificity drop after the metric follow-up at 00:06:52.",
+        "Decide whether problem solving should remain below bar or move to at bar.",
+        "Add a reviewer note before final decision because this packet is already in review.",
+      ],
+    },
     artifactChecklist: availableArtifacts,
     transcriptPreview: [
       {
@@ -1099,6 +1398,23 @@ export const demoSessions: readonly DemoSession[] = [
     endedAt: "2026-05-30T21:10:00.000Z",
     durationMinutes: 14,
     scriptVersion: "founding-fs-v3.2",
+    media: {
+      videoStatus: "Available",
+      audioStatus: "Available",
+      transcriptStatus: "Available",
+      durationLabel: "14:08",
+      playbackPositionLabel: "05:04",
+      note: "Reviewed packet remains available for calibration and audit.",
+    },
+    markers: elenaMarkers,
+    transcript: elenaTranscript,
+    reviewSummary: {
+      owner: "Anika Rao",
+      dueAt: "2026-05-31T18:00:00.000Z",
+      recommendationRationale:
+        "Advance decision was signed off after strong systems framing, agency evidence, and low integrity risk.",
+      reviewFocus: ["Use as a calibration example for above-bar founding engineer problem solving."],
+    },
     artifactChecklist: availableArtifacts,
     transcriptPreview: [
       {
@@ -1138,6 +1454,10 @@ export const demoSessions: readonly DemoSession[] = [
     endedAt: null,
     durationMinutes: null,
     scriptVersion: "founding-fs-v3.2",
+    media: missingMedia,
+    markers: [],
+    transcript: [],
+    reviewSummary: emptyReviewSummary,
     artifactChecklist: [],
     transcriptPreview: [],
     timeline: [
@@ -1169,6 +1489,15 @@ export const demoSessions: readonly DemoSession[] = [
     endedAt: null,
     durationMinutes: null,
     scriptVersion: "founding-fs-v3.2",
+    media: liveMedia,
+    markers: [],
+    transcript: [],
+    reviewSummary: {
+      owner: "Unassigned",
+      dueAt: "2026-06-02T18:00:00.000Z",
+      recommendationRationale: "Interview is live. Recommendation will appear after recording, transcript, and scorecard processing.",
+      reviewFocus: ["Monitor the room only if a live operations issue appears."],
+    },
     artifactChecklist: [],
     transcriptPreview: [],
     timeline: [
@@ -1200,6 +1529,27 @@ export const demoSessions: readonly DemoSession[] = [
     endedAt: "2026-05-31T20:43:00.000Z",
     durationMinutes: 16,
     scriptVersion: "ai-infra-v2.7",
+    media: {
+      videoStatus: "Available",
+      audioStatus: "Available",
+      transcriptStatus: "Available",
+      durationLabel: "16:21",
+      playbackPositionLabel: "06:36",
+      note: "AI infrastructure packet is ready with evidence markers for fallback design and eval discipline.",
+    },
+    markers: emmaMarkers,
+    transcript: emmaTranscript,
+    reviewSummary: {
+      owner: "Unassigned",
+      dueAt: "2026-06-01T22:30:00.000Z",
+      recommendationRationale:
+        "Advance recommendation is driven by model operations strength and practical distributed systems judgment.",
+      reviewFocus: [
+        "Confirm distributed systems stays at 3/4 rather than 4/4.",
+        "Compare eval-gated rollout answer against the staff-level bar.",
+        "Assign a reviewer before sending to the hiring manager.",
+      ],
+    },
     artifactChecklist: availableArtifacts,
     transcriptPreview: [
       {
@@ -1239,6 +1589,22 @@ export const demoSessions: readonly DemoSession[] = [
     endedAt: "2026-06-01T15:43:00.000Z",
     durationMinutes: 15,
     scriptVersion: "ai-infra-v2.7",
+    media: finalizingMedia,
+    markers: [
+      {
+        timestamp: "00:15:22",
+        label: "Recording finalizing",
+        type: "Integrity",
+        detail: "Audio/video copy is still running, so transcript evidence is unavailable.",
+      },
+    ],
+    transcript: [],
+    reviewSummary: {
+      owner: "Unassigned",
+      dueAt: "2026-06-02T20:00:00.000Z",
+      recommendationRationale: "Recommendation is pending until transcript and scorecard artifacts finish processing.",
+      reviewFocus: ["Reopen when recording copy and transcript post-processing complete."],
+    },
     artifactChecklist: finalizingArtifacts,
     transcriptPreview: [],
     timeline: [
@@ -1352,6 +1718,62 @@ export function getSessionsForRole(roleId: string): readonly DemoSession[] {
   return demoSessions.filter((session) => session.roleId === roleId);
 }
 
+function artifactReadiness(session: DemoSession): string {
+  if (!session.artifactChecklist.length) {
+    return "Not ready";
+  }
+
+  const readyCount = session.artifactChecklist.filter((artifact) => artifact.status === "Available").length;
+  return `${readyCount}/${session.artifactChecklist.length} ready`;
+}
+
+function reviewAgeHours(updatedAt: string): number {
+  return Math.max(1, Math.round((DEMO_NOW.getTime() - new Date(updatedAt).getTime()) / 3_600_000));
+}
+
+export function getReviewPackets(): readonly ReviewPacket[] {
+  return demoSessions
+    .flatMap((session) => {
+      if (session.lifecycleStatus !== "Review ready") {
+        return [];
+      }
+
+      const candidate = getCandidateById(session.candidateId);
+      const role = getRole(session.roleId);
+
+      if (!candidate || !role || candidate.reviewStatus === "Reviewed") {
+        return [];
+      }
+
+      const updatedAt = candidate.lastActivityAt;
+      return [
+        {
+          session,
+          candidate,
+          role,
+          updatedAt,
+          packetAgeHours: reviewAgeHours(updatedAt),
+          artifactReadiness: artifactReadiness(session),
+        },
+      ];
+    })
+    .sort((left, right) => {
+      if (left.candidate.reviewer === "Unassigned" && right.candidate.reviewer !== "Unassigned") {
+        return -1;
+      }
+      if (left.candidate.reviewer !== "Unassigned" && right.candidate.reviewer === "Unassigned") {
+        return 1;
+      }
+      return right.packetAgeHours - left.packetAgeHours;
+    });
+}
+
+export function getActiveInterviewSessions(): readonly DemoSession[] {
+  return demoSessions
+    .filter((session) => session.lifecycleStatus === "In progress" || session.lifecycleStatus === "Recording finalizing")
+    .sort((left, right) => new Date(right.scheduledAt).getTime() - new Date(left.scheduledAt).getTime());
+}
+
 export function getReviewQueue(): readonly DemoCandidate[] {
   return demoCandidates
     .filter((candidate) => candidate.pipelineStatus === "Review ready" && candidate.reviewStatus !== "Reviewed")
@@ -1365,7 +1787,11 @@ export function getActivityForRole(roleId: string): readonly DemoActivity[] {
 export function getDashboardStats() {
   const activeRoles = demoRoles.filter((role) => role.status === "Active").length;
   const screenedCandidates = demoCandidates.filter((candidate) => candidate.screenLengthMinutes !== null).length;
-  const reviewReadySessions = demoSessions.filter((session) => session.lifecycleStatus === "Review ready").length;
+  const reviewPackets = getReviewPackets();
+  const reviewReadySessions = reviewPackets.length;
+  const unassignedReviews = reviewPackets.filter((packet) => packet.candidate.reviewer === "Unassigned").length;
+  const oldestReviewHours = Math.max(...reviewPackets.map((packet) => packet.packetAgeHours), 0);
+  const completedToday = demoSessions.filter((session) => session.endedAt?.startsWith(DEMO_TODAY)).length;
   const screenLengths = demoCandidates
     .map((candidate) => candidate.screenLengthMinutes)
     .filter((duration): duration is number => duration !== null);
@@ -1378,6 +1804,9 @@ export function getDashboardStats() {
     activeRoles,
     screenedCandidates,
     reviewReadySessions,
+    unassignedReviews,
+    oldestReviewHours,
+    completedToday,
     avgScreenLength,
     flaggedIntegrityItems,
   };

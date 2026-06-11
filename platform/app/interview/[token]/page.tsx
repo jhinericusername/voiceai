@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
+import { noindexMetadata } from "@/lib/seo";
 import { InterviewJoinClient } from "./InterviewJoinClient";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = noindexMetadata;
 
 interface InterviewInvitePageProps {
   readonly params: Promise<{

@@ -13,19 +13,27 @@ import {
   startRoomCompositeRecording,
   type RoomCompositeRecordingInput,
 } from "../livekit/egress.js";
-import { roomName, type LiveKitConfig } from "../livekit/provision.js";
+import { ensureRoomReady, type LiveKitConfig } from "../livekit/provision.js";
 import { buildCandidateJoinToken } from "../livekit/token.js";
 import {
+  expectedRecordingArtifacts,
   recordingArtifactUpsertStatement,
   recordingBySessionStatement,
   recordingUpsertStatement,
   type RecordingRow,
   type RecordingStatus,
 } from "../recordings/repository.js";
-import { sessionStatusUpdateStatement } from "../scheduler/sessions.js";
+import { persistOpsEvent } from "../events/repository.js";
+import {
+  buildWorkerDispatchMetadata,
+  sessionRoomUpdateStatement,
+  sessionStatusUpdateStatement,
+  type SessionRecord,
+} from "../scheduler/sessions.js";
 import { storagePaths } from "../storage/layout.js";
 import {
   findCandidateInviteByTokenStatement,
+  isInviteSessionJoinable,
   isInviteUsable,
   markCandidateInviteUsedStatement,
   type CandidateInviteRow,
@@ -71,6 +79,73 @@ function hasStartedRecording(recording: RecordingRow | undefined): boolean {
   );
 }
 
+function sessionRecordFromInvite(invite: CandidateInviteRow): SessionRecord {
+  return {
+    sessionId: invite.session_id,
+    orgId: invite.org_id,
+    candidateEmail: invite.candidate_email,
+    scriptVersion: invite.script_version,
+    scheduledAt: new Date(invite.scheduled_at ?? Date.now()).toISOString(),
+    status: "scheduled",
+  };
+}
+
+function lateJoinSeconds(invite: CandidateInviteRow, now: Date): number {
+  if (!invite.scheduled_at) {
+    return 0;
+  }
+
+  const scheduledAt = new Date(invite.scheduled_at).getTime();
+  if (!Number.isFinite(scheduledAt)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor((now.getTime() - scheduledAt) / 1000));
+}
+
+async function recordJoinMetadata(input: {
+  readonly invite: CandidateInviteRow;
+  readonly room: string;
+  readonly roomRecreated: boolean;
+  readonly now: Date;
+}): Promise<void> {
+  const pool = getPool();
+  const reconnectCount = input.invite.join_count;
+  const commonPayload = {
+    invite_id: input.invite.invite_id,
+    candidate_email: input.invite.candidate_email,
+    room: input.room,
+    reconnect_count: reconnectCount,
+  };
+
+  await persistOpsEvent(pool, {
+    sessionId: input.invite.session_id,
+    eventType: reconnectCount === 0 ? "candidate_first_join" : "candidate_reconnect",
+    payload: commonPayload,
+  });
+
+  const lateSeconds = lateJoinSeconds(input.invite, input.now);
+  if (lateSeconds > 0 && reconnectCount === 0) {
+    await persistOpsEvent(pool, {
+      sessionId: input.invite.session_id,
+      eventType: "candidate_late_join",
+      payload: {
+        ...commonPayload,
+        scheduled_at: new Date(input.invite.scheduled_at ?? input.now).toISOString(),
+        late_seconds: lateSeconds,
+      },
+    });
+  }
+
+  if (input.roomRecreated) {
+    await persistOpsEvent(pool, {
+      sessionId: input.invite.session_id,
+      eventType: "livekit_room_recreated_on_join",
+      payload: commonPayload,
+    });
+  }
+}
+
 export async function ensureSessionRecording(input: {
   readonly invite: CandidateInviteRow;
   readonly liveKitConfig: LiveKitConfig;
@@ -95,6 +170,10 @@ export async function ensureSessionRecording(input: {
   const startedAt = (input.now ?? new Date()).toISOString();
   const storagePath = storagePaths(input.invite.org_id, input.invite.session_id).media
     .composite;
+  for (const artifact of expectedRecordingArtifacts(input.invite.org_id, input.invite.session_id)) {
+    const stmt = recordingArtifactUpsertStatement(artifact);
+    await pool.query(stmt.sql, [...stmt.params]);
+  }
   const artifactStmt = recordingArtifactUpsertStatement({
     sessionId: input.invite.session_id,
     kind: "composite_video",
@@ -201,15 +280,44 @@ export function registerCandidateInviteRoutes(
         return reply.code(410).send({ error: `invite ${usability.reason}` });
       }
 
+      const joinability = isInviteSessionJoinable(invite);
+      if (!joinability.ok) {
+        return reply.code(410).send({
+          error: "This interview session has ended.",
+          code: joinability.reason,
+        });
+      }
+
       const consentInput = consentInputFromCandidateJoin(invite, request.body);
       if (!consentInput.ok) {
         return reply.code(400).send({ error: consentInput.reason });
       }
 
+      const pool = getPool();
       const consentStmt = consentUpsertStatement(consentInput.input);
-      await getPool().query(consentStmt.sql, [...consentStmt.params]);
+      await pool.query(consentStmt.sql, [...consentStmt.params]);
 
-      const room = roomName(invite.session_id);
+      let room: string;
+      let roomRecreated = false;
+      try {
+        const readiness = await ensureRoomReady(
+          liveKitConfig,
+          invite.session_id,
+          buildWorkerDispatchMetadata(sessionRecordFromInvite(invite)),
+          { hadPreviousRoom: Boolean(invite.room_name) },
+        );
+        room = readiness.room;
+        roomRecreated = readiness.roomRecreated;
+      } catch (error) {
+        request.log.error({ err: error, sessionId: invite.session_id }, "room readiness failed");
+        return reply.code(503).send({
+          error: "interview room could not be prepared; please try again shortly",
+        });
+      }
+
+      const roomUpdate = sessionRoomUpdateStatement(invite.session_id, room);
+      await pool.query(roomUpdate.sql, [...roomUpdate.params]);
+
       const recordingsEnabled = liveKitRecordingsEnabledFromEnv();
       try {
         await ensureSessionRecording({
@@ -229,7 +337,7 @@ export function registerCandidateInviteRoutes(
         startedAt: consentInput.input.consentedAt,
         includeTimelineColumns: recordingsEnabled,
       });
-      await getPool().query(statusStmt.sql, [...statusStmt.params]);
+      await pool.query(statusStmt.sql, [...statusStmt.params]);
 
       const token = await buildCandidateJoinToken(liveKitConfig, {
         sessionId: invite.session_id,
@@ -239,7 +347,14 @@ export function registerCandidateInviteRoutes(
       });
 
       const markUsed = markCandidateInviteUsedStatement(invite.invite_id);
-      await getPool().query(markUsed.sql, [...markUsed.params]);
+      await pool.query(markUsed.sql, [...markUsed.params]);
+
+      await recordJoinMetadata({
+        invite,
+        room,
+        roomRecreated,
+        now: new Date(consentInput.input.consentedAt),
+      });
 
       return reply.code(200).send({
         sessionId: invite.session_id,

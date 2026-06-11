@@ -7,6 +7,6 @@ export default authkitProxy({
 
 export const config = {
   matcher: [
-    "/((?!api/livekit/webhook|_next/static|_next/image|favicon.ico|robots.txt|humans.txt|opengraph-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico)$).*)",
+    "/((?!api/livekit/webhook|api/ashby/webhook|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|humans.txt|manifest.json|manifest.webmanifest|opengraph-image|twitter-image|icon|apple-icon|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico)$).*)",
   ],
 };
