@@ -884,11 +884,22 @@ describe("Ashby backend routes", () => {
   it("stores selected jobs and returns webhook setup values", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const decryptedWebhookSecret = "webhook-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
     queryMock.mockResolvedValueOnce({
       rows: [
         {
           integration_id: "int_1",
           email_domain: "usepuddle.com",
+          ashby_api_key_ciphertext: encryptIntegrationSecret("ashby-key", "test-secret"),
           ashby_webhook_secret_ciphertext: "encrypted-webhook",
         },
       ],
@@ -953,12 +964,78 @@ describe("Ashby backend routes", () => {
       expect(clientQueryMock.mock.calls[3]?.[0]).toBe("COMMIT");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("rejects stale Ashby job selections before updating the integration", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          email_domain: "usepuddle.com",
+          ashby_api_key_ciphertext: encryptIntegrationSecret("ashby-key", "test-secret"),
+          ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+            "webhook-secret",
+            "test-secret",
+          ),
+        },
+      ],
+      rowCount: 1,
+    });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/onboarding/jobs",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+          reviewerEmail: "admin@usepuddle.com",
+          selectedJobIds: ["job_1", "job_closed"],
+          publicBaseUrl: "https://app.usepuddle.com",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("Selected Ashby jobs are not open");
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
       await app.close();
     }
   });
 
   it("rolls back selected job reconfiguration when staling active applications fails", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
     const encryptedWebhookSecret = encryptIntegrationSecret("webhook-secret", "test-secret");
     const updatedIntegration = {
       integration_id: "int_1",
@@ -972,6 +1049,7 @@ describe("Ashby backend routes", () => {
           {
             integration_id: "int_1",
             email_domain: "usepuddle.com",
+            ashby_api_key_ciphertext: encryptIntegrationSecret("ashby-key", "test-secret"),
             ashby_webhook_secret_ciphertext: "encrypted-webhook",
           },
         ],
@@ -1011,6 +1089,7 @@ describe("Ashby backend routes", () => {
       expect(clientQueryMock.mock.calls[3]?.[0]).toBe("ROLLBACK");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
+      global.fetch = previousFetch;
       await app.close();
     }
   });

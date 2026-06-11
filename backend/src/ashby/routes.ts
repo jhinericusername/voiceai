@@ -354,6 +354,29 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         return reply.code(404).send({ error: "Ashby integration is not configured" });
       }
 
+      const encryptedApiKey = stringValue(integration?.ashby_api_key_ciphertext);
+      if (!encryptedApiKey) {
+        return reply.code(404).send({ error: "Ashby integration is not configured" });
+      }
+
+      const apiKey = decryptIntegrationSecret(encryptedApiKey, integrationSecretKeyFromEnv());
+      let openJobs: Awaited<ReturnType<typeof listJobs>>;
+      try {
+        openJobs = await listJobs({ apiKey });
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : "Ashby job validation failed",
+        });
+      }
+
+      const openJobIds = new Set(openJobs.map((job) => job.id));
+      const invalidJobIds = jobs.filter((jobId) => !openJobIds.has(jobId));
+      if (invalidJobIds.length > 0) {
+        return reply.code(400).send({
+          error: "Selected Ashby jobs are not open or no longer exist",
+        });
+      }
+
       const update = integrationJobsUpdateStatement({
         integrationId,
         selectedJobIds: jobs,
