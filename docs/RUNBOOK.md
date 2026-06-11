@@ -88,6 +88,11 @@ The command starts an RDS tunnel on `127.0.0.1:15432`, runs the backend on
 `127.0.0.1:8080`, and starts the platform pointed at that local backend.
 Override ports with `PUDDLE_CONNECTED_DB_PORT` and `PORT`.
 
+Ashby self-serve onboarding requires `PUDDLE_INTEGRATION_SECRET_KEY` in the
+backend runtime. The deployed backend receives it from Secrets Manager. If you
+run `pnpm dev:backend:connected`, export the same dev secret locally before
+testing Ashby onboarding routes.
+
 Do not run migrations automatically from these workflows. Database migrations
 remain a manual-gate operation.
 

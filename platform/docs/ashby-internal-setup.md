@@ -1,98 +1,56 @@
-# Internal Ashby Setup
+# Ashby Self-Serve Setup
 
-## Backend config
+## Runtime prerequisites
 
-Generate production secret values with:
-
-```bash
-openssl rand -hex 32
-```
-
-Set the runtime values explicitly:
-
-| Variable | Runtime | Notes |
-| --- | --- | --- |
-| `PUDDLE_BACKEND_BASE_URL` | Platform ops shell, platform runtime | Use the backend URL that the platform can reach. In AWS this is the backend load balancer URL from infrastructure output; for local development use `http://localhost:8080`. Do not assume `api.usepuddle.com` exists unless that DNS record has been created. |
-| `PUDDLE_BACKEND_INTERNAL_TOKEN` | Platform ops shell, platform runtime, backend runtime | Shared bearer token for internal backend calls. |
-| `PUDDLE_ASHBY_WEBHOOK_SECRET` | Platform runtime, Ashby webhook settings | Shared secret Ashby sends to the platform webhook receiver. |
-| `PUDDLE_INTEGRATION_SECRET_KEY` | Backend runtime | Encrypts the stored Ashby API key. |
-
-Use generated values for secrets; do not reuse these placeholders:
-
-```bash
-PUDDLE_BACKEND_BASE_URL="<backend-base-url>"
-PUDDLE_BACKEND_INTERNAL_TOKEN="<generated-internal-token>"
-PUDDLE_ASHBY_WEBHOOK_SECRET="<generated-webhook-secret>"
-PUDDLE_INTEGRATION_SECRET_KEY="<generated-integration-secret>"
-```
-
-## Create the company integration
-
-Export the Ashby values before creating the integration:
-
-```bash
-set -u
-: "${PUDDLE_BACKEND_BASE_URL:?Set PUDDLE_BACKEND_BASE_URL first}"
-: "${PUDDLE_BACKEND_INTERNAL_TOKEN:?Set PUDDLE_BACKEND_INTERNAL_TOKEN first}"
-: "${ASHBY_API_KEY:?Set ASHBY_API_KEY from Ashby admin first}"
-: "${ASHBY_JOB_ID:?Set ASHBY_JOB_ID for the role first}"
-```
-
-Create the integration:
-
-```bash
-curl --fail-with-body -sS -X POST "$PUDDLE_BACKEND_BASE_URL/integrations/ashby/setup" \
-  -H "Authorization: Bearer $PUDDLE_BACKEND_INTERNAL_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data @- <<JSON
-{
-  "emailDomain": "usepuddle.com",
-  "organizationId": null,
-  "ashbyApiKey": "$ASHBY_API_KEY",
-  "selectedJobIds": ["$ASHBY_JOB_ID"]
-}
-JSON
-```
-
-Save the returned `integrationId`; it is needed for support and follow-up debugging.
-
-## Create Ashby webhooks
-
-Create an Ashby webhook with this request URL:
+The backend service and backend migration task require:
 
 ```text
-https://app.usepuddle.com/api/ashby/webhook?companyDomain=usepuddle.com
+PUDDLE_INTEGRATION_SECRET_KEY
 ```
 
-Use the exact value of `PUDDLE_ASHBY_WEBHOOK_SECRET` as the Ashby secret token.
+This value comes from AWS Secrets Manager at:
 
-Enable these webhook actions:
-
-- `ping`
-- `applicationSubmit`
-- `applicationUpdate`
-- `candidateStageChange`
-- `candidateDelete`
-- `candidateMerge`
-- `candidateHire`
-
-## Run initial active application sync
-
-Run an initial sync for active applications:
-
-```bash
-curl --fail-with-body -sS -X POST "$PUDDLE_BACKEND_BASE_URL/integrations/ashby/sync-active-applications" \
-  -H "Authorization: Bearer $PUDDLE_BACKEND_INTERNAL_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "emailDomain": "usepuddle.com", "organizationId": null }'
+```text
+/puddle-videoagent/integrations/encryption-key
 ```
 
-## Verify
+The CDK stack also emits this secret name as the
+`IntegrationEncryptionKeySecretName` output for environment-specific lookups.
 
-1. Open `/dashboard`.
-2. Confirm same-domain users see recent screens or the empty screens state instead of setup.
-3. Open a role.
-4. Open the `Score` tab.
-5. Search for an active Ashby candidate.
-6. Save a scorecard.
-7. Refresh `/dashboard` and confirm the score appears under recent screens.
+The platform does not need `PUDDLE_ASHBY_WEBHOOK_SECRET`.
+
+## Customer setup
+
+1. Sign in to `/dashboard` with an allowed company email domain.
+2. Paste an Ashby API key.
+3. Select one or more Ashby jobs.
+4. Copy the generated webhook URL and webhook secret shown after saving jobs.
+   The webhook secret is shown only during setup and is not re-exposed after
+   reload. Store it while creating the Ashby webhook. If it is lost before
+   configuration, re-run the job save/setup step or use the later regeneration
+   flow when available.
+5. In Ashby, create webhooks for:
+   - `ping`
+   - `applicationSubmit`
+   - `applicationUpdate`
+   - `candidateStageChange`
+   - `candidateDelete`
+   - `candidateMerge`
+   - `candidateHire`
+6. Use the generated Puddle webhook URL as the request URL.
+7. Use the generated Puddle webhook secret as the Ashby secret token.
+8. Send or test the `ping` webhook from Ashby, then check the connection in
+   Puddle from `/dashboard`. If you refreshed after copying the values, use the
+   pending-webhook panel's Check webhook connection action.
+9. Run initial active candidate sync from the Puddle dashboard.
+10. After the sync completes, `/dashboard` shows the Recent screens view. It
+    may show saved scorecards or an empty state if no scorecards exist yet.
+
+## Local testing
+
+Use `pnpm dev:connected` to run localhost against the deployed dev backend.
+Use a public HTTPS tunnel only when testing real Ashby webhook delivery against
+localhost. When using a tunnel, set
+`PUDDLE_PUBLIC_BASE_URL=https://<tunnel-host>` before saving jobs so the
+generated webhook setup values use the public tunnel URL instead of
+`NEXT_PUBLIC_SITE_URL` or `http://localhost:3000`.
