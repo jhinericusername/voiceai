@@ -394,3 +394,95 @@ async def test_each_candidate_answer_is_acknowledged_immediately(
         assert following_agent.text in acks, (
             f"expected ack right after answer turn {i}, got: {following_agent.text!r}"
         )
+
+
+async def test_probe_generation_runs_in_worker_thread(tmp_path: Path) -> None:
+    """probe_generator.generate must not run on the event loop thread."""
+    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    voice = _simulated_voice()
+    seen_threads: list[str] = []
+    calls = {"n": 0}
+
+    def score(si):  # noqa: ANN001
+        calls["n"] += 1
+        category = si.target_categories[0]
+        if calls["n"] == 1:  # force one probe
+            return ScorerOutput(
+                assessments=[
+                    CategoryAssessment(
+                        category=category, provisional_score=2, confidence=0.2,
+                        evidence_quotes=[], missing_or_ambiguous=["depth unclear"],
+                    )
+                ]
+            )
+        return _confident(category)
+
+    def generate(req):  # noqa: ANN001
+        seen_threads.append(threading.current_thread().name)
+        return "Can you walk me through the hardest part?"
+
+    scorer = MagicMock()
+    scorer.score.side_effect = score
+    probe_generator = MagicMock()
+    probe_generator.generate.side_effect = generate
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=scorer,
+        probe_generator=probe_generator,
+        event_log=EventLog(session_id="s-probe-thread", path=tmp_path / "events.jsonl"),
+        clock_now=iter([float(i) for i in range(0, 4000, 5)]).__next__,
+    )
+    await runner.run(session_id="s-probe-thread")
+
+    assert probe_generator.generate.called
+    main_thread = threading.main_thread().name
+    assert all(name != main_thread for name in seen_threads), (
+        "probe generation ran on the event loop thread"
+    )
+
+
+async def test_ack_latency_budget_with_slow_scorer(tmp_path: Path) -> None:
+    """Latency budget: with a 500 ms scorer, the ack must start within 300 ms
+    of the answer landing — the candidate never waits on the LLM."""
+    rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
+    acks = set(RUBRIC.style.acknowledgments)
+    answer_returned_at: list[float] = []
+    ack_started_at: list[float] = []
+
+    voice = _simulated_voice()
+
+    async def listen() -> ListenResult:
+        answer_returned_at.append(time_module.monotonic())
+        return ListenResult(transcript="A full answer.", end_of_turn=True)
+
+    async def speak(text: str, mode: str = "scripted") -> None:  # noqa: ARG001
+        if text in acks:
+            ack_started_at.append(time_module.monotonic())
+
+    voice.listen = AsyncMock(side_effect=listen)
+    voice.speak = AsyncMock(side_effect=speak)
+
+    def slow_score(si):  # noqa: ANN001
+        time_module.sleep(0.5)
+        return _confident(si.target_categories[0])
+
+    scorer = MagicMock()
+    scorer.score.side_effect = slow_score
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=scorer,
+        probe_generator=MagicMock(),
+        event_log=EventLog(session_id="s-budget", path=tmp_path / "events.jsonl"),
+        clock_now=time_module.monotonic,
+    )
+    await asyncio.wait_for(runner.run(session_id="s-budget"), timeout=30)
+
+    assert ack_started_at, "no ack observed"
+    # The last listen before the first ack is the question answer (earlier
+    # listens are opener turns, which are never acked).
+    preceding_answers = [t for t in answer_returned_at if t < ack_started_at[0]]
+    gap = ack_started_at[0] - preceding_answers[-1]
+    # generous CI bound; the point is it's not 500ms+ (serialized scoring)
+    assert gap < 0.3, f"ack started {gap:.3f}s after the answer"

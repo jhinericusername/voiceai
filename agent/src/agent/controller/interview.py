@@ -206,6 +206,8 @@ class InterviewRunner:
                 time_exhausted=self._clock.must_move_on(),
             )
             if directive.action == "advance":
+                timer.mark("next_prompt_started")
+                timer.emit()
                 if self._clock.must_move_on():
                     await self._say(
                         HUMANE_BOUNDARY_LINE,
@@ -222,15 +224,21 @@ class InterviewRunner:
                     "category": directive.probe_category,
                 },
             )
-            probe_text = self._probe_generator.generate(
-                ProbeRequest(
-                    category_assessment=latest[directive.probe_category],  # type: ignore[index]
-                    transcript=list(self._transcript),
-                    probes_used=probes_used,
-                    max_probes=question.max_probes,  # type: ignore[attr-defined]
-                )
+            probe_request = ProbeRequest(
+                category_assessment=latest[directive.probe_category],  # type: ignore[index]
+                transcript=list(self._transcript),
+                probes_used=probes_used,
+                max_probes=question.max_probes,  # type: ignore[attr-defined]
             )
+            timer.mark("probe_started")
+            # Off the event loop for the same reason as scoring above.
+            probe_text = await asyncio.to_thread(
+                self._probe_generator.generate, probe_request
+            )
+            timer.mark("probe_finished")
             probes_used += 1
+            timer.mark("next_prompt_started")
+            timer.emit()
             await self._say(
                 probe_text,
                 "PROBE_LOW_CONFIDENCE",
