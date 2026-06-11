@@ -3,6 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const scoreTabSource = await readFile(new URL("../app/dashboard/roles/[roleId]/ScoreTab.tsx", import.meta.url), "utf8");
+const roleWorkspaceSource = await readFile(
+  new URL("../app/dashboard/roles/[roleId]/RoleWorkspaceTabs.tsx", import.meta.url),
+  "utf8",
+);
+const rolePageSource = await readFile(new URL("../app/dashboard/roles/[roleId]/page.tsx", import.meta.url), "utf8");
 
 test("score tab debounces and aborts superseded candidate searches", () => {
   assert.match(scoreTabSource, /SEARCH_DEBOUNCE_MS/);
@@ -25,8 +30,28 @@ test("score tab clears saved feedback when the score form changes", () => {
 test("score tab locks form-changing controls while a save is in flight", () => {
   assert.match(scoreTabSource, /readonly disabled: boolean/);
   assert.match(scoreTabSource, /disabled=\{disabled\}/);
-  assert.match(scoreTabSource, /disabled=\{isSaving\}/);
-  assert.match(scoreTabSource, /disabled=\{isSaving \|\| isSearching\}/);
+  assert.match(scoreTabSource, /isSaving \|\| !hasAshbyJob/);
+  assert.match(scoreTabSource, /disabled=\{formDisabled\}/);
+  assert.match(scoreTabSource, /disabled=\{isSaving \|\| isSearching \|\| !hasAshbyJob\}/);
+});
+
+test("score tab requires a concrete Ashby job before search or save", () => {
+  assert.match(scoreTabSource, /normalizedJobId/);
+  assert.match(scoreTabSource, /hasAshbyJob/);
+  assert.match(scoreTabSource, /!hasAshbyJob/);
+  assert.match(scoreTabSource, /availableJobIds/);
+  assert.match(scoreTabSource, /selectedJobId/);
+  assert.match(scoreTabSource, /jobId:\s*normalizedJobId/);
+  assert.match(scoreTabSource, /roleId:\s*normalizedJobId/);
+  assert.doesNotMatch(scoreTabSource, /jobId:\s*jobId \?\? null/);
+});
+
+test("role page supplies selected Ashby jobs to the score tab", () => {
+  assert.match(rolePageSource, /getAshbyCompanyState/);
+  assert.match(rolePageSource, /state\.selectedJobIds/);
+  assert.match(rolePageSource, /ashbyJobIds=\{ashbyJobIds\}/);
+  assert.match(roleWorkspaceSource, /readonly ashbyJobIds: readonly string\[\]/);
+  assert.match(roleWorkspaceSource, /availableJobIds=\{ashbyJobIds\}/);
 });
 
 test("score tab status feedback is announced and action copy matches score saving", () => {

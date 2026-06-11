@@ -55,6 +55,16 @@ function candidateLabel(option: AshbyApplicationOption): string {
   return option.candidate_email ? `${option.candidate_name} - ${option.candidate_email}` : option.candidate_name;
 }
 
+function normalizeJobIds(values: readonly string[]): string[] {
+  return [
+    ...new Set(
+      values
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  ];
+}
+
 function ScoreSelect({
   label,
   value,
@@ -85,10 +95,17 @@ function ScoreSelect({
   );
 }
 
-export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly jobId?: string | null }) {
+export function ScoreTab({
+  jobId,
+  availableJobIds = [],
+}: {
+  readonly jobId?: string | null;
+  readonly availableJobIds?: readonly string[];
+}) {
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<AshbyApplicationOption[]>([]);
   const [selected, setSelected] = useState<AshbyApplicationOption | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState("");
   const [problemSolving, setProblemSolving] = useState(3);
   const [agency, setAgency] = useState(3);
   const [competitiveness, setCompetitiveness] = useState(3);
@@ -102,13 +119,32 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
 
+  const configuredJobId = jobId?.trim() ?? "";
+  const availableAshbyJobIds = normalizeJobIds(availableJobIds);
+  const selectedAvailableJobId = availableAshbyJobIds.includes(selectedJobId) ? selectedJobId : "";
+  const normalizedJobId =
+    configuredJobId || (availableAshbyJobIds.length === 1 ? availableAshbyJobIds[0] : selectedAvailableJobId);
+  const hasAshbyJob = normalizedJobId.length > 0;
+  const canChooseAshbyJob = !configuredJobId && availableAshbyJobIds.length > 1;
+  const missingJobMessage = canChooseAshbyJob
+    ? "Choose an Ashby job before scoring."
+    : "Connect this role to an Ashby job before scoring.";
+  const missingSearchJobMessage = canChooseAshbyJob
+    ? "Choose an Ashby job before searching."
+    : "Connect this role to an Ashby job before searching.";
+  const missingSaveJobMessage = canChooseAshbyJob
+    ? "Choose an Ashby job before saving."
+    : "Connect this role to an Ashby job before saving.";
   const trimmedQuery = query.trim();
   const total = problemSolving + agency + competitiveness + curiosity;
-  const statusMessage = isSaving
-    ? { tone: "info", text: "Saving score..." }
-    : isSearching
-      ? { tone: "info", text: "Searching Ashby candidates..." }
-      : feedback;
+  const formDisabled = isSaving || !hasAshbyJob;
+  const statusMessage = !hasAshbyJob
+    ? { tone: "error", text: missingJobMessage }
+    : isSaving
+      ? { tone: "info", text: "Saving score..." }
+      : isSearching
+        ? { tone: "info", text: "Searching Ashby candidates..." }
+        : feedback;
 
   useEffect(() => {
     return () => {
@@ -133,6 +169,18 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
     setFeedback((current) => (current?.tone === "success" ? null : current));
   }
 
+  function chooseAshbyJob(nextJobId: string) {
+    cancelPendingSearch();
+    searchRequestId.current += 1;
+    setSelectedJobId(nextJobId);
+    setQuery("");
+    queryRef.current = "";
+    setSelected(null);
+    setOptions([]);
+    setIsSearching(false);
+    setFeedback(null);
+  }
+
   function searchCandidates(nextQuery: string) {
     const nextSearchId = searchRequestId.current + 1;
     searchRequestId.current = nextSearchId;
@@ -144,6 +192,12 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
     const nextTrimmedQuery = nextQuery.trim();
     queryRef.current = nextTrimmedQuery;
     setOptions([]);
+    if (!hasAshbyJob) {
+      setFeedback({ tone: "error", text: missingSearchJobMessage });
+      setIsSearching(false);
+      return;
+    }
+
     if (nextTrimmedQuery.length < 2) {
       setIsSearching(false);
       return;
@@ -164,7 +218,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: abortController.signal,
-        body: JSON.stringify({ query: nextTrimmedQuery, jobId: jobId ?? null }),
+        body: JSON.stringify({ query: nextTrimmedQuery, jobId: normalizedJobId }),
       });
       const payload: unknown = await response.json().catch(() => ({}));
 
@@ -195,6 +249,11 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
   }
 
   async function saveScore() {
+    if (!hasAshbyJob) {
+      setFeedback({ tone: "error", text: missingSaveJobMessage });
+      return;
+    }
+
     if (!selected) {
       setFeedback({ tone: "error", text: "Select an active Ashby candidate before saving." });
       return;
@@ -208,7 +267,8 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           applicationId: selected.application_id,
-          roleId,
+          jobId: normalizedJobId,
+          roleId: normalizedJobId,
           problemSolving,
           agency,
           competitiveness,
@@ -233,12 +293,31 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
 
   return (
     <div className="grid gap-4">
+      {canChooseAshbyJob ? (
+        <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
+          Ashby job
+          <select
+            value={selectedAvailableJobId}
+            disabled={isSaving}
+            onChange={(event) => chooseAshbyJob(event.target.value)}
+            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          >
+            <option value="">Select Ashby job</option>
+            {availableAshbyJobIds.map((ashbyJobId, index) => (
+              <option key={ashbyJobId} value={ashbyJobId}>
+                {`Job ${index + 1}: ${ashbyJobId}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
       <div className="grid gap-2">
         <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
           Candidate
           <input
             value={query}
-            disabled={isSaving}
+            disabled={formDisabled}
             onChange={(event) => void searchCandidates(event.target.value)}
             className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
             placeholder="Search active Ashby candidates"
@@ -258,7 +337,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
               <button
                 key={option.application_id}
                 type="button"
-                disabled={isSaving}
+                disabled={formDisabled}
                 onClick={() => {
                   cancelPendingSearch();
                   searchRequestId.current += 1;
@@ -288,7 +367,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Problem Solving"
           value={problemSolving}
-          disabled={isSaving}
+          disabled={formDisabled}
           onChange={(value) => {
             markFormDirty();
             setProblemSolving(value);
@@ -297,7 +376,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Agency"
           value={agency}
-          disabled={isSaving}
+          disabled={formDisabled}
           onChange={(value) => {
             markFormDirty();
             setAgency(value);
@@ -306,7 +385,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Competitiveness"
           value={competitiveness}
-          disabled={isSaving}
+          disabled={formDisabled}
           onChange={(value) => {
             markFormDirty();
             setCompetitiveness(value);
@@ -315,7 +394,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Curious"
           value={curiosity}
-          disabled={isSaving}
+          disabled={formDisabled}
           onChange={(value) => {
             markFormDirty();
             setCuriosity(value);
@@ -327,7 +406,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         Comments
         <textarea
           value={comments}
-          disabled={isSaving}
+          disabled={formDisabled}
           onChange={(event) => {
             markFormDirty();
             setComments(event.target.value);
@@ -344,7 +423,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <button
           type="button"
           onClick={() => void saveScore()}
-          disabled={isSaving || isSearching}
+          disabled={isSaving || isSearching || !hasAshbyJob}
           className={cx(primaryButtonClass, "disabled:cursor-not-allowed disabled:bg-slate-400")}
         >
           {isSaving ? "Saving..." : "Save Score"}

@@ -7,6 +7,7 @@ import {
 } from "./crypto.js";
 import { listActiveApplicationsForJob, syncedApplicationFromAshby } from "./client.js";
 import {
+  activeApplicationForJobStatement,
   activeApplicationUpsertStatement,
   inactiveCandidateApplicationsStatement,
   integrationByIdStatement,
@@ -353,11 +354,17 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const competitiveness = scoreValue(body?.competitiveness);
     const curiosity = scoreValue(body?.curiosity);
     const applicationId = stringValue(body?.applicationId);
+    const jobId = stringValue(body?.jobId);
     const roleId = stringValue(body?.roleId);
     const reviewerEmail = stringValue(body?.reviewerEmail);
+    if (roleId && jobId && roleId !== jobId) {
+      return reply.code(400).send({ error: "roleId must match the selected Ashby jobId" });
+    }
+
     if (
       !identity ||
       !applicationId ||
+      !jobId ||
       !roleId ||
       !reviewerEmail ||
       problemSolving === null ||
@@ -374,11 +381,24 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return reply.code(404).send({ error: "Ashby integration is not configured" });
     }
 
+    const applicationStmt = activeApplicationForJobStatement({
+      integrationId,
+      applicationId,
+      jobId,
+    });
+    const application = await getPool().query(applicationStmt.sql, [...applicationStmt.params]);
+    if (!application.rows.length) {
+      return reply
+        .code(404)
+        .send({ error: "Ashby application is not active for the selected job" });
+    }
+
     const stmt = scoreUpsertStatement({
       integrationId,
       emailDomain: identity.emailDomain,
       organizationId: identity.organizationId,
       applicationId,
+      jobId,
       roleId,
       reviewerEmail,
       problemSolving,

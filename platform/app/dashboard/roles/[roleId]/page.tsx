@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  companyIdentityFromUser,
+  getAshbyCompanyState,
+} from "@/lib/ashby/server";
 import { DashboardActionButton } from "../../DashboardActionButton";
+import { requireDashboardUser } from "../../auth";
 import { RoleWorkspaceTabs } from "./RoleWorkspaceTabs";
 import {
   demoRoles,
@@ -18,12 +23,15 @@ import {
   secondaryButtonClass,
 } from "../../dashboard-ui";
 
+export const dynamic = "force-dynamic";
+
 export function generateStaticParams() {
   return demoRoles.map((role) => ({ roleId: role.id }));
 }
 
 export default async function RoleDetailPage({ params }: { readonly params: Promise<{ roleId: string }> }) {
   const { roleId } = await params;
+  const { user, organizationId } = await requireDashboardUser(`/dashboard/roles/${roleId}`);
   const role = getRole(roleId);
 
   if (!role) {
@@ -33,6 +41,9 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
   const candidates = getCandidatesForRole(role.id);
   const sessions = getSessionsForRole(role.id);
   const activity = getActivityForRole(role.id);
+  const identity = companyIdentityFromUser({ email: user.email, organizationId });
+  const state = await getAshbyCompanyState(identity).catch(() => null);
+  const ashbyJobIds = state?.connected ? state.selectedJobIds : [];
   const reviewReady = candidates.filter((candidate) => candidate.pipelineStatus === "Review ready");
   const highlighted = candidates
     .filter((candidate) => candidate.score !== null)
@@ -78,7 +89,7 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
-          <RoleWorkspaceTabs role={role} candidates={candidates} sessions={sessions} />
+          <RoleWorkspaceTabs role={role} ashbyJobIds={ashbyJobIds} candidates={candidates} sessions={sessions} />
         </div>
 
         <aside className="grid min-w-0 gap-5 xl:content-start">

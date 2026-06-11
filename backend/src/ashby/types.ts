@@ -36,6 +36,7 @@ export interface SyncedAshbyApplication {
 
 export interface ScoreInput extends CompanyIdentity {
   readonly applicationId: string;
+  readonly jobId: string;
   readonly roleId: string;
   readonly reviewerEmail: string;
   readonly problemSolving: number;

@@ -24,7 +24,9 @@ interface RuntimeSecrets {
   cartesiaApiKey: secretsmanager.ISecret;
   geminiApiKey: secretsmanager.ISecret;
   backendInternalToken: secretsmanager.ISecret;
+  ashbyIntegrationSecretKey: secretsmanager.ISecret;
   platformAuthSecret: secretsmanager.ISecret;
+  ashbyWebhookSecret: secretsmanager.ISecret;
   workosApiKey: secretsmanager.ISecret;
   workosClientId: secretsmanager.ISecret;
   livekitEgressS3Credentials?: secretsmanager.ISecret;
@@ -82,7 +84,9 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   cartesiaApiKey: 'providers/cartesia-api-key',
   geminiApiKey: 'providers/gemini-api-key',
   backendInternalToken: 'backend/internal-token',
+  ashbyIntegrationSecretKey: 'integrations/ashby/secret-key',
   platformAuthSecret: 'platform/auth-secret',
+  ashbyWebhookSecret: 'integrations/ashby/webhook-secret',
   workosApiKey: 'platform/workos-api-key',
   workosClientId: 'platform/workos-client-id',
   livekitEgressS3Credentials: 'livekit/egress-s3-credentials',
@@ -762,9 +766,19 @@ export class InfraStack extends cdk.Stack {
         RUNTIME_SECRET_PATHS.backendInternalToken,
         removalPolicy,
       ),
+      ashbyIntegrationSecretKey: this.createSecret(
+        'AshbyIntegrationSecretKey',
+        RUNTIME_SECRET_PATHS.ashbyIntegrationSecretKey,
+        removalPolicy,
+      ),
       platformAuthSecret: this.createSecret(
         'PlatformAuthSecret',
         RUNTIME_SECRET_PATHS.platformAuthSecret,
+        removalPolicy,
+      ),
+      ashbyWebhookSecret: this.createSecret(
+        'AshbyWebhookSecret',
+        RUNTIME_SECRET_PATHS.ashbyWebhookSecret,
         removalPolicy,
       ),
       workosApiKey: secretsmanager.Secret.fromSecretNameV2(
@@ -903,6 +917,7 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.livekitApiKey,
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.backendInternalToken,
+      runtimeSecrets.ashbyIntegrationSecretKey,
       ...(runtimeSecrets.livekitEgressS3Credentials
         ? [runtimeSecrets.livekitEgressS3Credentials]
         : []),
@@ -919,6 +934,7 @@ export class InfraStack extends cdk.Stack {
     grantSecretsRead(platformExecutionRole, [
       runtimeSecrets.backendInternalToken,
       runtimeSecrets.platformAuthSecret,
+      runtimeSecrets.ashbyWebhookSecret,
       runtimeSecrets.workosApiKey,
       runtimeSecrets.workosClientId,
     ]);
@@ -1045,6 +1061,9 @@ export class InfraStack extends cdk.Stack {
       ),
       PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.backendInternalToken,
+      ),
+      PUDDLE_INTEGRATION_SECRET_KEY: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.ashbyIntegrationSecretKey,
       ),
       ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
         ? {
@@ -1338,6 +1357,9 @@ export class InfraStack extends cdk.Stack {
       ),
       WORKOS_COOKIE_PASSWORD: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.platformAuthSecret,
+      ),
+      PUDDLE_ASHBY_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.ashbyWebhookSecret,
       ),
       PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.backendInternalToken,

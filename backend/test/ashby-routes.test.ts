@@ -76,7 +76,8 @@ describe("Ashby backend routes", () => {
         payload: {
           emailDomain: "usepuddle.com",
           applicationId: "app_1",
-          roleId: "role_1",
+          jobId: "job_1",
+          roleId: "job_1",
           reviewerEmail: "reviewer@usepuddle.com",
           problemSolving: 4.25,
           agency: 3,
@@ -86,6 +87,67 @@ describe("Ashby backend routes", () => {
       });
 
       expect(res.statusCode).toBe(400);
+      expect(queryMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects scores for applications outside the selected Ashby job", async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ integration_id: "int_1" }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/scores",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          applicationId: "app_1",
+          jobId: "job_1",
+          roleId: "job_1",
+          reviewerEmail: "reviewer@usepuddle.com",
+          problemSolving: 3,
+          agency: 3,
+          competitiveness: 3,
+          curiosity: 3,
+        },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toContain("not active");
+      expect(queryMock).toHaveBeenCalledTimes(2);
+      expect(String(queryMock.mock.calls[1]?.[0])).toContain("job_id = $3");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects scores when the role id does not match the selected Ashby job", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/scores",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          applicationId: "app_1",
+          jobId: "job_1",
+          roleId: "role_1",
+          reviewerEmail: "reviewer@usepuddle.com",
+          problemSolving: 3,
+          agency: 3,
+          competitiveness: 3,
+          curiosity: 3,
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("roleId must match");
       expect(queryMock).not.toHaveBeenCalled();
     } finally {
       await app.close();

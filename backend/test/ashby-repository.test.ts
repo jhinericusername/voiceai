@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeApplicationForJobStatement,
   activeApplicationUpsertStatement,
   inactiveCandidateApplicationsStatement,
   integrationByIdStatement,
@@ -144,6 +145,21 @@ describe("Ashby repository statements", () => {
     expect(stmt.params).toEqual(["int_1", "job_1", "maya", 8]);
   });
 
+  it("checks active applications against the selected Ashby job before scoring", () => {
+    const stmt = activeApplicationForJobStatement({
+      integrationId: "int_1",
+      applicationId: "app_1",
+      jobId: "job_1",
+    });
+
+    expect(stmt.sql).toContain("FROM ashby_applications");
+    expect(stmt.sql).toContain("integration_id = $1");
+    expect(stmt.sql).toContain("application_id = $2");
+    expect(stmt.sql).toContain("job_id = $3");
+    expect(stmt.sql).toContain("status = 'Active'");
+    expect(stmt.params).toEqual(["int_1", "app_1", "job_1"]);
+  });
+
   it("marks candidate applications inactive within an integration", () => {
     const stmt = inactiveCandidateApplicationsStatement({
       integrationId: "int_1",
@@ -161,6 +177,7 @@ describe("Ashby repository statements", () => {
       integrationId: "int_1",
       emailDomain: "usepuddle.com",
       applicationId: "app_1",
+      jobId: "job_1",
       roleId: "founding-engineer",
       reviewerEmail: "reviewer@usepuddle.com",
       problemSolving: 3,
@@ -183,6 +200,7 @@ describe("Ashby repository statements", () => {
       integrationId: "int_1",
       emailDomain: "usepuddle.com",
       applicationId: "app_1",
+      jobId: "job_1",
       roleId: "founding-engineer",
       reviewerEmail: "reviewer@usepuddle.com",
       problemSolving: 3,
