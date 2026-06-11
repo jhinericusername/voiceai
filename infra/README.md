@@ -149,6 +149,10 @@ account.
 `enableLiveKitRecordings=true` context flag. It also maps
 `PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS` (default `300`) to the CDK
 `participantReconnectGraceSeconds` context flag for the LiveKit agent service.
+For Ashby bootstrap admins, it maps
+`PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS` from `.env.local` or
+`PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS` from the shell to the CDK
+`platformAshbyOnboardingAdminEmails` context flag.
 
 After the service deploys, run migrations once with the emitted
 `BackendMigrationTaskDefinitionArn` in the private app subnets using

@@ -229,6 +229,11 @@ function applicationFromPayload(payload: AshbyWebhookPayload): Record<string, un
   return objectValue(data?.application) ?? data;
 }
 
+function applicationJobId(application: Record<string, unknown>): string | null {
+  const job = objectValue(application.job);
+  return stringValue(application.jobId) ?? stringValue(job?.id);
+}
+
 function candidateIdFromPayload(payload: AshbyWebhookPayload): string | null {
   const data = objectValue(payload.data);
   const candidate = objectValue(data?.candidate);
@@ -586,7 +591,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
 
       if (ACTIVE_APPLICATION_ACTIONS.has(action)) {
         const application = applicationFromPayload(payload);
-        if (application) {
+        const jobId = application ? applicationJobId(application) : null;
+        const selectedJobs = new Set(stringArray(lockedIntegration?.selected_job_ids));
+        if (application && jobId && selectedJobs.has(jobId)) {
           const synced = syncedApplicationFromAshby({
             integrationId: resolvedIntegrationId,
             application,

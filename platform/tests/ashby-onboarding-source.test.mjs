@@ -14,6 +14,10 @@ const syncRoute = await readFile(
   new URL("../app/api/ashby/onboarding/sync/route.ts", import.meta.url),
   "utf8",
 ).catch(() => "");
+const onboardingBehaviorSource = await readFile(
+  new URL("../lib/ashby/onboarding-route-behavior.mjs", import.meta.url),
+  "utf8",
+).catch(() => "");
 const adminHelperSource = await readFile(
   new URL("../lib/auth/ashby-onboarding-admin.ts", import.meta.url),
   "utf8",
@@ -24,6 +28,160 @@ const wizardSource = await readFile(
   "utf8",
 ).catch(() => "");
 const dashboardSource = await readFile(new URL("../app/dashboard/page.tsx", import.meta.url), "utf8");
+const deployPlatformScript = await readFile(
+  new URL("../../scripts/deploy-platform.sh", import.meta.url),
+  "utf8",
+).catch(() => "");
+const onboardingBehavior = await import(
+  new URL("../lib/ashby/onboarding-route-behavior.mjs", import.meta.url)
+);
+
+function jsonRequest(body) {
+  return new Request("http://localhost/api/ashby/onboarding/test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function behaviorHarness({
+  session = {
+    user: { email: "admin@usepuddle.com" },
+    organizationId: "org_server",
+    canManage: true,
+  },
+  backendResponse = Response.json({ ok: true }, { status: 200 }),
+} = {}) {
+  const fetchCalls = [];
+  const warnCalls = [];
+  return {
+    fetchCalls,
+    warnCalls,
+    context: {
+      session,
+      backendBaseUrl: () => "https://backend.example",
+      backendHeaders: () => ({ authorization: "Bearer internal" }),
+      companyIdentityFromUser: ({ email, organizationId }) => ({
+        emailDomain: String(email).split("@").at(-1).toLowerCase(),
+        organizationId: organizationId ?? null,
+      }),
+      isAllowedAuthEmail: (email) => String(email).toLowerCase().endsWith("@usepuddle.com"),
+      canManageAshbyOnboarding: (candidateSession) => Boolean(candidateSession?.canManage),
+      fetchImpl: async (...args) => {
+        fetchCalls.push(args);
+        return backendResponse;
+      },
+      logger: {
+        warn: (...args) => warnCalls.push(args),
+      },
+      publicBaseUrl: "https://app.usepuddle.com",
+    },
+  };
+}
+
+const onboardingHandlers = [
+  {
+    name: "api key",
+    handler: onboardingBehavior.handleAshbyApiKeyOnboarding,
+    request: () =>
+      jsonRequest({
+        ashbyApiKey: "ashby_key",
+        emailDomain: "attacker.example",
+        organizationId: "org_attacker",
+      }),
+    expectedBackendPath: "/integrations/ashby/onboarding/api-key",
+    expectedBody: {
+      emailDomain: "usepuddle.com",
+      organizationId: "org_server",
+      reviewerEmail: "admin@usepuddle.com",
+      ashbyApiKey: "ashby_key",
+    },
+    expectedError: "Ashby onboarding request failed.",
+  },
+  {
+    name: "jobs",
+    handler: onboardingBehavior.handleAshbyJobsOnboarding,
+    request: () =>
+      jsonRequest({
+        selectedJobIds: ["job_1", 42, "job_2"],
+        emailDomain: "attacker.example",
+        organizationId: "org_attacker",
+      }),
+    expectedBackendPath: "/integrations/ashby/onboarding/jobs",
+    expectedBody: {
+      emailDomain: "usepuddle.com",
+      organizationId: "org_server",
+      reviewerEmail: "admin@usepuddle.com",
+      selectedJobIds: ["job_1", "job_2"],
+      publicBaseUrl: "https://app.usepuddle.com",
+    },
+    expectedError: "Ashby onboarding request failed.",
+  },
+  {
+    name: "sync",
+    handler: onboardingBehavior.handleAshbySyncOnboarding,
+    request: () =>
+      jsonRequest({
+        emailDomain: "attacker.example",
+        organizationId: "org_attacker",
+      }),
+    expectedBackendPath: "/integrations/ashby/sync-active-applications",
+    expectedBody: {
+      emailDomain: "usepuddle.com",
+      organizationId: "org_server",
+      reviewerEmail: "admin@usepuddle.com",
+    },
+    expectedError: "Ashby sync request failed.",
+  },
+];
+
+for (const routeCase of onboardingHandlers) {
+  test(`Ashby onboarding ${routeCase.name} denies non-admin users before backend fetch`, async () => {
+    const harness = behaviorHarness({
+      session: {
+        user: { email: "member@usepuddle.com" },
+        organizationId: "org_server",
+        canManage: false,
+      },
+    });
+
+    const response = await routeCase.handler(routeCase.request(), harness.context);
+
+    assert.equal(response.status, 403);
+    assert.equal(harness.fetchCalls.length, 0);
+    assert.deepEqual(await response.json(), {
+      error: "Ashby onboarding setup requires a workspace admin or owner.",
+    });
+  });
+
+  test(`Ashby onboarding ${routeCase.name} sends server-derived identity to backend`, async () => {
+    const harness = behaviorHarness();
+
+    const response = await routeCase.handler(routeCase.request(), harness.context);
+
+    assert.equal(response.status, 200);
+    assert.equal(harness.fetchCalls.length, 1);
+    const [url, init] = harness.fetchCalls[0];
+    assert.equal(url, `https://backend.example${routeCase.expectedBackendPath}`);
+    assert.deepEqual(JSON.parse(init.body), routeCase.expectedBody);
+  });
+
+  test(`Ashby onboarding ${routeCase.name} sanitizes non-OK backend responses`, async () => {
+    const harness = behaviorHarness({
+      backendResponse: Response.json(
+        { error: "Leaked backend detail", stack: "secret stack" },
+        { status: 418 },
+      ),
+    });
+
+    const response = await routeCase.handler(routeCase.request(), harness.context);
+
+    assert.equal(response.status, 418);
+    assert.equal(harness.fetchCalls.length, 1);
+    assert.deepEqual(await response.json(), { error: routeCase.expectedError });
+    assert.equal(harness.warnCalls.length, 1);
+  });
+}
 
 test("Ashby onboarding API routes are authenticated and derive company identity server-side", () => {
   for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
@@ -31,10 +189,14 @@ test("Ashby onboarding API routes are authenticated and derive company identity 
     assert.match(source, /isAllowedAuthEmail/);
     assert.match(source, /canManageAshbyOnboarding/);
     assert.match(source, /companyIdentityFromUser/);
+    assert.match(source, /handleAshby.*Onboarding/);
     assert.match(source, /PUDDLE_BACKEND_BASE_URL|backendBaseUrl/);
     assert.doesNotMatch(source, /emailDomain:\s*body\.emailDomain/);
     assert.doesNotMatch(source, /organizationId:\s*body\.organizationId/);
   }
+  assert.match(onboardingBehaviorSource, /companyIdentityFromUser/);
+  assert.doesNotMatch(onboardingBehaviorSource, /emailDomain:\s*body\.emailDomain/);
+  assert.doesNotMatch(onboardingBehaviorSource, /organizationId:\s*body\.organizationId/);
 });
 
 test("Ashby onboarding setup management requires WorkOS privilege or bootstrap admin email", () => {
@@ -54,14 +216,23 @@ test("Ashby onboarding setup management requires WorkOS privilege or bootstrap a
   assert.match(adminHelperSource, /toLowerCase\(\)/);
   assert.match(adminHelperSource, /trim\(\)/);
 
+  const adminGateIndex = onboardingBehaviorSource.indexOf("canManageAshbyOnboarding");
+  const fetchIndex = onboardingBehaviorSource.indexOf("fetchImpl(");
+  assert.notEqual(adminGateIndex, -1);
+  assert.notEqual(fetchIndex, -1);
+  assert.ok(adminGateIndex < fetchIndex);
+
   for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
-    const adminGateIndex = source.indexOf("canManageAshbyOnboarding");
-    const fetchIndex = source.indexOf("fetch(");
-    assert.notEqual(adminGateIndex, -1);
-    assert.notEqual(fetchIndex, -1);
-    assert.ok(adminGateIndex < fetchIndex);
     assert.match(source, /ASHBY_ONBOARDING_ADMIN_DENIED_ERROR/);
   }
+});
+
+test("deploy-platform forwards Ashby onboarding admin emails to CDK", () => {
+  assert.match(
+    deployPlatformScript,
+    /PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS=.*PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/,
+  );
+  assert.match(deployPlatformScript, /platformAshbyOnboardingAdminEmails/);
 });
 
 test("Ashby webhook proxy forwards raw body and signature to backend", () => {
@@ -74,27 +245,18 @@ test("Ashby webhook proxy forwards raw body and signature to backend", () => {
 });
 
 test("Ashby onboarding sync proxies to the existing backend sync route", () => {
-  assert.match(syncRoute, /\/integrations\/ashby\/sync-active-applications/);
-  assert.doesNotMatch(syncRoute, /\/integrations\/ashby\/onboarding\/sync/);
+  assert.match(onboardingBehaviorSource, /\/integrations\/ashby\/sync-active-applications/);
+  assert.doesNotMatch(onboardingBehaviorSource, /\/integrations\/ashby\/onboarding\/sync/);
 });
 
 test("Ashby onboarding proxy routes sanitize non-OK backend responses", () => {
-  for (const source of [apiKeyRoute, jobsRoute]) {
-    assert.match(source, /response\.ok/);
-    assert.match(source, /"Ashby onboarding request failed\."/);
-    assert.doesNotMatch(source, /payload\.error\s*\?\?/);
-    assert.doesNotMatch(source, /message/);
-    assert.doesNotMatch(source, /stack/);
-    assert.doesNotMatch(source, /details/);
-  }
-
-  assert.match(syncRoute, /response\.ok/);
-  assert.match(syncRoute, /"Ashby sync request failed\."/);
-  assert.doesNotMatch(syncRoute, /payload\.error\s*\?\?/);
+  assert.match(onboardingBehaviorSource, /response\.ok/);
+  assert.match(onboardingBehaviorSource, /"Ashby onboarding request failed\."/);
+  assert.match(onboardingBehaviorSource, /"Ashby sync request failed\."/);
+  assert.doesNotMatch(onboardingBehaviorSource, /payload\.error\s*\?\?/);
+  assert.doesNotMatch(onboardingBehaviorSource, /stack/);
+  assert.doesNotMatch(onboardingBehaviorSource, /details/);
   assert.doesNotMatch(syncRoute, /request\.json\(\)/);
-  assert.doesNotMatch(syncRoute, /message/);
-  assert.doesNotMatch(syncRoute, /stack/);
-  assert.doesNotMatch(syncRoute, /details/);
 });
 
 test("Ashby webhook proxy sanitizes rejected backend responses", () => {

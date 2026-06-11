@@ -448,6 +448,80 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("marks ready signed application updates for unselected jobs processed without writing application rows", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const rawBody = JSON.stringify({
+      webhookActionId: "action_unselected_job",
+      action: "applicationUpdate",
+      data: {
+        application: {
+          id: "app_2",
+          candidate: {
+            id: "cand_2",
+            name: "Jon Bell",
+            primaryEmailAddress: "jon@example.com",
+          },
+          jobId: "job_2",
+          status: "Active",
+          updatedAt: "2026-06-10T14:25:00.000Z",
+        },
+      },
+    });
+    const signature = `sha256=${ashbyWebhookDigest(rawBody, "webhook-secret")}`;
+    const readyIntegration = {
+      integration_id: "int_1",
+      selected_job_ids: ["job_1"],
+      setup_status: "connected",
+      connected_at: "2026-06-10T14:05:00.000Z",
+      last_ping_at: "2026-06-10T14:05:00.000Z",
+      last_sync_at: "2026-06-10T14:10:00.000Z",
+      ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+        "webhook-secret",
+        "test-secret",
+      ),
+    };
+    queryMock.mockResolvedValueOnce({
+      rows: [readyIntegration],
+      rowCount: 1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [readyIntegration], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ inserted: true, processed_at: null }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/webhook",
+        headers: { "content-type": "application/json" },
+        payload: {
+          integrationId: "int_1",
+          rawBody,
+          signature,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, action: "applicationUpdate" });
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(5);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("FOR UPDATE");
+      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("INSERT INTO ashby_webhook_events");
+      expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("processed_at = now()");
+      expect(clientQueryMock.mock.calls[4]?.[0]).toBe("COMMIT");
+      const clientSql = clientQueryMock.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(clientSql).not.toContain("INSERT INTO ashby_applications");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("verifies signed Ashby webhooks using the exact whitespace-preserving raw body", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const rawBody = ` \n${JSON.stringify({ action: "ping", data: { webhookId: "hook_1" } })}\n `;
