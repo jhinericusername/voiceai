@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import test from "node:test";
@@ -225,6 +226,22 @@ test("startProcess spawns detached and logs start errors", () => {
   assert.equal(calls[0].options.env.A, "one");
   assert.deepEqual(errors, ["[platform] failed to start: spawn corepack ENOENT"]);
   assert.deepEqual(startErrors, [spawnError]);
+});
+
+test("root package exposes connected dev commands", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(packageJson.scripts["dev:connected"], "node scripts/dev/dev-connected.mjs");
+  assert.equal(
+    packageJson.scripts["dev:backend:connected"],
+    "node scripts/dev/dev-backend-connected.mjs",
+  );
+  assert.equal(
+    packageJson.scripts["test:connected-dev"],
+    "node --test scripts/dev/connected-dev.test.mjs",
+  );
 });
 
 function listen(server, port, host) {
