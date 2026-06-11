@@ -7,6 +7,10 @@ import {
   isAggregateOutput,
   isExtractionOutput,
 } from "../src/weave/fireflies/interview-flow/core.js";
+import {
+  makeBedrockJsonClient,
+  makeS3TranscriptClient,
+} from "../src/weave/fireflies/interview-flow/aws.js";
 
 describe("Fireflies interview flow core", () => {
   it("assigns stable transcript IDs from sorted transcript keys", () => {
@@ -88,5 +92,42 @@ describe("Fireflies interview flow core", () => {
       }),
     ).toBe(true);
     expect(isAggregateOutput({ mermaid_flowchart: "flowchart TD" })).toBe(false);
+  });
+
+  it("lists transcript keys across paginated S3 responses", async () => {
+    const calls: unknown[] = [];
+    const s3 = makeS3TranscriptClient({
+      send: async (command: unknown) => {
+        calls.push(command);
+        return calls.length === 1
+          ? {
+              Contents: [{ Key: "raw/fireflies/a/transcript.json" }],
+              NextContinuationToken: "next",
+            }
+          : { Contents: [{ Key: "raw/fireflies/b/transcript.json" }] };
+      },
+    });
+
+    await expect(
+      s3.listTranscriptKeys({ bucket: "bucket", prefix: "raw/fireflies/" }),
+    ).resolves.toEqual([
+      "raw/fireflies/a/transcript.json",
+      "raw/fireflies/b/transcript.json",
+    ]);
+  });
+
+  it("invokes Bedrock Converse and returns text content", async () => {
+    const bedrock = makeBedrockJsonClient({
+      modelId: "us.anthropic.claude-opus-4-8",
+      client: {
+        send: async () => ({
+          output: { message: { content: [{ text: "{\"ok\":true}" }] } },
+        }),
+      },
+    });
+
+    await expect(
+      bedrock.invokeJsonPrompt({ prompt: "Return JSON", maxTokens: 128, label: "test" }),
+    ).resolves.toBe("{\"ok\":true}");
   });
 });
