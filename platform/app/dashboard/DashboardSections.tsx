@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { AshbyCompanyState, RecentScreen } from "@/lib/ashby/server";
+import type { RealInterviewListItem } from "./backend-data";
 import {
   demoActivity,
   demoCandidates,
@@ -52,6 +53,72 @@ const healthItems = [
   },
 ];
 
+function formatBackendStatus(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const normalized = trimmed.replace(/[_-]+/g, " ").toLowerCase();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function scoreValue(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return scoreValue(record.score ?? record.value ?? record.rating);
+  }
+
+  return null;
+}
+
+function formatScoreLabel(value: string): string {
+  const normalized = value.replace(/[_-]+/g, " ").trim();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatCategoryScoreSummary(categoryScores: unknown): string {
+  if (!categoryScores) {
+    return "Scores pending";
+  }
+  if (Array.isArray(categoryScores)) {
+    return categoryScores.length ? `${categoryScores.length} scores` : "Scores pending";
+  }
+  if (typeof categoryScores !== "object") {
+    return "Scorecard ready";
+  }
+
+  const scores = Object.entries(categoryScores as Record<string, unknown>)
+    .map(([key, value]) => {
+      const score = scoreValue(value);
+      return score ? `${formatScoreLabel(key)} ${score}` : null;
+    })
+    .filter((value): value is string => Boolean(value));
+
+  if (!scores.length) {
+    return "Scorecard ready";
+  }
+
+  const visibleScores = scores.slice(0, 2).join(" / ");
+  return scores.length > 2 ? `${visibleScores} +${scores.length - 2}` : visibleScores;
+}
+
+function realPacketRecommendation(interview: RealInterviewListItem): string {
+  if (interview.meets_bare_minimum === true) {
+    return "Meets minimum";
+  }
+  if (interview.meets_bare_minimum === false) {
+    return "Below minimum";
+  }
+  return "Pending";
+}
+
 export function WorkspaceMetricStrip() {
   const stats = getDashboardStats();
 
@@ -67,16 +134,97 @@ export function WorkspaceMetricStrip() {
 }
 
 export function NeedsReviewQueue({
+  realInterviews,
   packets = getReviewPackets(),
   limit,
   actionHref = "/dashboard/review-queue",
   actionLabel = "View queue",
 }: {
+  readonly realInterviews?: readonly RealInterviewListItem[];
   readonly packets?: readonly ReviewPacket[];
   readonly limit?: number;
   readonly actionHref?: string;
   readonly actionLabel?: string;
 }) {
+  if (realInterviews) {
+    const visibleInterviews =
+      typeof limit === "number" ? realInterviews.slice(0, limit) : realInterviews;
+
+    return (
+      <SectionPanel
+        title="Interview packets needing review"
+        eyebrow="Human review queue"
+        action={
+          <Link href={actionHref} className={secondaryButtonClass}>
+            {actionLabel}
+          </Link>
+        }
+      >
+        {visibleInterviews.length ? (
+          <TableScroller>
+            <table className="min-w-[760px] w-full border-separate border-spacing-0">
+              <thead>
+                <tr>
+                  <th className={`${tableHeaderClass} rounded-l-md px-3 py-2`}>Candidate</th>
+                  <th className={`${tableHeaderClass} px-3 py-2`}>Status</th>
+                  <th className={`${tableHeaderClass} px-3 py-2`}>Recording</th>
+                  <th className={`${tableHeaderClass} px-3 py-2`}>Score / recommendation</th>
+                  <th className={`${tableHeaderClass} px-3 py-2`}>Reviewer</th>
+                  <th className={`${tableHeaderClass} rounded-r-md px-3 py-2`}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleInterviews.map((interview) => {
+                  const packetTime = interview.started_at ?? interview.scheduled_at ?? interview.ended_at;
+                  const recommendation = realPacketRecommendation(interview);
+
+                  return (
+                    <tr key={interview.session_id}>
+                      <td className={`${tableCellClass} font-medium text-slate-950`}>
+                        <Link href={`/dashboard/interviews/${interview.session_id}`} className="hover:text-cyan-700">
+                          {interview.candidate_email}
+                        </Link>
+                        <div className="mt-0.5 text-xs font-normal text-slate-500">
+                          {interview.room_name ?? "No room"} {packetTime ? `- ${formatDateTime(packetTime)}` : ""}
+                        </div>
+                      </td>
+                      <td className={tableCellClass}>
+                        <StatusPill status={formatBackendStatus(interview.status, "Unknown")} />
+                      </td>
+                      <td className={tableCellClass}>
+                        <StatusPill status={formatBackendStatus(interview.recording_status, "Pending")} />
+                        <div className="mt-1 text-xs text-slate-500">{interview.egress_id ? "Egress attached" : "No egress"}</div>
+                      </td>
+                      <td className={tableCellClass}>
+                        <div className="font-medium text-slate-900">{formatCategoryScoreSummary(interview.category_scores)}</div>
+                        <div className="mt-1">
+                          <StatusPill status={recommendation} />
+                        </div>
+                      </td>
+                      <td className={tableCellClass}>
+                        <div>{interview.reviewer_email ?? "Unassigned"}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          {interview.signed_off_at ? `Signed ${formatDateTime(interview.signed_off_at)}` : "Awaiting sign-off"}
+                        </div>
+                      </td>
+                      <td className={tableCellClass}>
+                        <Link href={`/dashboard/interviews/${interview.session_id}`} className="font-medium text-cyan-700 hover:text-cyan-900">
+                          Open review
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </TableScroller>
+        ) : (
+          <EmptyState title="No real interviews need review" detail="Backend interview packets will appear here after sessions are created and processed." />
+        )}
+      </SectionPanel>
+    );
+  }
+
   const visiblePackets = typeof limit === "number" ? packets.slice(0, limit) : packets;
 
   return (

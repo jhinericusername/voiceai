@@ -4,7 +4,16 @@ import {
   getRecentAshbyScreens,
 } from "@/lib/ashby/server";
 import { publicBaseUrl } from "@/lib/site-url";
-import { AshbySetupPanel, RecentScreensTable } from "./DashboardSections";
+import {
+  ActiveInterviewPanel,
+  AshbySetupPanel,
+  NeedsReviewQueue,
+  OperationalHealthPanel,
+  RecentActivity,
+  RecentScreensTable,
+  WorkspaceMetricStrip,
+} from "./DashboardSections";
+import { getRealInterviews } from "./backend-data";
 import { requireDashboardUser } from "./auth";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +24,7 @@ export default async function DashboardPage() {
   const state = await getAshbyCompanyState(identity);
   const screens = state.connected ? await getRecentAshbyScreens(identity) : [];
   const webhookUrl = `${publicBaseUrl()}/api/ashby/webhook?companyDomain=${encodeURIComponent(identity.emailDomain)}`;
+  const realInterviews = await getRealInterviews().catch(() => undefined);
 
   return (
     <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">
@@ -28,7 +38,21 @@ export default async function DashboardPage() {
       </header>
 
       {state.connected ? (
-        <RecentScreensTable screens={screens} />
+        <div className="grid min-w-0 gap-5">
+          <RecentScreensTable screens={screens} />
+          <WorkspaceMetricStrip />
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid min-w-0 gap-5">
+              <NeedsReviewQueue realInterviews={realInterviews} limit={3} />
+              <RecentActivity limit={4} />
+            </div>
+
+            <aside className="grid min-w-0 gap-4 xl:content-start">
+              <ActiveInterviewPanel />
+              <OperationalHealthPanel />
+            </aside>
+          </div>
+        </div>
       ) : (
         <AshbySetupPanel state={state} webhookUrl={webhookUrl} />
       )}
