@@ -8,6 +8,12 @@ export interface AshbySetupRequest extends CompanyIdentity {
   readonly selectedJobIds: readonly string[];
 }
 
+export interface AshbyJob {
+  readonly id: string;
+  readonly name: string;
+  readonly status: string | null;
+}
+
 export interface AshbyWebhookEnvelope {
   readonly integrationId?: string | null;
   readonly companyDomain?: string | null;

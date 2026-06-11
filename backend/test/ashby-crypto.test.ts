@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
+  generateIntegrationSecret,
   integrationSecretKeyFromEnv,
 } from "../src/ashby/crypto.js";
 
@@ -28,5 +29,10 @@ describe("Ashby integration secret encryption", () => {
     expect(integrationSecretKeyFromEnv({ PUDDLE_INTEGRATION_SECRET_KEY: " secret " })).toBe(
       "secret",
     );
+  });
+
+  it("generates non-repeating webhook secrets", () => {
+    expect(generateIntegrationSecret()).toMatch(/^[A-Za-z0-9_-]{43,}$/);
+    expect(generateIntegrationSecret()).not.toBe(generateIntegrationSecret());
   });
 });

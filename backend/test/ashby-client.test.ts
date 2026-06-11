@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   listActiveApplicationsForJob,
+  listJobs,
   syncedApplicationFromAshby,
 } from "../src/ashby/client.js";
 
@@ -224,5 +225,62 @@ describe("Ashby API client", () => {
         fetchImpl: fakeFetch as typeof fetch,
       }),
     ).rejects.toThrow("Ashby application.list failed: Invalid API key");
+  });
+
+  it("lists jobs with the Ashby API key for onboarding", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: [
+            { id: "job_1", name: "Founding Engineer", status: "Open" },
+            { id: "job_2", title: "Designer", status: "Closed" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(listJobs({ apiKey: "ashby-key", fetchImpl })).resolves.toEqual([
+      { id: "job_1", name: "Founding Engineer", status: "Open" },
+      { id: "job_2", name: "Designer", status: "Closed" },
+    ]);
+
+    expect(calls[0]?.url).toBe("https://api.ashbyhq.com/job.list");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({});
+    expect(calls[0]?.init.headers).toMatchObject({
+      accept: "application/json; version=1",
+      authorization: `Basic ${Buffer.from("ashby-key:").toString("base64")}`,
+      "content-type": "application/json",
+    });
+  });
+
+  it("throws when Ashby job.list returns a non-OK response", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ success: false, error: "denied" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+
+    await expect(listJobs({ apiKey: "bad-key", fetchImpl })).rejects.toThrow(
+      "Ashby job.list failed with 401",
+    );
+  });
+
+  it("surfaces Ashby job.list permission failures", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ success: false, errorInfo: { message: "missing_endpoint_permission" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+
+    await expect(listJobs({ apiKey: "ashby-key", fetchImpl })).rejects.toThrow(
+      /missing_endpoint_permission/,
+    );
   });
 });

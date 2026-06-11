@@ -1,4 +1,4 @@
-import type { SyncedAshbyApplication } from "./types.js";
+import type { AshbyJob, SyncedAshbyApplication } from "./types.js";
 
 const ASHBY_API_BASE_URL = "https://api.ashbyhq.com";
 
@@ -68,6 +68,49 @@ export function syncedApplicationFromAshby(input: {
     ashbyUpdatedAt: stringValue(input.application.updatedAt),
     rawPayload: input.application,
   };
+}
+
+function jobFromAshby(value: Record<string, unknown>): AshbyJob | null {
+  const id = stringValue(value.id);
+  const name = stringValue(value.name) ?? stringValue(value.title);
+  if (!id || !name) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    status: stringValue(value.status),
+  };
+}
+
+export async function listJobs(input: {
+  readonly apiKey: string;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<AshbyJob[]> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const response = await fetchImpl(`${ASHBY_API_BASE_URL}/job.list`, {
+    method: "POST",
+    headers: {
+      accept: "application/json; version=1",
+      authorization: authHeader(input.apiKey),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ashby job.list failed with ${response.status}`);
+  }
+
+  const payload = (await response.json()) as AshbyListResponse;
+  if (payload.success === false) {
+    throw new Error(`Ashby job.list failed: ${ashbyErrorMessage(payload)}`);
+  }
+
+  return (payload.results ?? [])
+    .map(jobFromAshby)
+    .filter((job): job is AshbyJob => job !== null);
 }
 
 export async function listActiveApplicationsForJob(input: {

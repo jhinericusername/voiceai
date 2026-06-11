@@ -41,6 +41,10 @@ export function decryptIntegrationSecret(encoded: string, secret: string): strin
   return plaintext.toString("utf8");
 }
 
+export function generateIntegrationSecret(): string {
+  return randomBytes(32).toString("base64url");
+}
+
 export function integrationSecretKeyFromEnv(env: NodeJS.ProcessEnv = process.env): string {
   const secret = env.PUDDLE_INTEGRATION_SECRET_KEY?.trim();
   if (!secret) {
