@@ -24,3 +24,4 @@ corpus/**
 # Local artifacts
 *.log
 .DS_Store
+.worktrees/
