@@ -294,6 +294,19 @@ test("backend connected runner clears inherited DATABASE_URL", async () => {
   assert.match(source, /DATABASE_URL:\s*""/);
 });
 
+test("runbook documents connected local development commands", async () => {
+  const runbook = await readFile(new URL("../../docs/RUNBOOK.md", import.meta.url), "utf8");
+  assert.match(runbook, /pnpm dev:connected/);
+  assert.match(runbook, /pnpm dev:backend:connected/);
+  assert.match(runbook, /DevTunnelInstanceId/);
+});
+
+test("infra readme documents the dev tunnel target", async () => {
+  const readme = await readFile(new URL("../../infra/README.md", import.meta.url), "utf8");
+  assert.match(readme, /enableDevTunnel/);
+  assert.match(readme, /DevTunnelInstanceId/);
+});
+
 function listen(server, port, host) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);

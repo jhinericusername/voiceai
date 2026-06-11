@@ -55,7 +55,44 @@ cd agent && uv run ruff check .    # Python lint
 
 ## 6. Run locally
 
-### Backend API server
+### Connected platform against deployed dev
+
+Use this for the normal product/UI workflow. It runs the platform locally and
+forwards backend calls to the deployed dev backend through AWS SSM:
+
+```bash
+AWS_PROFILE=<dev-profile> pnpm dev:connected
+```
+
+Prerequisites:
+
+- AWS CLI authenticated to the dev account.
+- Session Manager plugin installed.
+- The dev stack has `DevTunnelInstanceId` and `BackendInternalBaseUrl` outputs.
+- `platform/.env.local` contains local WorkOS and site URL values.
+
+The command starts a local tunnel on `127.0.0.1:18080` by default and runs the
+platform with `PUDDLE_BACKEND_BASE_URL=http://127.0.0.1:18080`. Override the
+tunnel port with `PUDDLE_CONNECTED_BACKEND_PORT`.
+
+### Connected local backend against deployed dev resources
+
+Use this only when changing backend code. It runs the backend locally while
+forwarding Postgres traffic to the deployed dev RDS instance:
+
+```bash
+AWS_PROFILE=<dev-profile> LIVEKIT_URL=<wss://dev-livekit-host> pnpm dev:backend:connected
+```
+
+The command starts an RDS tunnel on `127.0.0.1:15432`, runs the backend on
+`127.0.0.1:8080`, and starts the platform pointed at that local backend.
+Override ports with `PUDDLE_CONNECTED_DB_PORT` and `PORT`.
+
+Do not run migrations automatically from these workflows. Database migrations
+remain a manual-gate operation.
+
+### Backend API server without deployed resources
+
 ```bash
 corepack pnpm@9.12.0 dev:backend
 ```
