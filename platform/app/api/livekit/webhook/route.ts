@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
+import { backendBaseUrl } from "@/lib/backend-api";
 
 export const dynamic = "force-dynamic";
-
-function backendBaseUrl(): string {
-  return (process.env.PUDDLE_BACKEND_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-}
 
 export async function POST(request: Request) {
   const body = await request.text();

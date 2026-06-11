@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
+import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 import { publicBaseUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
@@ -13,21 +14,8 @@ interface BackendCreateSessionResponse {
   readonly inviteExpiresAt: string;
 }
 
-function backendBaseUrl(): string {
-  return (process.env.PUDDLE_BACKEND_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-}
-
 function publicOrigin(): string {
   return publicBaseUrl();
-}
-
-function backendHeaders(): HeadersInit {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  const token = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN?.trim();
-  if (token) {
-    headers.authorization = `Bearer ${token}`;
-  }
-  return headers;
 }
 
 function candidateEmailFromBody(body: unknown, fallback: string): string {
