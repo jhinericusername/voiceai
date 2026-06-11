@@ -148,7 +148,6 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
         readStringContext(app, 'platformAllowedAuthDomains') ??
         'usepuddle.com,workweave.ai',
       ashbyOnboardingAdminEmails:
-        readStringContext(app, 'platformAshbyOnboardingAdminEmails') ??
         readStringEnv('PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS') ??
         readStringEnv('PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS'),
       defaultScriptVersion:

@@ -1,8 +1,26 @@
 import { NeedsReviewQueue, OperationalHealthPanel } from "../DashboardSections";
+import {
+  dashboardDemoFallbackEnabled,
+  dashboardOrgId,
+  getRealInterviews,
+} from "../backend-data";
+import { requireDashboardUser } from "../auth";
 
 export const dynamic = "force-dynamic";
 
-export default function ReviewQueuePage() {
+export default async function ReviewQueuePage() {
+  const { user, organizationId } = await requireDashboardUser();
+  const orgId = dashboardOrgId({ organizationId, userId: user.id });
+  let realInterviews: Awaited<ReturnType<typeof getRealInterviews>> | undefined;
+
+  try {
+    realInterviews = await getRealInterviews({ orgId });
+  } catch (error) {
+    if (!dashboardDemoFallbackEnabled()) {
+      throw error;
+    }
+  }
+
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
       <header className="min-w-0 rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -14,7 +32,11 @@ export default function ReviewQueuePage() {
       </header>
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <NeedsReviewQueue actionHref="/dashboard/candidates" actionLabel="View all candidates" />
+        <NeedsReviewQueue
+          realInterviews={realInterviews}
+          actionHref="/dashboard/candidates"
+          actionLabel="View all candidates"
+        />
         <OperationalHealthPanel />
       </div>
     </div>

@@ -87,7 +87,6 @@ platformMemoryMiB=1024
 platformDomainName=app.usepuddle.com
 platformCertificateArn=<acm-certificate-arn>
 platformAllowedAuthDomains=usepuddle.com,workweave.ai
-platformAshbyOnboardingAdminEmails=admin@example.com,owner@example.com # optional manual CDK context
 platformDefaultScriptVersion=pilot-v1
 
 useExternalDatabase=false
@@ -152,8 +151,10 @@ account.
 For Ashby bootstrap admins, it maps
 `PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS` from `.env.local` or
 `PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS` from the shell into the child CDK
-process environment. Manual CDK runs may still use the
-`platformAshbyOnboardingAdminEmails` context flag.
+process environment. Manual CDK runs should set
+`PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS` in the shell environment; this value
+is intentionally not accepted through CDK context so it does not appear in argv
+or shell history.
 
 After the service deploys, run migrations once with the emitted
 `BackendMigrationTaskDefinitionArn` in the private app subnets using

@@ -27,6 +27,7 @@ const wizardSource = await readFile(
   new URL("../app/dashboard/AshbyOnboardingWizard.tsx", import.meta.url),
   "utf8",
 ).catch(() => "");
+const dashboardLayoutSource = await readFile(new URL("../app/dashboard/layout.tsx", import.meta.url), "utf8");
 const dashboardSource = await readFile(new URL("../app/dashboard/page.tsx", import.meta.url), "utf8");
 const deployPlatformScript = await readFile(
   new URL("../../scripts/deploy-platform.sh", import.meta.url),
@@ -312,6 +313,29 @@ test("Ashby webhook proxy sanitizes rejected backend responses", () => {
   assert.doesNotMatch(webhookRoute, /message/);
   assert.doesNotMatch(webhookRoute, /stack/);
   assert.doesNotMatch(webhookRoute, /details/);
+});
+
+test("dashboard layout gates the entire dashboard subtree until Ashby onboarding is complete", () => {
+  assert.match(dashboardLayoutSource, /companyIdentityFromUser/);
+  assert.match(dashboardLayoutSource, /getAshbyCompanyState/);
+  assert.match(dashboardLayoutSource, /state\.setupStatus === "connected" && state\.connected && Boolean\(state\.lastSyncAt\)/);
+  assert.match(dashboardLayoutSource, /canManageAshbyOnboarding/);
+  assert.match(dashboardLayoutSource, /AshbyOnboardingWizard/);
+  assert.match(dashboardLayoutSource, /if \(!onboardingComplete\)/);
+  assert.match(dashboardLayoutSource, /canManageSetup=\{canManageSetup\}/);
+
+  const incompleteGateIndex = dashboardLayoutSource.indexOf("if (!onboardingComplete)");
+  const wizardIndex = dashboardLayoutSource.indexOf("<AshbyOnboardingWizard");
+  const dashboardChromeIndex = dashboardLayoutSource.indexOf("<DashboardChrome");
+  const childRenderIndex = dashboardLayoutSource.indexOf("{children}", dashboardChromeIndex);
+
+  assert.notEqual(incompleteGateIndex, -1);
+  assert.notEqual(wizardIndex, -1);
+  assert.notEqual(dashboardChromeIndex, -1);
+  assert.notEqual(childRenderIndex, -1);
+  assert.ok(incompleteGateIndex < wizardIndex);
+  assert.ok(wizardIndex < dashboardChromeIndex);
+  assert.ok(dashboardChromeIndex < childRenderIndex);
 });
 
 test("dashboard uses the Ashby onboarding wizard for non-connected companies", () => {

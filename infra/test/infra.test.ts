@@ -13,7 +13,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 10);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
@@ -223,8 +223,10 @@ describe('InfraStack', () => {
       },
     });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'puddle-videoagent-backend',
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
+          Name: 'backend',
           Environment: Match.arrayWith([
             Match.objectLike({
               Name: 'PORT',
@@ -248,6 +250,9 @@ describe('InfraStack', () => {
               Name: 'LIVEKIT_API_KEY',
             }),
             Match.objectLike({
+              Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+            Match.objectLike({
               Name: 'DATABASE_USER',
             }),
             Match.objectLike({
@@ -257,10 +262,19 @@ describe('InfraStack', () => {
         }),
       ]),
     });
+    expect(taskSecretNames(template, 'puddle-videoagent-backend', 'backend')).toEqual(
+      expect.arrayContaining(['PUDDLE_INTEGRATION_SECRET_KEY']),
+    );
+    expect(taskSecretNames(template, 'puddle-videoagent-backend-migrations', 'backend-migrations')).toEqual(
+      expect.arrayContaining(['PUDDLE_INTEGRATION_SECRET_KEY']),
+    );
+    expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'AshbyIntegrationSecretKey')).toBe(
+      true,
+    );
     template.resourceCountIs('AWS::IAM::User', 0);
   });
 
-  test('injects the Ashby integration encryption key only into backend tasks', () => {
+  test('injects the Ashby integration secret key only into backend tasks', () => {
     const stack = createStack({
       backend: {
         ...defaultConfig().backend,
@@ -284,8 +298,8 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.hasOutput('IntegrationEncryptionKeySecretName', {
-      Value: Match.stringLikeRegexp('/integrations/encryption-key$'),
+    template.hasOutput('AshbyIntegrationSecretKeySecretName', {
+      Value: Match.stringLikeRegexp('/integrations/ashby/secret-key$'),
     });
 
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
@@ -577,6 +591,7 @@ describe('InfraStack', () => {
       ]),
     });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'puddle-videoagent-platform',
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
           Name: 'platform',
@@ -604,6 +619,14 @@ describe('InfraStack', () => {
         }),
       ]),
     });
+    expect(taskSecretNames(template, 'puddle-videoagent-platform', 'platform')).not.toContain(
+      'PUDDLE_ASHBY_WEBHOOK_SECRET',
+    );
+    expect(
+      executionRolePolicyAllowsSecret(template, 'PlatformExecutionRole', 'AshbyWebhookSecret'),
+    ).toBe(
+      false,
+    );
   });
 
   test('injects Ashby onboarding admin bootstrap emails into platform tasks when configured', () => {
@@ -667,7 +690,88 @@ describe('configFromApp', () => {
 
     expect(config.platform.ashbyOnboardingAdminEmails).toBe('admin@usepuddle.com');
   });
+
+  test('does not read Ashby onboarding admin emails from CDK context', () => {
+    delete process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    delete process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    const app = new cdk.App({
+      context: {
+        platformAshbyOnboardingAdminEmails: 'admin@usepuddle.com',
+      },
+    });
+
+    const config = configFromApp(app);
+
+    expect(config.platform.ashbyOnboardingAdminEmails).toBeUndefined();
+  });
 });
+
+interface SynthResource {
+  readonly Type?: string;
+  readonly Properties?: Record<string, unknown>;
+}
+
+interface SynthContainerDefinition {
+  readonly Name?: string;
+  readonly Secrets?: Array<{ readonly Name?: string }>;
+}
+
+function synthResources(template: Template): Record<string, SynthResource> {
+  return template.toJSON().Resources as Record<string, SynthResource>;
+}
+
+function taskSecretNames(template: Template, family: string, containerName: string): string[] {
+  const task = Object.values(synthResources(template)).find(
+    (resource) =>
+      resource.Type === 'AWS::ECS::TaskDefinition' && resource.Properties?.Family === family,
+  );
+  const containers = task?.Properties?.ContainerDefinitions as SynthContainerDefinition[] | undefined;
+  const container = containers?.find((candidate) => candidate.Name === containerName);
+  return container?.Secrets?.map((secret) => secret.Name).filter((name): name is string => Boolean(name)) ?? [];
+}
+
+function executionRolePolicyAllowsSecret(
+  template: Template,
+  roleLogicalIdPart: string,
+  secretLogicalIdPart: string,
+): boolean {
+  const resources = synthResources(template);
+  const roleId = Object.entries(resources).find(
+    ([id, resource]) => resource.Type === 'AWS::IAM::Role' && id.includes(roleLogicalIdPart),
+  )?.[0];
+  const secretId = Object.entries(resources).find(
+    ([id, resource]) =>
+      resource.Type === 'AWS::SecretsManager::Secret' && id.includes(secretLogicalIdPart),
+  )?.[0];
+
+  return Object.values(resources).some((resource) => {
+    if (resource.Type !== 'AWS::IAM::Policy' || !roleId || !secretId) {
+      return false;
+    }
+
+    return (
+      referencesValue(resource.Properties?.Roles, roleId) &&
+      referencesValue(resource.Properties?.PolicyDocument, secretId) &&
+      referencesValue(resource.Properties?.PolicyDocument, 'secretsmanager:GetSecretValue')
+    );
+  });
+}
+
+function referencesValue(value: unknown, expected: string): boolean {
+  if (typeof value === 'string') {
+    return value.includes(expected);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => referencesValue(item, expected));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value).some((item) => referencesValue(item, expected));
+  }
+
+  return false;
+}
 
 function createStack(overrides: Partial<PuddleEnvConfig> = {}): InfraStack {
   const app = new cdk.App();

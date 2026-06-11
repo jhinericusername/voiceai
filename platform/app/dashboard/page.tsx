@@ -5,7 +5,19 @@ import {
 } from "@/lib/ashby/server";
 import { canManageAshbyOnboarding } from "@/lib/auth/ashby-onboarding-admin";
 import { AshbyOnboardingWizard } from "./AshbyOnboardingWizard";
-import { RecentScreensTable } from "./DashboardSections";
+import {
+  ActiveInterviewPanel,
+  NeedsReviewQueue,
+  OperationalHealthPanel,
+  RecentActivity,
+  RecentScreensTable,
+  WorkspaceMetricStrip,
+} from "./DashboardSections";
+import {
+  dashboardDemoFallbackEnabled,
+  dashboardOrgId,
+  getRealInterviews,
+} from "./backend-data";
 import { requireDashboardUser } from "./auth";
 
 export const dynamic = "force-dynamic";
@@ -14,10 +26,22 @@ export default async function DashboardPage() {
   const session = await requireDashboardUser();
   const { user, organizationId } = session;
   const identity = companyIdentityFromUser({ email: user.email, organizationId });
+  const orgId = dashboardOrgId({ organizationId, userId: user.id });
   const state = await getAshbyCompanyState(identity);
   const onboardingComplete = state.setupStatus === "connected" && state.connected && Boolean(state.lastSyncAt);
   const canManageSetup = canManageAshbyOnboarding(session);
   const screens = onboardingComplete ? await getRecentAshbyScreens(identity) : [];
+  let realInterviews: Awaited<ReturnType<typeof getRealInterviews>> | undefined;
+
+  if (onboardingComplete) {
+    try {
+      realInterviews = await getRealInterviews({ orgId });
+    } catch (error) {
+      if (!dashboardDemoFallbackEnabled()) {
+        throw error;
+      }
+    }
+  }
 
   return (
     <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">
@@ -31,7 +55,21 @@ export default async function DashboardPage() {
       </header>
 
       {onboardingComplete ? (
-        <RecentScreensTable screens={screens} />
+        <div className="grid min-w-0 gap-5">
+          <RecentScreensTable screens={screens} />
+          <WorkspaceMetricStrip />
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid min-w-0 gap-5">
+              <NeedsReviewQueue realInterviews={realInterviews} limit={3} />
+              <RecentActivity limit={4} />
+            </div>
+
+            <aside className="grid min-w-0 gap-4 xl:content-start">
+              <ActiveInterviewPanel />
+              <OperationalHealthPanel />
+            </aside>
+          </div>
+        </div>
       ) : (
         <AshbyOnboardingWizard state={state} canManageSetup={canManageSetup} />
       )}

@@ -11,6 +11,8 @@ import urllib.request
 from typing import Any
 
 logger = logging.getLogger(__name__)
+FINALIZATION_MAX_ATTEMPTS = 3
+FINALIZATION_RETRY_DELAYS_SECONDS = (1.0, 3.0)
 
 
 def _backend_base_url() -> str:
@@ -47,6 +49,21 @@ def _post_session_event_sync(
             raise RuntimeError(f"backend returned status {response.status}")
 
 
+def _post_interview_finalization_sync(
+    session_id: str,
+    payload: dict[str, Any],
+) -> None:
+    request = urllib.request.Request(
+        f"{_backend_base_url()}/internal/sessions/{session_id}/finalize",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=_backend_headers(),
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        if response.status >= 400:
+            raise RuntimeError(f"backend returned status {response.status}")
+
+
 async def post_session_event(
     session_id: str,
     event_type: str,
@@ -68,3 +85,49 @@ async def post_session_event(
             "backend lifecycle event report failed",
             extra={"session_id": session_id, "event_type": event_type, "error": str(exc)},
         )
+
+
+async def post_interview_finalization(
+    session_id: str,
+    payload: dict[str, Any],
+    *,
+    attempts: int = FINALIZATION_MAX_ATTEMPTS,
+    retry_delays_seconds: tuple[float, ...] = FINALIZATION_RETRY_DELAYS_SECONDS,
+) -> None:
+    """Persist the completed interview packet after the controller finishes."""
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
+
+    for attempt in range(1, attempts + 1):
+        try:
+            await asyncio.to_thread(_post_interview_finalization_sync, session_id, payload)
+            return
+        except (OSError, urllib.error.URLError, RuntimeError) as exc:
+            if attempt >= attempts:
+                logger.error(
+                    "backend interview finalization report failed",
+                    extra={
+                        "session_id": session_id,
+                        "attempt": attempt,
+                        "attempts": attempts,
+                        "error": str(exc),
+                    },
+                )
+                raise
+
+            logger.warning(
+                "backend interview finalization report failed; retrying",
+                extra={
+                    "session_id": session_id,
+                    "attempt": attempt,
+                    "attempts": attempts,
+                    "error": str(exc),
+                },
+            )
+            delay = (
+                retry_delays_seconds[min(attempt - 1, len(retry_delays_seconds) - 1)]
+                if retry_delays_seconds
+                else 0
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)

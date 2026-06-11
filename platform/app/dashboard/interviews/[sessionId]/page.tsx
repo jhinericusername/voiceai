@@ -1,5 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  dashboardDemoFallbackEnabled,
+  dashboardOrgId,
+  getRealInterview,
+  type RealInterviewDetail,
+} from "../../backend-data";
+import { requireDashboardUser } from "../../auth";
 import { demoSessions, getCandidateById, getRole, getSession } from "../../demo-data";
 import {
   EmptyState,
@@ -21,7 +28,28 @@ export function generateStaticParams() {
 
 export default async function InterviewSessionPage({ params }: { readonly params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
-  const session = getSession(sessionId);
+  const { user, organizationId } = await requireDashboardUser();
+  const orgId = dashboardOrgId({ organizationId, userId: user.id });
+  const demoSession = getSession(sessionId);
+  let realInterview: RealInterviewDetail | null = null;
+
+  try {
+    realInterview = await getRealInterview(sessionId, { orgId });
+  } catch (error) {
+    if (!demoSession || !dashboardDemoFallbackEnabled()) {
+      throw error;
+    }
+  }
+
+  if (realInterview) {
+    return <RealInterviewSessionView realInterview={realInterview} />;
+  }
+
+  if (!dashboardDemoFallbackEnabled()) {
+    notFound();
+  }
+
+  const session = demoSession;
 
   if (!session) {
     notFound();
@@ -313,6 +341,273 @@ export default async function InterviewSessionPage({ params }: { readonly params
           </SectionPanel>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function RealInterviewSessionView({
+  realInterview,
+}: {
+  readonly realInterview: RealInterviewDetail;
+}) {
+  const recommendation = realPacketRecommendation(realInterview);
+  const transcriptTurns = [...realInterview.transcript_turns].sort(
+    (first, second) => first.turnIndex - second.turnIndex,
+  );
+
+  return (
+    <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
+      <header className="rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill status={formatBackendStatus(realInterview.status, "Unknown")} />
+              <StatusPill status={recommendation} />
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Real interview packet</span>
+            </div>
+            <h1 className="mt-2 break-words text-2xl font-semibold text-slate-950 sm:text-3xl">{realInterview.candidate_email}</h1>
+            <p className="mt-2 max-w-3xl break-words text-sm leading-6 text-slate-600">
+              Session {realInterview.session_id} from script {realInterview.script_version}.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Link href="/dashboard/review-queue" className={primaryButtonClass}>
+              Review queue
+            </Link>
+            <Link href="/dashboard" className={secondaryButtonClass}>
+              Dashboard
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Interview packet summary">
+        <SummaryCard label="Status" value={formatBackendStatus(realInterview.status, "Unknown")} detail={`Org ${realInterview.org_id}`} />
+        <SummaryCard label="Recording" value={formatBackendStatus(realInterview.recording_status, "Pending")} detail={realInterview.room_name ?? "No room attached"} />
+        <SummaryCard label="Score" value={formatCategoryScoreSummary(realInterview.category_scores)} detail={recommendation} />
+        <SummaryCard label="Reviewer" value={realInterview.reviewer_email ?? "Unassigned"} detail={realInterview.signed_off_at ? `Signed ${formatDateTime(realInterview.signed_off_at)}` : "Awaiting sign-off"} />
+        <SummaryCard label="Started" value={formatNullableDate(realInterview.started_at)} detail={realInterview.ended_at ? `Ended ${formatDateTime(realInterview.ended_at)}` : "Interview not ended"} />
+      </section>
+
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <main className="grid min-w-0 gap-5">
+          <SectionPanel
+            title="Video and audio review"
+            eyebrow="Recording"
+            action={
+              <div className="flex flex-wrap gap-2">
+                <StatusPill status={formatBackendStatus(realInterview.recording_status, "Pending")} />
+                <StatusPill status={realInterview.compositeVideoUrl ? "Available" : "Missing"} />
+              </div>
+            }
+          >
+            {realInterview.compositeVideoUrl ? (
+              <video className="aspect-video w-full rounded-md bg-slate-950" controls src={realInterview.compositeVideoUrl} />
+            ) : (
+              <EmptyState title="Composite video unavailable" detail="The backend packet has no available composite recording URL yet." />
+            )}
+          </SectionPanel>
+
+          <SectionPanel title="Transcript and evidence" eyebrow="Transcript">
+            {transcriptTurns.length ? (
+              <div className="grid gap-3">
+                {transcriptTurns.map((turn) => (
+                  <article
+                    key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`}
+                    className={cx(
+                      "rounded-md border px-3 py-3",
+                      turn.speaker === "candidate" ? "border-cyan-200 bg-cyan-50/40" : "border-slate-200 bg-slate-50",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-semibold text-slate-500">
+                        {formatOffset(turn.offsetMs) ?? formatDateTime(turn.occurredAt)}
+                      </span>
+                      <StatusPill status={formatBackendStatus(turn.speaker, "Speaker")} />
+                      {turn.questionId ? <StatusPill status={turn.questionId} /> : null}
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{turn.text}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Transcript unavailable" detail="Transcript turns appear here after recording finalization and post-processing complete." />
+            )}
+          </SectionPanel>
+        </main>
+
+        <aside className="grid min-w-0 gap-5 xl:content-start">
+          <SectionPanel title="Packet status" eyebrow="Backend">
+            <dl className="grid gap-3">
+              <PacketMetaRow label="Session" value={realInterview.session_id} />
+              <PacketMetaRow label="Room" value={realInterview.room_name ?? "No room"} />
+              <PacketMetaRow label="Scheduled" value={formatNullableDate(realInterview.scheduled_at)} />
+              <PacketMetaRow label="Integrity" value={formatUnknownCollection(realInterview.integrity_flags, "flags")} />
+              {realInterview.error_message ? <PacketMetaRow label="Error" value={realInterview.error_message} /> : null}
+            </dl>
+          </SectionPanel>
+
+          <SectionPanel title="Artifacts" eyebrow="Packet contents">
+            {realInterview.artifacts.length ? (
+              <div className="grid gap-3">
+                {realInterview.artifacts.map((artifact) => (
+                  <div key={`${artifact.kind}-${artifact.storagePath}`} className="border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-950">{formatScoreLabel(artifact.kind)}</div>
+                        <div className="mt-1 text-xs leading-5 text-slate-500">
+                          {artifact.contentType} / {formatBytes(artifact.sizeBytes)} / {formatDuration(artifact.durationSeconds)}
+                        </div>
+                      </div>
+                      <StatusPill status={formatBackendStatus(artifact.status, "Unknown")} />
+                    </div>
+                    <div className="mt-1 truncate font-mono text-xs text-slate-500">{artifact.storagePath}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Artifacts not created yet" detail="Recording, transcript, scorecard, and integrity artifacts appear here as the session moves through the lifecycle." />
+            )}
+          </SectionPanel>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function formatBackendStatus(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  const normalized = trimmed.replace(/[_-]+/g, " ").toLowerCase();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatNullableDate(value: string | null): string {
+  return value ? formatDateTime(value) : "Not set";
+}
+
+function scoreValue(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return scoreValue(record.score ?? record.value ?? record.rating);
+  }
+
+  return null;
+}
+
+function formatScoreLabel(value: string): string {
+  const normalized = value.replace(/[_-]+/g, " ").trim();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatCategoryScoreSummary(categoryScores: unknown): string {
+  if (!categoryScores) {
+    return "Scores pending";
+  }
+  if (Array.isArray(categoryScores)) {
+    return categoryScores.length ? `${categoryScores.length} scores` : "Scores pending";
+  }
+  if (typeof categoryScores !== "object") {
+    return "Scorecard ready";
+  }
+
+  const scores = Object.entries(categoryScores as Record<string, unknown>)
+    .map(([key, value]) => {
+      const score = scoreValue(value);
+      return score ? `${formatScoreLabel(key)} ${score}` : null;
+    })
+    .filter((value): value is string => Boolean(value));
+
+  if (!scores.length) {
+    return "Scorecard ready";
+  }
+
+  const visibleScores = scores.slice(0, 2).join(" / ");
+  return scores.length > 2 ? `${visibleScores} +${scores.length - 2}` : visibleScores;
+}
+
+function realPacketRecommendation(interview: RealInterviewDetail): string {
+  if (interview.meets_bare_minimum === true) {
+    return "Meets bar";
+  }
+  if (interview.meets_bare_minimum === false) {
+    return "Below bar";
+  }
+  return "Pending";
+}
+
+function formatUnknownCollection(value: unknown, label: string): string {
+  if (!value) {
+    return `No ${label}`;
+  }
+  if (Array.isArray(value)) {
+    return value.length ? `${value.length} ${label}` : `No ${label}`;
+  }
+  if (typeof value === "object") {
+    const count = Object.keys(value as Record<string, unknown>).length;
+    return count ? `${count} ${label}` : `No ${label}`;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  return `No ${label}`;
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) {
+    return "Size pending";
+  }
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${Math.round(value / 1024)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(value: number | null): string {
+  if (value === null) {
+    return "Duration pending";
+  }
+
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.round(value % 60);
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function formatOffset(value: number | null): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  const totalSeconds = Math.max(0, Math.round(value / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function PacketMetaRow({
+  label,
+  value,
+}: {
+  readonly label: string;
+  readonly value: string;
+}) {
+  return (
+    <div className="border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words text-sm leading-6 text-slate-700">{value}</dd>
     </div>
   );
 }

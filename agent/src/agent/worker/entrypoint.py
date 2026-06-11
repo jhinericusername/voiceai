@@ -94,19 +94,21 @@ async def _default_run_interview(
     from agent.scoring.probe import ProbeGenerator
     from agent.scoring.scorer import Scorer
     from agent.voice.livekit_session import ParticipantDisconnectedError
+    from agent.worker.backend_status import post_interview_finalization
 
     repo_root = Path(__file__).parents[4]
     rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
     anthropic_client = anthropic.Anthropic()
+    event_log = EventLog(
+        session_id=ctx.session_id,
+        path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
+    )
     runner = InterviewRunner(
         rubric=rubric,
         voice=voice,
         scorer=Scorer(client=anthropic_client, rubric=rubric),
         probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
-        event_log=EventLog(
-            session_id=ctx.session_id,
-            path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
-        ),
+        event_log=event_log,
         clock_now=time.monotonic,
     )
     logger.info(
@@ -114,7 +116,42 @@ async def _default_run_interview(
         extra={"session_id": ctx.session_id, "room": ctx.room_name},
     )
     try:
-        await runner.run(session_id=ctx.session_id)
+        assessment = await runner.run(session_id=ctx.session_id)
+        await post_interview_finalization(
+            ctx.session_id,
+            {
+                "sessionId": ctx.session_id,
+                "orgId": ctx.org_id,
+                "scriptVersion": ctx.script_version,
+                "transcriptTurns": [
+                    {
+                        "turnIndex": turn.turn_index,
+                        "speaker": turn.speaker,
+                        "questionId": turn.question_id,
+                        "text": turn.text,
+                    }
+                    for turn in runner.transcript_turns()
+                ],
+                "assessment": {
+                    "categoryScores": [
+                        {
+                            "category": score.category,
+                            "score": score.score,
+                            "confidence": score.confidence,
+                            "evidenceQuotes": score.evidence_quotes,
+                            "rationale": score.rationale,
+                            "lowConfidence": score.low_confidence,
+                        }
+                        for score in assessment.category_scores
+                    ],
+                    "meetsBareMinimum": assessment.meets_bare_minimum,
+                    "integrityFlags": assessment.integrity_flags,
+                },
+                "agentEvents": [
+                    event.model_dump(mode="json") for event in event_log.events()
+                ],
+            },
+        )
     except ParticipantDisconnectedError:
         logger.info(
             "ending interview after participant reconnect grace expired",

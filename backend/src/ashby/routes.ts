@@ -8,6 +8,7 @@ import {
 } from "./crypto.js";
 import { listActiveApplicationsForJob, listJobs, syncedApplicationFromAshby } from "./client.js";
 import {
+  activeApplicationForJobStatement,
   activeApplicationUpsertStatement,
   inactiveCandidateApplicationsStatement,
   integrationByIdForUpdateStatement,
@@ -258,8 +259,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       try {
         jobs = await listJobs({ apiKey });
       } catch (error) {
+        request.log.warn({ err: error, emailDomain: identity.emailDomain }, "failed to validate Ashby API key");
         return reply.code(400).send({
-          error: error instanceof Error ? error.message : "Ashby API key validation failed",
+          error: "Unable to validate Ashby API key.",
         });
       }
 
@@ -437,6 +439,24 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return reply
         .code(400)
         .send({ error: "emailDomain, ashbyApiKey, and selectedJobIds are required" });
+    }
+
+    let openJobs: Awaited<ReturnType<typeof listJobs>>;
+    try {
+      openJobs = await listJobs({ apiKey });
+    } catch (error) {
+      request.log.warn({ err: error, emailDomain: identity.emailDomain }, "failed to validate selected Ashby jobs");
+      return reply.code(400).send({
+        error: "Unable to validate selected Ashby jobs.",
+      });
+    }
+
+    const openJobIds = new Set(openJobs.map((job) => job.id));
+    const invalidJobIds = jobs.filter((jobId) => !openJobIds.has(jobId));
+    if (invalidJobIds.length > 0) {
+      return reply.code(400).send({
+        error: "Selected Ashby jobs are not open or no longer exist",
+      });
     }
 
     const encrypted = encryptIntegrationSecret(apiKey, integrationSecretKeyFromEnv());
@@ -742,11 +762,17 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const competitiveness = scoreValue(body?.competitiveness);
     const curiosity = scoreValue(body?.curiosity);
     const applicationId = stringValue(body?.applicationId);
+    const jobId = stringValue(body?.jobId);
     const roleId = stringValue(body?.roleId);
     const reviewerEmail = stringValue(body?.reviewerEmail);
+    if (roleId && jobId && roleId !== jobId) {
+      return reply.code(400).send({ error: "roleId must match the selected Ashby jobId" });
+    }
+
     if (
       !identity ||
       !applicationId ||
+      !jobId ||
       !roleId ||
       !reviewerEmail ||
       problemSolving === null ||
@@ -766,11 +792,24 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return incompleteSetup(reply);
     }
 
+    const applicationStmt = activeApplicationForJobStatement({
+      integrationId,
+      applicationId,
+      jobId,
+    });
+    const application = await getPool().query(applicationStmt.sql, [...applicationStmt.params]);
+    if (!application.rows.length) {
+      return reply
+        .code(404)
+        .send({ error: "Ashby application is not active for the selected job" });
+    }
+
     const stmt = scoreUpsertStatement({
       integrationId,
       emailDomain: identity.emailDomain,
       organizationId: identity.organizationId,
       applicationId,
+      jobId,
       roleId,
       reviewerEmail,
       problemSolving,

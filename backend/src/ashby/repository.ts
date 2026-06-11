@@ -292,6 +292,19 @@ export function searchActiveApplicationsStatement(input: {
   };
 }
 
+export function activeApplicationForJobStatement(input: {
+  readonly integrationId: string;
+  readonly applicationId: string;
+  readonly jobId: string;
+}): SqlStatement {
+  return {
+    sql:
+      "SELECT application_id FROM ashby_applications " +
+      "WHERE integration_id = $1 AND application_id = $2 AND job_id = $3 AND status = 'Active' LIMIT 1",
+    params: [input.integrationId, input.applicationId, input.jobId],
+  };
+}
+
 export function scoreUpsertStatement(input: ScoreInput & { readonly integrationId: string }): SqlStatement {
   assertScoreValue("problemSolving", input.problemSolving);
   assertScoreValue("agency", input.agency);

@@ -679,7 +679,8 @@ describe("Ashby backend routes", () => {
         payload: {
           emailDomain: "usepuddle.com",
           applicationId: "app_1",
-          roleId: "role_1",
+          jobId: "job_1",
+          roleId: "job_1",
           reviewerEmail: "reviewer@usepuddle.com",
           problemSolving: 4.25,
           agency: 3,
@@ -695,8 +696,91 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("rejects scores for applications outside the selected Ashby job", async () => {
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            last_sync_at: "2026-06-10T14:10:00.000Z",
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/scores",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          applicationId: "app_1",
+          jobId: "job_1",
+          roleId: "job_1",
+          reviewerEmail: "reviewer@usepuddle.com",
+          problemSolving: 3,
+          agency: 3,
+          competitiveness: 3,
+          curiosity: 3,
+        },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toContain("not active");
+      expect(queryMock).toHaveBeenCalledTimes(2);
+      expect(String(queryMock.mock.calls[1]?.[0])).toContain("job_id = $3");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects scores when the role id does not match the selected Ashby job", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/scores",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          applicationId: "app_1",
+          jobId: "job_1",
+          roleId: "role_1",
+          reviewerEmail: "reviewer@usepuddle.com",
+          problemSolving: 3,
+          agency: 3,
+          competitiveness: 3,
+          curiosity: 3,
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("roleId must match");
+      expect(queryMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns 409 when setup finds an identity conflict", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
     clientQueryMock
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({
@@ -720,6 +804,7 @@ describe("Ashby backend routes", () => {
 
       expect(res.statusCode).toBe(409);
       expect(res.json().error).toContain("identity conflict");
+      expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(queryMock).not.toHaveBeenCalled();
       expect(connectMock).toHaveBeenCalledTimes(1);
       expect(clientQueryMock).toHaveBeenCalledTimes(3);
@@ -728,6 +813,7 @@ describe("Ashby backend routes", () => {
       expect(clientQueryMock.mock.calls[2]?.[0]).toBe("ROLLBACK");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
+      global.fetch = previousFetch;
       await app.close();
     }
   });
@@ -826,6 +912,48 @@ describe("Ashby backend routes", () => {
       expect(res.json()).toEqual({
         error: "No Ashby jobs were returned. Confirm this API key can read Ashby jobs, then try again.",
       });
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("does not return Ashby upstream errors when API key validation fails", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorInfo: { message: "secret tenant token ashby-upstream-detail" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/onboarding/api-key",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+          reviewerEmail: "admin@usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "Unable to validate Ashby API key." });
+      expect(JSON.stringify(res.json())).not.toContain("secret tenant token");
+      expect(JSON.stringify(res.json())).not.toContain("ashby-upstream-detail");
+      expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(connectMock).not.toHaveBeenCalled();
       expect(queryMock).not.toHaveBeenCalled();
       expect(clientQueryMock).not.toHaveBeenCalled();
@@ -1162,6 +1290,16 @@ describe("Ashby backend routes", () => {
 
   it("stores legacy setup values and marks stale active applications during reconfiguration", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
     clientQueryMock
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({
@@ -1191,6 +1329,7 @@ describe("Ashby backend routes", () => {
         emailDomain: "usepuddle.com",
         selectedJobIds: ["job_1"],
       });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(queryMock).not.toHaveBeenCalled();
       expect(connectMock).toHaveBeenCalledTimes(1);
       expect(clientQueryMock).toHaveBeenCalledTimes(4);
@@ -1201,12 +1340,23 @@ describe("Ashby backend routes", () => {
       expect(clientQueryMock.mock.calls[3]?.[0]).toBe("COMMIT");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
+      global.fetch = previousFetch;
       await app.close();
     }
   });
 
   it("rolls back legacy setup when staling active applications fails", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
     queryMock
       .mockResolvedValueOnce({
         rows: [{ integration_id: "int_1", identity_conflict: false }],
@@ -1237,6 +1387,7 @@ describe("Ashby backend routes", () => {
       });
 
       expect(res.statusCode).toBe(500);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(queryMock).not.toHaveBeenCalled();
       expect(connectMock).toHaveBeenCalledTimes(1);
       expect(clientQueryMock).toHaveBeenCalledTimes(4);
@@ -1247,6 +1398,91 @@ describe("Ashby backend routes", () => {
       expect(clientQueryMock.mock.calls[3]?.[0]).toBe("ROLLBACK");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("does not persist legacy setup when selected job validation fails", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorInfo: { message: "secret tenant token ashby-upstream-detail" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/setup",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_123",
+          emailDomain: "usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+          selectedJobIds: ["job_1"],
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "Unable to validate selected Ashby jobs." });
+      expect(JSON.stringify(res.json())).not.toContain("secret tenant token");
+      expect(JSON.stringify(res.json())).not.toContain("ashby-upstream-detail");
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("does not persist legacy setup when selected jobs are missing or closed", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/setup",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_123",
+          emailDomain: "usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+          selectedJobIds: ["job_1", "job_closed"],
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: "Selected Ashby jobs are not open or no longer exist",
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
       await app.close();
     }
   });
@@ -1529,6 +1765,7 @@ describe("Ashby backend routes", () => {
         payload: {
           emailDomain: "usepuddle.com",
           applicationId: "app_1",
+          jobId: "role_1",
           roleId: "role_1",
           reviewerEmail: "reviewer@usepuddle.com",
           problemSolving: 3,
