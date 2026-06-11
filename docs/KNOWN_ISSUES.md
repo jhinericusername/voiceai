@@ -92,7 +92,13 @@ manual-gate step in `docs/superpowers/plans/2026-06-09-voice-agent-bugfixes.md`
 (Task 15).
 
 ### Real fix
-LiveKit Cloud dashboard → Project Settings → Region → set to nearest US region (`us-west-2` or `us-east-1`). The `LIVEKIT_URL` in `.env` does not change.
+~~LiveKit Cloud dashboard → Project Settings → Region~~ — that setting
+doesn't exist for an existing project (only LiveKit-hosted Agents have a
+region picker, which doesn't apply to our self-hosted ECS worker).
+
+**Appears resolved as of 2026-06-11:** the rev-18 worker registered with
+`region: "US West B"` (was `NM_OSAOPAULO1B_...`). No project change was made —
+verify on the next live candidate test before closing for good.
 
 ---
 
