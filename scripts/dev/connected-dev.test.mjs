@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import test from "node:test";
+import * as connectedDev from "./connected-dev.mjs";
 import {
   assertPortAvailable,
   awsJson,
@@ -88,6 +89,36 @@ test("envList removes empty env values", () => {
   assert.deepEqual(envList({ A: "one", B: "", C: undefined }), { A: "one" });
 });
 
+test("parseTcpPort returns the default when the value is unset", () => {
+  assert.equal(connectedDev.parseTcpPort(undefined, "PORT", 8080), 8080);
+  assert.equal(connectedDev.parseTcpPort("", "PORT", 8080), 8080);
+});
+
+test("parseTcpPort returns a valid explicit port", () => {
+  assert.equal(connectedDev.parseTcpPort("18080", "PUDDLE_CONNECTED_BACKEND_PORT", 8080), 18080);
+});
+
+test("parseTcpPort rejects non-numeric values", () => {
+  assert.throws(
+    () => connectedDev.parseTcpPort("abc", "PUDDLE_CONNECTED_DB_PORT", 15432),
+    /PUDDLE_CONNECTED_DB_PORT must be a TCP port/,
+  );
+});
+
+test("parseTcpPort rejects zero", () => {
+  assert.throws(
+    () => connectedDev.parseTcpPort("0", "PUDDLE_CONNECTED_DB_PORT", 15432),
+    /PUDDLE_CONNECTED_DB_PORT must be a TCP port/,
+  );
+});
+
+test("parseTcpPort rejects ports greater than 65535", () => {
+  assert.throws(
+    () => connectedDev.parseTcpPort("65536", "PUDDLE_CONNECTED_DB_PORT", 15432),
+    /PUDDLE_CONNECTED_DB_PORT must be a TCP port/,
+  );
+});
+
 test("awsJson reports a spawn error", () => {
   assert.throws(
     () =>
@@ -140,6 +171,19 @@ test("assertPortAvailable rejects when a local server already occupies the port"
   } finally {
     await close(server);
   }
+});
+
+test("assertPortAvailable preserves non-EADDRINUSE listen errors", async () => {
+  const listenError = Object.assign(new Error("listen EPERM: operation not permitted 127.0.0.1"), {
+    code: "EPERM",
+  });
+
+  await assert.rejects(
+    assertPortAvailable(15432, "127.0.0.1", {
+      createServerFn: () => fakeListenErrorServer(listenError),
+    }),
+    /Failed to check local port 15432: listen EPERM: operation not permitted 127\.0\.0\.1/,
+  );
 });
 
 test("terminateChild kills a process group when the child has a pid", () => {
@@ -244,6 +288,12 @@ test("root package exposes connected dev commands", async () => {
   );
 });
 
+test("backend connected runner clears inherited DATABASE_URL", async () => {
+  const source = await readFile(new URL("./dev-backend-connected.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /DATABASE_URL:\s*""/);
+});
+
 function listen(server, port, host) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -270,4 +320,13 @@ function fakeChild() {
     child.killed = true;
   };
   return child;
+}
+
+function fakeListenErrorServer(error) {
+  const server = new EventEmitter();
+  server.close = () => {};
+  server.listen = () => {
+    queueMicrotask(() => server.emit("error", error));
+  };
+  return server;
 }

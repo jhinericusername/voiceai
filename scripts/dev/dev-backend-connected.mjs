@@ -11,6 +11,7 @@ import {
   getSecretString,
   getStackOutputs,
   outputValue,
+  parseTcpPort,
   parseSecretString,
   requireNonProdEnvironment,
   startAwsTunnel,
@@ -21,8 +22,12 @@ import {
 const region = process.env.AWS_REGION ?? process.env.REGION ?? DEFAULT_REGION;
 const profile = process.env.AWS_PROFILE;
 const stackName = process.env.PUDDLE_STACK_NAME ?? DEFAULT_STACK_NAME;
-const dbLocalPort = Number(process.env.PUDDLE_CONNECTED_DB_PORT ?? DEFAULT_DB_TUNNEL_PORT);
-const backendPort = Number(process.env.PORT ?? DEFAULT_BACKEND_PORT);
+const dbLocalPort = parseTcpPort(
+  process.env.PUDDLE_CONNECTED_DB_PORT,
+  "PUDDLE_CONNECTED_DB_PORT",
+  DEFAULT_DB_TUNNEL_PORT,
+);
+const backendPort = parseTcpPort(process.env.PORT, "PORT", DEFAULT_BACKEND_PORT);
 const options = { region, profile, stackName };
 const children = [];
 const cleanup = cleanupOnExit(children);
@@ -63,7 +68,11 @@ try {
 
   const tunnelInstanceId = outputValue(outputs, "DevTunnelInstanceId");
   const dbHost = outputValue(outputs, "DatabaseInstanceEndpointAddress");
-  const dbPort = Number(outputValue(outputs, "DatabaseInstanceEndpointPort"));
+  const dbPort = parseTcpPort(
+    outputValue(outputs, "DatabaseInstanceEndpointPort"),
+    "DatabaseInstanceEndpointPort",
+    5432,
+  );
   const dbName = outputValue(outputs, "DatabaseName");
   const dbSecretName = outputValue(outputs, "DatabaseCredentialsSecretName");
   const backendTokenSecretName = outputValue(outputs, "BackendInternalTokenSecretName");
@@ -100,20 +109,23 @@ try {
     ["pnpm@9.12.0", "--filter", "@puddle/backend", "dev"],
     {
       label: "backend",
-      env: envList({
-        PORT: String(backendPort),
-        DATABASE_HOST: "127.0.0.1",
-        DATABASE_PORT: String(dbLocalPort),
-        DATABASE_NAME: dbName,
-        DATABASE_USER: parseSecretString(dbSecret, "username"),
-        DATABASE_PASSWORD: parseSecretString(dbSecret, "password"),
-        DATABASE_SSL: "true",
-        DATABASE_SSL_REJECT_UNAUTHORIZED: "false",
-        LIVEKIT_URL: liveKitUrl,
-        LIVEKIT_API_KEY: liveKitApiKey,
-        LIVEKIT_API_SECRET: liveKitApiSecret,
-        PUDDLE_BACKEND_INTERNAL_TOKEN: backendToken,
-      }),
+      env: {
+        ...envList({
+          PORT: String(backendPort),
+          DATABASE_HOST: "127.0.0.1",
+          DATABASE_PORT: String(dbLocalPort),
+          DATABASE_NAME: dbName,
+          DATABASE_USER: parseSecretString(dbSecret, "username"),
+          DATABASE_PASSWORD: parseSecretString(dbSecret, "password"),
+          DATABASE_SSL: "true",
+          DATABASE_SSL_REJECT_UNAUTHORIZED: "false",
+          LIVEKIT_URL: liveKitUrl,
+          LIVEKIT_API_KEY: liveKitApiKey,
+          LIVEKIT_API_SECRET: liveKitApiSecret,
+          PUDDLE_BACKEND_INTERNAL_TOKEN: backendToken,
+        }),
+        DATABASE_URL: "",
+      },
       onError: fail,
     },
   );

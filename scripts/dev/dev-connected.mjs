@@ -11,6 +11,7 @@ import {
   getSecretString,
   getStackOutputs,
   outputValue,
+  parseTcpPort,
   parseSecretString,
   requireNonProdEnvironment,
   startAwsTunnel,
@@ -21,8 +22,10 @@ import {
 const region = process.env.AWS_REGION ?? process.env.REGION ?? DEFAULT_REGION;
 const profile = process.env.AWS_PROFILE;
 const stackName = process.env.PUDDLE_STACK_NAME ?? DEFAULT_STACK_NAME;
-const localBackendPort = Number(
-  process.env.PUDDLE_CONNECTED_BACKEND_PORT ?? DEFAULT_BACKEND_TUNNEL_PORT,
+const localBackendPort = parseTcpPort(
+  process.env.PUDDLE_CONNECTED_BACKEND_PORT,
+  "PUDDLE_CONNECTED_BACKEND_PORT",
+  DEFAULT_BACKEND_TUNNEL_PORT,
 );
 const options = { region, profile, stackName };
 const children = [];

@@ -14,6 +14,19 @@ export function envList(values) {
   );
 }
 
+export function parseTcpPort(value, name, defaultValue) {
+  const portValue = value === undefined || value === "" ? String(defaultValue) : String(value);
+  if (!/^\d+$/.test(portValue)) {
+    throw new Error(`${name} must be a TCP port between 1 and 65535.`);
+  }
+
+  const port = Number(portValue);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`${name} must be a TCP port between 1 and 65535.`);
+  }
+  return port;
+}
+
 export function outputValue(outputs, key) {
   const found = outputs.find((output) => output.OutputKey === key);
   if (!found?.OutputValue) {
@@ -134,10 +147,20 @@ export function getSecretString(secretId, options) {
   return response;
 }
 
-export async function assertPortAvailable(port, host = "127.0.0.1") {
+export async function assertPortAvailable(
+  port,
+  host = "127.0.0.1",
+  { createServerFn = net.createServer } = {},
+) {
   await new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", () => reject(new Error(`Local port ${port} is already in use`)));
+    const server = createServerFn();
+    server.once("error", (error) => {
+      if (error?.code === "EADDRINUSE") {
+        reject(new Error(`Local port ${port} is already in use`));
+        return;
+      }
+      reject(new Error(`Failed to check local port ${port}: ${error.message}`));
+    });
     server.once("listening", () => {
       server.close(resolve);
     });
