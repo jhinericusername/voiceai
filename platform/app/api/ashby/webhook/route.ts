@@ -1,30 +1,12 @@
 import { NextResponse } from "next/server";
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
-import { verifyAshbyWebhookSignature } from "@/lib/ashby/webhook-signature";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function ashbyWebhookSecret(): string {
-  return process.env.PUDDLE_ASHBY_WEBHOOK_SECRET?.trim() ?? "";
-}
-
 export async function POST(request: Request) {
-  const body = await request.text();
+  const rawBody = await request.text();
   const signature = request.headers.get("ashby-signature");
-  const secret = ashbyWebhookSecret();
-
-  if (!verifyAshbyWebhookSignature({ body, secret, signature })) {
-    return NextResponse.json({ error: "invalid webhook signature" }, { status: 401 });
-  }
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(body);
-  } catch {
-    return NextResponse.json({ error: "invalid webhook json" }, { status: 400 });
-  }
-
   const url = new URL(request.url);
   const integrationId = url.searchParams.get("integrationId");
   const companyDomain = url.searchParams.get("companyDomain");
@@ -34,7 +16,7 @@ export async function POST(request: Request) {
     backendResponse = await fetch(`${backendBaseUrl()}/integrations/ashby/webhook`, {
       method: "POST",
       headers: backendHeaders(),
-      body: JSON.stringify({ integrationId, companyDomain, payload }),
+      body: JSON.stringify({ integrationId, companyDomain, rawBody, signature }),
       cache: "no-store",
     });
   } catch {
@@ -49,5 +31,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json(responsePayload, { status: 200 });
+  return NextResponse.json(responsePayload, { status: backendResponse.status });
 }
