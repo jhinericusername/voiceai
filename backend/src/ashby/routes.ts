@@ -364,8 +364,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       try {
         openJobs = await listJobs({ apiKey });
       } catch (error) {
+        request.log.warn({ err: error, integrationId }, "failed to validate selected Ashby jobs");
         return reply.code(400).send({
-          error: error instanceof Error ? error.message : "Ashby job validation failed",
+          error: "Unable to validate selected Ashby jobs.",
         });
       }
 
