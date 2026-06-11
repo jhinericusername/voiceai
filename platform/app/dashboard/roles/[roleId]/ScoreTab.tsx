@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cx, primaryButtonClass } from "../../dashboard-ui";
 
 interface AshbyApplicationOption {
@@ -17,6 +17,7 @@ type Feedback = {
 };
 
 const scoreValues = Array.from({ length: 9 }, (_, index) => index / 2);
+const SEARCH_DEBOUNCE_MS = 250;
 
 function formatScore(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -95,6 +96,8 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const searchRequestId = useRef(0);
   const queryRef = useRef("");
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   const trimmedQuery = query.trim();
   const total = problemSolving + agency + competitiveness + curiosity;
@@ -104,9 +107,33 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
       ? { tone: "info", text: "Searching Ashby candidates..." }
       : feedback;
 
-  async function searchCandidates(nextQuery: string) {
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+      searchAbortRef.current?.abort();
+    };
+  }, []);
+
+  function cancelPendingSearch() {
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = null;
+    }
+
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = null;
+  }
+
+  function markFormDirty() {
+    setFeedback((current) => (current?.tone === "success" ? null : current));
+  }
+
+  function searchCandidates(nextQuery: string) {
     const nextSearchId = searchRequestId.current + 1;
     searchRequestId.current = nextSearchId;
+    cancelPendingSearch();
     setQuery(nextQuery);
     setSelected(null);
     setFeedback(null);
@@ -120,10 +147,20 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
     }
 
     setIsSearching(true);
+    const abortController = new AbortController();
+    searchAbortRef.current = abortController;
+    searchTimerRef.current = setTimeout(() => {
+      searchTimerRef.current = null;
+      void runCandidateSearch(nextSearchId, nextTrimmedQuery, abortController);
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  async function runCandidateSearch(nextSearchId: number, nextTrimmedQuery: string, abortController: AbortController) {
     try {
       const response = await fetch("/api/ashby/applications/search", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        signal: abortController.signal,
         body: JSON.stringify({ query: nextTrimmedQuery, jobId: jobId ?? null }),
       });
       const payload: unknown = await response.json().catch(() => ({}));
@@ -140,11 +177,14 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
 
       setOptions(applicationOptions(payload));
     } catch {
-      if (searchRequestId.current === nextSearchId) {
+      if (!abortController.signal.aborted && searchRequestId.current === nextSearchId) {
         setOptions([]);
         setFeedback({ tone: "error", text: "Could not reach the Ashby search API." });
       }
     } finally {
+      if (searchAbortRef.current === abortController) {
+        searchAbortRef.current = null;
+      }
       if (searchRequestId.current === nextSearchId) {
         setIsSearching(false);
       }
@@ -215,6 +255,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
                 key={option.application_id}
                 type="button"
                 onClick={() => {
+                  cancelPendingSearch();
                   searchRequestId.current += 1;
                   queryRef.current = option.candidate_name.trim();
                   setSelected(option);
@@ -239,17 +280,48 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
-        <ScoreSelect label="Problem Solving" value={problemSolving} onChange={setProblemSolving} />
-        <ScoreSelect label="Agency" value={agency} onChange={setAgency} />
-        <ScoreSelect label="Competitiveness" value={competitiveness} onChange={setCompetitiveness} />
-        <ScoreSelect label="Curious" value={curiosity} onChange={setCuriosity} />
+        <ScoreSelect
+          label="Problem Solving"
+          value={problemSolving}
+          onChange={(value) => {
+            markFormDirty();
+            setProblemSolving(value);
+          }}
+        />
+        <ScoreSelect
+          label="Agency"
+          value={agency}
+          onChange={(value) => {
+            markFormDirty();
+            setAgency(value);
+          }}
+        />
+        <ScoreSelect
+          label="Competitiveness"
+          value={competitiveness}
+          onChange={(value) => {
+            markFormDirty();
+            setCompetitiveness(value);
+          }}
+        />
+        <ScoreSelect
+          label="Curious"
+          value={curiosity}
+          onChange={(value) => {
+            markFormDirty();
+            setCuriosity(value);
+          }}
+        />
       </div>
 
       <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
         Comments
         <textarea
           value={comments}
-          onChange={(event) => setComments(event.target.value)}
+          onChange={(event) => {
+            markFormDirty();
+            setComments(event.target.value);
+          }}
           className="min-h-28 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
           placeholder="Quick notes"
         />
@@ -265,12 +337,14 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
           disabled={isSaving || isSearching}
           className={cx(primaryButtonClass, "disabled:cursor-not-allowed disabled:bg-slate-400")}
         >
-          {isSaving ? "Saving..." : "Save Candidate"}
+          {isSaving ? "Saving..." : "Save Score"}
         </button>
       </div>
 
       {statusMessage ? (
         <div
+          role="status"
+          aria-live="polite"
           className={cx(
             "text-sm font-medium",
             statusMessage.tone === "error"
