@@ -111,12 +111,16 @@ function formatCategoryScoreSummary(categoryScores: unknown): string {
 
 function realPacketRecommendation(interview: RealInterviewListItem): string {
   if (interview.meets_bare_minimum === true) {
-    return "Meets minimum";
+    return "Meets bar";
   }
   if (interview.meets_bare_minimum === false) {
-    return "Below minimum";
+    return "Below bar";
   }
   return "Pending";
+}
+
+function isReviewReadyInterview(interview: RealInterviewListItem): boolean {
+  return interview.status === "review_ready" && !interview.signed_off_at;
 }
 
 export function WorkspaceMetricStrip() {
@@ -147,8 +151,9 @@ export function NeedsReviewQueue({
   readonly actionLabel?: string;
 }) {
   if (realInterviews) {
+    const reviewReadyInterviews = realInterviews.filter(isReviewReadyInterview);
     const visibleInterviews =
-      typeof limit === "number" ? realInterviews.slice(0, limit) : realInterviews;
+      typeof limit === "number" ? reviewReadyInterviews.slice(0, limit) : reviewReadyInterviews;
 
     return (
       <SectionPanel
@@ -181,7 +186,7 @@ export function NeedsReviewQueue({
                   return (
                     <tr key={interview.session_id}>
                       <td className={`${tableCellClass} font-medium text-slate-950`}>
-                        <Link href={`/dashboard/interviews/${interview.session_id}`} className="hover:text-cyan-700">
+                        <Link href={`/dashboard/interviews/${interview.session_id}`} className="break-all hover:text-cyan-700">
                           {interview.candidate_email}
                         </Link>
                         <div className="mt-0.5 text-xs font-normal text-slate-500">
@@ -202,7 +207,7 @@ export function NeedsReviewQueue({
                         </div>
                       </td>
                       <td className={tableCellClass}>
-                        <div>{interview.reviewer_email ?? "Unassigned"}</div>
+                        <div className="break-all">{interview.reviewer_email ?? "Unassigned"}</div>
                         <div className="mt-0.5 text-xs text-slate-500">
                           {interview.signed_off_at ? `Signed ${formatDateTime(interview.signed_off_at)}` : "Awaiting sign-off"}
                         </div>

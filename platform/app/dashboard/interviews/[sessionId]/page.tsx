@@ -22,13 +22,22 @@ export function generateStaticParams() {
 
 export default async function InterviewSessionPage({ params }: { readonly params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
-  const realInterview = await getRealInterview(sessionId).catch(() => null);
+  const demoSession = getSession(sessionId);
+  let realInterview: RealInterviewDetail | null = null;
+
+  try {
+    realInterview = await getRealInterview(sessionId);
+  } catch (error) {
+    if (!demoSession) {
+      throw error;
+    }
+  }
 
   if (realInterview) {
     return <RealInterviewSessionView realInterview={realInterview} />;
   }
 
-  const session = getSession(sessionId);
+  const session = demoSession;
 
   if (!session) {
     notFound();
@@ -516,10 +525,10 @@ function formatCategoryScoreSummary(categoryScores: unknown): string {
 
 function realPacketRecommendation(interview: RealInterviewDetail): string {
   if (interview.meets_bare_minimum === true) {
-    return "Meets minimum";
+    return "Meets bar";
   }
   if (interview.meets_bare_minimum === false) {
-    return "Below minimum";
+    return "Below bar";
   }
   return "Pending";
 }
