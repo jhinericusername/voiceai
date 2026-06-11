@@ -34,8 +34,8 @@ Export the Ashby values before creating the integration:
 set -u
 : "${PUDDLE_BACKEND_BASE_URL:?Set PUDDLE_BACKEND_BASE_URL first}"
 : "${PUDDLE_BACKEND_INTERNAL_TOKEN:?Set PUDDLE_BACKEND_INTERNAL_TOKEN first}"
-export ASHBY_API_KEY="ashby_api_key_here"
-export ASHBY_JOB_ID="ashby_job_id_here"
+: "${ASHBY_API_KEY:?Set ASHBY_API_KEY from Ashby admin first}"
+: "${ASHBY_JOB_ID:?Set ASHBY_JOB_ID for the role first}"
 ```
 
 Create the integration:
