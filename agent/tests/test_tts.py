@@ -50,7 +50,7 @@ async def test_tts_synthesize_rejects_empty_text() -> None:
         await tts.synthesize("")
 
 
-def test_build_cartesia_tts_uses_sonic3_with_pacing(monkeypatch) -> None:  # noqa: ANN001
+def test_build_cartesia_tts_uses_sonic3_natural_delivery(monkeypatch) -> None:  # noqa: ANN001
     captured = {}
 
     import livekit.plugins.cartesia as cartesia
@@ -58,12 +58,30 @@ def test_build_cartesia_tts_uses_sonic3_with_pacing(monkeypatch) -> None:  # noq
     monkeypatch.setattr(cartesia, "TTS", lambda **kwargs: captured.update(kwargs) or object())
     monkeypatch.delenv("CARTESIA_VOICE_ID", raising=False)
 
-    from agent.voice.tts import build_cartesia_tts
+    from agent.voice.tts import DEFAULT_VOICE_ID, build_cartesia_tts
 
     build_cartesia_tts("ct-key")
 
     assert captured["model"] == "sonic-3"
     assert captured["language"] == "en"
-    assert captured["speed"] == 1.05
-    assert captured["text_pacing"] is True
-    assert "voice" not in captured  # no CARTESIA_VOICE_ID set
+    # Natural prosody: the 2026-06-11 A/B bench picked defaults over
+    # speed=1.05 + text_pacing (artifact suspects for the "wonky" voice).
+    assert "speed" not in captured
+    assert "text_pacing" not in captured
+    # No CARTESIA_VOICE_ID set -> the picked library voice, not Katie.
+    assert captured["voice"] == DEFAULT_VOICE_ID
+
+
+def test_build_cartesia_tts_env_voice_overrides_default(monkeypatch) -> None:  # noqa: ANN001
+    captured = {}
+
+    import livekit.plugins.cartesia as cartesia
+
+    monkeypatch.setattr(cartesia, "TTS", lambda **kwargs: captured.update(kwargs) or object())
+    monkeypatch.setenv("CARTESIA_VOICE_ID", "cloned-prakul-id")
+
+    from agent.voice.tts import build_cartesia_tts
+
+    build_cartesia_tts("ct-key")
+
+    assert captured["voice"] == "cloned-prakul-id"

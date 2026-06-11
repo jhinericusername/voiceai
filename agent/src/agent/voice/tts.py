@@ -7,25 +7,29 @@ import os
 from typing import Any
 
 
-def build_cartesia_tts(api_key: str) -> Any:  # pragma: no cover — vendor wiring
+# "Corey - Supportive Buddy" — warm, emotive male library voice picked in the
+# 2026-06-11 A/B bench (the plugin's own default is "Katie", a female voice,
+# which clashed with the "my name is Prakul" script). Replaced by the cloned
+# Prakul voice via CARTESIA_VOICE_ID once his audio arrives.
+DEFAULT_VOICE_ID = "630ed21c-2c5c-41cf-9d82-10a7fd668370"
+
+
+def build_cartesia_tts(api_key: str) -> Any:
     """Construct the LiveKit Cartesia plugin configured for Sonic-3.
 
-    If `CARTESIA_VOICE_ID` is set, the cloned voice is used; otherwise the
-    Cartesia default voice (graceful degradation when voice cloning isn't
-    configured)."""
+    If `CARTESIA_VOICE_ID` is set (e.g. the cloned Prakul voice), it wins;
+    otherwise the bench-picked library voice. Delivery stays at the model's
+    natural prosody — the speed=1.05 + text_pacing combo was A/B'd out as the
+    prime suspect for audible artifacts."""
     from livekit.plugins import cartesia
 
-    kwargs: dict[str, Any] = {
-        "model": "sonic-3",
-        "api_key": api_key,
-        "language": "en",
-        "speed": 1.05,
-        "text_pacing": True,
-    }
-    voice_id = os.environ.get("CARTESIA_VOICE_ID", "").strip()
-    if voice_id:
-        kwargs["voice"] = voice_id
-    return cartesia.TTS(**kwargs)
+    voice_id = os.environ.get("CARTESIA_VOICE_ID", "").strip() or DEFAULT_VOICE_ID
+    return cartesia.TTS(
+        model="sonic-3",
+        api_key=api_key,
+        language="en",
+        voice=voice_id,
+    )
 
 
 class CartesiaTTS:
