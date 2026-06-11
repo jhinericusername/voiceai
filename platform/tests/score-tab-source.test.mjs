@@ -22,6 +22,13 @@ test("score tab clears saved feedback when the score form changes", () => {
   assert.match(scoreTabSource, /markFormDirty\(\);\s*setComments/);
 });
 
+test("score tab locks form-changing controls while a save is in flight", () => {
+  assert.match(scoreTabSource, /readonly disabled: boolean/);
+  assert.match(scoreTabSource, /disabled=\{disabled\}/);
+  assert.match(scoreTabSource, /disabled=\{isSaving\}/);
+  assert.match(scoreTabSource, /disabled=\{isSaving \|\| isSearching\}/);
+});
+
 test("score tab status feedback is announced and action copy matches score saving", () => {
   assert.match(scoreTabSource, /role="status"/);
   assert.match(scoreTabSource, /aria-live="polite"/);

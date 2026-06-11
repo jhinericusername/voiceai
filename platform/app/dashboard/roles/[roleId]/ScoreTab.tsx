@@ -58,10 +58,12 @@ function candidateLabel(option: AshbyApplicationOption): string {
 function ScoreSelect({
   label,
   value,
+  disabled,
   onChange,
 }: {
   readonly label: string;
   readonly value: number;
+  readonly disabled: boolean;
   readonly onChange: (value: number) => void;
 }) {
   return (
@@ -69,8 +71,9 @@ function ScoreSelect({
       {label}
       <select
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+        className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
       >
         {scoreValues.map((score) => (
           <option key={score} value={score}>
@@ -235,8 +238,9 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
           Candidate
           <input
             value={query}
+            disabled={isSaving}
             onChange={(event) => void searchCandidates(event.target.value)}
-            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
             placeholder="Search active Ashby candidates"
           />
         </label>
@@ -254,6 +258,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
               <button
                 key={option.application_id}
                 type="button"
+                disabled={isSaving}
                 onClick={() => {
                   cancelPendingSearch();
                   searchRequestId.current += 1;
@@ -263,7 +268,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
                   setOptions([]);
                   setFeedback(null);
                 }}
-                className="inline-flex min-h-9 w-full max-w-full items-center justify-start rounded-md border border-slate-300 bg-white px-3 text-left text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+                className="inline-flex min-h-9 w-full max-w-full items-center justify-start rounded-md border border-slate-300 bg-white px-3 text-left text-sm font-semibold text-slate-800 transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 hover:bg-slate-50"
               >
                 <span className="min-w-0 truncate">
                   {candidateLabel(option)}
@@ -283,6 +288,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Problem Solving"
           value={problemSolving}
+          disabled={isSaving}
           onChange={(value) => {
             markFormDirty();
             setProblemSolving(value);
@@ -291,6 +297,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Agency"
           value={agency}
+          disabled={isSaving}
           onChange={(value) => {
             markFormDirty();
             setAgency(value);
@@ -299,6 +306,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Competitiveness"
           value={competitiveness}
+          disabled={isSaving}
           onChange={(value) => {
             markFormDirty();
             setCompetitiveness(value);
@@ -307,6 +315,7 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         <ScoreSelect
           label="Curious"
           value={curiosity}
+          disabled={isSaving}
           onChange={(value) => {
             markFormDirty();
             setCuriosity(value);
@@ -318,11 +327,12 @@ export function ScoreTab({ roleId, jobId }: { readonly roleId: string; readonly 
         Comments
         <textarea
           value={comments}
+          disabled={isSaving}
           onChange={(event) => {
             markFormDirty();
             setComments(event.target.value);
           }}
-          className="min-h-28 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          className="min-h-28 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
           placeholder="Quick notes"
         />
       </label>
