@@ -172,8 +172,10 @@ test("terminateChild falls back to child.kill and guards kill errors", () => {
 
 test("startAwsTunnel spawns detached and logs start errors", () => {
   const errors = [];
+  const startErrors = [];
   const calls = [];
   const child = fakeChild();
+  const spawnError = new Error("spawn aws ENOENT");
 
   const result = startAwsTunnel({
     args: ["ssm", "start-session"],
@@ -184,20 +186,24 @@ test("startAwsTunnel spawns detached and logs start errors", () => {
       return child;
     },
     logger: { error: (message) => errors.push(message), log: () => {} },
+    onError: (error) => startErrors.push(error),
   });
 
-  child.emit("error", new Error("spawn aws ENOENT"));
+  child.emit("error", spawnError);
 
   assert.equal(result, child);
   assert.equal(calls[0].command, "aws");
   assert.equal(calls[0].options.detached, true);
   assert.deepEqual(errors, ["[tunnel] failed to start: spawn aws ENOENT"]);
+  assert.deepEqual(startErrors, [spawnError]);
 });
 
 test("startProcess spawns detached and logs start errors", () => {
   const errors = [];
+  const startErrors = [];
   const calls = [];
   const child = fakeChild();
+  const spawnError = new Error("spawn corepack ENOENT");
 
   const result = startProcess("corepack", ["pnpm", "dev"], {
     cwd: "/tmp",
@@ -208,15 +214,17 @@ test("startProcess spawns detached and logs start errors", () => {
       return child;
     },
     logger: { error: (message) => errors.push(message), log: () => {} },
+    onError: (error) => startErrors.push(error),
   });
 
-  child.emit("error", new Error("spawn corepack ENOENT"));
+  child.emit("error", spawnError);
 
   assert.equal(result, child);
   assert.equal(calls[0].command, "corepack");
   assert.equal(calls[0].options.detached, true);
   assert.equal(calls[0].options.env.A, "one");
   assert.deepEqual(errors, ["[platform] failed to start: spawn corepack ENOENT"]);
+  assert.deepEqual(startErrors, [spawnError]);
 });
 
 function listen(server, port, host) {

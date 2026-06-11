@@ -145,13 +145,21 @@ export async function assertPortAvailable(port, host = "127.0.0.1") {
   });
 }
 
-export function startAwsTunnel({ args, options, label, spawnFn = spawn, logger = console }) {
+export function startAwsTunnel({
+  args,
+  options,
+  label,
+  spawnFn = spawn,
+  logger = console,
+  onError,
+}) {
   const child = spawnFn("aws", awsArgs(args, options), {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.on("error", (error) => {
     logger.error(`[${label}] failed to start: ${error.message}`);
+    onError?.(error);
   });
   child.stdout.on("data", (chunk) => {
     const text = String(chunk).trim();
@@ -164,7 +172,11 @@ export function startAwsTunnel({ args, options, label, spawnFn = spawn, logger =
   return child;
 }
 
-export function startProcess(command, args, { cwd, env, label, spawnFn = spawn, logger = console }) {
+export function startProcess(
+  command,
+  args,
+  { cwd, env, label, spawnFn = spawn, logger = console, onError },
+) {
   const child = spawnFn(command, args, {
     cwd,
     detached: true,
@@ -173,6 +185,7 @@ export function startProcess(command, args, { cwd, env, label, spawnFn = spawn, 
   });
   child.on("error", (error) => {
     logger.error(`[${label}] failed to start: ${error.message}`);
+    onError?.(error);
   });
   child.on("exit", (code, signal) => {
     if (signal) {
