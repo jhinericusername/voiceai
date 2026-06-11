@@ -71,6 +71,43 @@ describe('InfraStack', () => {
         },
       ]),
     });
+    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+      GroupDescription: 'SSM tunnel target for local development access.',
+      SecurityGroupEgress: Match.arrayWith([
+        Match.objectLike({
+          CidrIp: '0.0.0.0/0',
+          Description: 'HTTPS egress for SSM connectivity',
+          FromPort: 443,
+          IpProtocol: 'tcp',
+          ToPort: 443,
+        }),
+      ]),
+    });
+    template.resourcePropertiesCountIs(
+      'AWS::EC2::SecurityGroup',
+      {
+        GroupDescription: 'SSM tunnel target for local development access.',
+        SecurityGroupEgress: Match.arrayWith([
+          Match.objectLike({
+            CidrIp: '0.0.0.0/0',
+            IpProtocol: '-1',
+          }),
+        ]),
+      },
+      0,
+    );
+    template.hasResourceProperties('AWS::EC2::SecurityGroupEgress', {
+      Description: 'Backend load balancer egress from the dev tunnel',
+      FromPort: 80,
+      IpProtocol: 'tcp',
+      ToPort: 80,
+    });
+    template.hasResourceProperties('AWS::EC2::SecurityGroupEgress', {
+      Description: 'Postgres egress from the dev tunnel',
+      FromPort: 5432,
+      IpProtocol: 'tcp',
+      ToPort: 5432,
+    });
     template.hasOutput('DevTunnelInstanceId', {});
   });
 
@@ -92,6 +129,16 @@ describe('InfraStack', () => {
         logs: { retentionDays: 90 },
       }),
     ).toThrow('Dev tunnel target is not allowed in prod.');
+  });
+
+  test('blocks ARM dev tunnel instance types', () => {
+    expect(() =>
+      createStack({
+        devTunnel: { enabled: true, instanceType: 't4g.nano' },
+      }),
+    ).toThrow(
+      'devTunnelInstanceType must use an x86_64 instance type compatible with the default Amazon Linux 2023 AMI.',
+    );
   });
 
   test('blocks public backend exposure without auth', () => {

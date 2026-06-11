@@ -206,6 +206,16 @@ export class InfraStack extends cdk.Stack {
       throw new Error('Dev tunnel target is not allowed in prod.');
     }
 
+    if (
+      this.cfg.devTunnel.enabled &&
+      new ec2.InstanceType(this.cfg.devTunnel.instanceType).architecture !==
+        ec2.InstanceArchitecture.X86_64
+    ) {
+      throw new Error(
+        'devTunnelInstanceType must use an x86_64 instance type compatible with the default Amazon Linux 2023 AMI.',
+      );
+    }
+
     if (!this.cfg.database.external) {
       if (!/^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(this.cfg.database.name)) {
         throw new Error(
@@ -415,7 +425,7 @@ export class InfraStack extends cdk.Stack {
         vpc,
         securityGroupName: this.name('dev-tunnel-sg'),
         description: 'SSM tunnel target for local development access.',
-        allowAllOutbound: true,
+        allowAllOutbound: false,
       });
     }
 
@@ -455,6 +465,22 @@ export class InfraStack extends cdk.Stack {
         devTunnel,
         ec2.Port.tcp(5432),
         'Postgres from the dev tunnel',
+      );
+      devTunnel.addEgressRule(
+        backendLoadBalancer,
+        ec2.Port.tcp(80),
+        'Backend load balancer egress from the dev tunnel',
+      );
+      devTunnel.addEgressRule(
+        futureDatabase,
+        ec2.Port.tcp(5432),
+        'Postgres egress from the dev tunnel',
+      );
+      // SSM port forwarding uses HTTPS; VPC DNS resolution is handled by the resolver.
+      devTunnel.addEgressRule(
+        ec2.Peer.anyIpv4(),
+        ec2.Port.tcp(443),
+        'HTTPS egress for SSM connectivity',
       );
     }
 
