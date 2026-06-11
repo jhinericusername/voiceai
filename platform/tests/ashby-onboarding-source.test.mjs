@@ -228,14 +228,55 @@ test("Ashby onboarding setup management requires WorkOS privilege or bootstrap a
 });
 
 test("deploy-platform forwards Ashby onboarding admin emails through environment only", () => {
-  assert.match(
-    deployPlatformScript,
-    /export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS=.*PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/,
+  const contextKey = "platformAshbyOnboardingAdminEmails";
+  const adminEnvVars = [
+    "PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS",
+    "PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS",
+  ];
+  const adminEnvVarPattern = adminEnvVars.join("|");
+  const allowedConfiguredUnsetCheck = new RegExp(
+    `\\$\\(\\s*\\[\\[\\s+-n\\s+"?\\$\\{?(?:${adminEnvVarPattern})\\}?"?\\s+\\]\\]\\s+&&\\s+echo\\s+configured\\s+\\|\\|\\s+echo\\s+unset\\s*\\)`,
+    "g",
   );
-  assert.doesNotMatch(
-    deployPlatformScript,
-    /CDK_CONTEXT_ARGS\+=\([\s\S]*platformAshbyOnboardingAdminEmails/,
-  );
+
+  function assertAshbyAdminEmailsStayOutOfDeployScript(source) {
+    assert.match(
+      source,
+      /export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS=.*PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/,
+    );
+    assert.doesNotMatch(source, new RegExp(`\\b${contextKey}\\b`));
+
+    const logCommands = source.match(/^\s*(?:echo|printf)\b.*$/gm) ?? [];
+    for (const line of logCommands) {
+      const lineWithoutAllowedStatusChecks = line.replace(allowedConfiguredUnsetCheck, "");
+      for (const adminEnvVar of adminEnvVars) {
+        assert.ok(
+          !lineWithoutAllowedStatusChecks.includes(adminEnvVar),
+          `deploy-platform must not directly echo/log ${adminEnvVar}: ${line}`,
+        );
+      }
+    }
+  }
+
+  assertAshbyAdminEmailsStayOutOfDeployScript(deployPlatformScript);
+
+  for (const source of [
+    'export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS="${PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS:-}"\nCDK_CONTEXT_ARGS=(-c platformAshbyOnboardingAdminEmails="$PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS")',
+    'export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS="${PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS:-}"\nCDK_CONTEXT_ARGS+=(-c platformAshbyOnboardingAdminEmails="$PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS")',
+    'export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS="${PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS:-}"\nnpm run cdk -- deploy -c platformAshbyOnboardingAdminEmails="$PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS"',
+  ]) {
+    assert.throws(() => assertAshbyAdminEmailsStayOutOfDeployScript(source), new RegExp(contextKey));
+  }
+
+  for (const adminEnvVar of adminEnvVars) {
+    assert.throws(
+      () =>
+        assertAshbyAdminEmailsStayOutOfDeployScript(
+          `export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS="\${PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS:-}"\necho "ashby admins: $${adminEnvVar}"`,
+        ),
+      /must not directly echo\/log/,
+    );
+  }
 });
 
 test("Ashby webhook proxy forwards raw body and signature to backend", () => {
