@@ -27,6 +27,7 @@ import {
   webhookEventInsertStatement,
   webhookEventProcessedStatement,
 } from "./repository.js";
+import { verifyAshbyWebhookSignature } from "./webhook-signature.js";
 import type {
   AshbyApiKeyOnboardingRequest,
   AshbyJobSelectionRequest,
@@ -391,12 +392,6 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
 
   app.post<{ Body: AshbyWebhookEnvelope }>("/integrations/ashby/webhook", async (request, reply) => {
     const envelope = objectValue(request.body);
-    const payload = objectValue(envelope?.payload) as AshbyWebhookPayload | null;
-    const action = stringValue(payload?.action);
-    if (!payload || !action) {
-      return reply.code(400).send({ error: "valid Ashby webhook payload is required" });
-    }
-
     const integration = await integrationForWebhook({
       integrationId: stringValue(envelope?.integrationId),
       companyDomain: stringValue(envelope?.companyDomain),
@@ -404,6 +399,42 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const resolvedIntegrationId = integrationIdFrom(integration);
     if (!resolvedIntegrationId) {
       return reply.code(404).send({ error: "Ashby integration is not configured" });
+    }
+
+    let payload: AshbyWebhookPayload | null = null;
+    const rawBody = typeof envelope?.rawBody === "string" ? envelope.rawBody : null;
+    if (rawBody !== null) {
+      const encryptedWebhookSecret = stringValue(integration?.ashby_webhook_secret_ciphertext);
+      if (!encryptedWebhookSecret) {
+        return reply.code(404).send({ error: "Ashby webhook secret is not configured" });
+      }
+
+      const webhookSecret = decryptIntegrationSecret(
+        encryptedWebhookSecret,
+        integrationSecretKeyFromEnv(),
+      );
+      if (
+        !verifyAshbyWebhookSignature({
+          body: rawBody,
+          secret: webhookSecret,
+          signature: stringValue(envelope?.signature),
+        })
+      ) {
+        return reply.code(401).send({ error: "invalid webhook signature" });
+      }
+
+      try {
+        payload = JSON.parse(rawBody) as AshbyWebhookPayload;
+      } catch {
+        return reply.code(400).send({ error: "invalid Ashby webhook json" });
+      }
+    } else {
+      payload = objectValue(envelope?.payload) as AshbyWebhookPayload | null;
+    }
+
+    const action = stringValue(payload?.action);
+    if (!payload || !action) {
+      return reply.code(400).send({ error: "valid Ashby webhook payload is required" });
     }
 
     if (action === "ping") {

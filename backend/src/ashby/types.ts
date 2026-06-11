@@ -32,7 +32,9 @@ export interface AshbyJob {
 export interface AshbyWebhookEnvelope {
   readonly integrationId?: string | null;
   readonly companyDomain?: string | null;
-  readonly payload: unknown;
+  readonly rawBody?: string | null;
+  readonly signature?: string | null;
+  readonly payload?: unknown;
 }
 
 export interface AshbyWebhookPayload {
