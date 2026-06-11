@@ -87,7 +87,7 @@ platformMemoryMiB=1024
 platformDomainName=app.usepuddle.com
 platformCertificateArn=<acm-certificate-arn>
 platformAllowedAuthDomains=usepuddle.com,workweave.ai
-platformAshbyOnboardingAdminEmails=admin@example.com,owner@example.com
+platformAshbyOnboardingAdminEmails=admin@example.com,owner@example.com # optional manual CDK context
 platformDefaultScriptVersion=pilot-v1
 
 useExternalDatabase=false
@@ -151,7 +151,8 @@ account.
 `participantReconnectGraceSeconds` context flag for the LiveKit agent service.
 For Ashby bootstrap admins, it maps
 `PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS` from `.env.local` or
-`PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS` from the shell to the CDK
+`PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS` from the shell into the child CDK
+process environment. Manual CDK runs may still use the
 `platformAshbyOnboardingAdminEmails` context flag.
 
 After the service deploys, run migrations once with the emitted

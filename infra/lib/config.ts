@@ -147,10 +147,10 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
       allowedAuthDomains:
         readStringContext(app, 'platformAllowedAuthDomains') ??
         'usepuddle.com,workweave.ai',
-      ashbyOnboardingAdminEmails: readStringContext(
-        app,
-        'platformAshbyOnboardingAdminEmails',
-      ),
+      ashbyOnboardingAdminEmails:
+        readStringContext(app, 'platformAshbyOnboardingAdminEmails') ??
+        readStringEnv('PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS') ??
+        readStringEnv('PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS'),
       defaultScriptVersion:
         readStringContext(app, 'platformDefaultScriptVersion') ?? 'pilot-v1',
     },
@@ -216,6 +216,15 @@ function readStringContext(app: cdk.App, key: string): string | undefined {
   }
 
   return String(value);
+}
+
+function readStringEnv(key: string): string | undefined {
+  const value = process.env[key];
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  return value;
 }
 
 function readBooleanContext(

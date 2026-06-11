@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { PuddleEnvConfig } from '../lib/config';
+import { configFromApp, PuddleEnvConfig } from '../lib/config';
 import { InfraStack } from '../lib/infra-stack';
 
 describe('InfraStack', () => {
@@ -639,6 +639,33 @@ describe('InfraStack', () => {
         }),
       ]),
     });
+  });
+});
+
+describe('configFromApp', () => {
+  const previousPlatformAdmins = process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS;
+  const previousPuddleAdmins = process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+
+  afterEach(() => {
+    if (previousPlatformAdmins === undefined) {
+      delete process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    } else {
+      process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS = previousPlatformAdmins;
+    }
+    if (previousPuddleAdmins === undefined) {
+      delete process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    } else {
+      process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS = previousPuddleAdmins;
+    }
+  });
+
+  test('reads Ashby onboarding admin emails from environment when context is omitted', () => {
+    delete process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
+    process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS = 'admin@usepuddle.com';
+
+    const config = configFromApp(new cdk.App());
+
+    expect(config.platform.ashbyOnboardingAdminEmails).toBe('admin@usepuddle.com');
   });
 });
 

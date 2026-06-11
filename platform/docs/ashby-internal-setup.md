@@ -27,9 +27,10 @@ below to a comma-separated list of exact admin email addresses:
 PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS=admin@example.com,owner@example.com
 ```
 
-For CDK platform container deployments, provide the same value with the
-`platformAshbyOnboardingAdminEmails` context key so the platform task receives
-`PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS`.
+For `scripts/deploy-platform.sh` platform container deployments, keep the value
+in `.env.local` or export `PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS`; the script
+passes it to CDK through the child process environment. Manual CDK runs may use
+the `platformAshbyOnboardingAdminEmails` context key.
 
 ## Customer setup
 

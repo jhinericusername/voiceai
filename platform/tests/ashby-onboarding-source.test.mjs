@@ -227,12 +227,15 @@ test("Ashby onboarding setup management requires WorkOS privilege or bootstrap a
   }
 });
 
-test("deploy-platform forwards Ashby onboarding admin emails to CDK", () => {
+test("deploy-platform forwards Ashby onboarding admin emails through environment only", () => {
   assert.match(
     deployPlatformScript,
-    /PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS=.*PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/,
+    /export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS=.*PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/,
   );
-  assert.match(deployPlatformScript, /platformAshbyOnboardingAdminEmails/);
+  assert.doesNotMatch(
+    deployPlatformScript,
+    /CDK_CONTEXT_ARGS\+=\([\s\S]*platformAshbyOnboardingAdminEmails/,
+  );
 });
 
 test("Ashby webhook proxy forwards raw body and signature to backend", () => {
