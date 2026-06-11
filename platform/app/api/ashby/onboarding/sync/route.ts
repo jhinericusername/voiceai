@@ -1,19 +1,28 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { companyIdentityFromUser } from "@/lib/ashby/server";
+import {
+  ASHBY_ONBOARDING_ADMIN_DENIED_ERROR,
+  canManageAshbyOnboarding,
+} from "@/lib/auth/ashby-onboarding-admin";
 import { isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const { user, organizationId } = await withAuth();
+  const session = await withAuth();
+  const { user, organizationId } = session;
   if (!user) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
   if (!isAllowedAuthEmail(user.email)) {
     return NextResponse.json({ error: "Email domain is not allowed." }, { status: 403 });
+  }
+
+  if (!canManageAshbyOnboarding(session)) {
+    return NextResponse.json({ error: ASHBY_ONBOARDING_ADMIN_DENIED_ERROR }, { status: 403 });
   }
 
   const identity = companyIdentityFromUser({ email: user.email, organizationId });
@@ -35,10 +44,8 @@ export async function POST() {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    return NextResponse.json(
-      { error: payload.error ?? "Ashby sync request failed." },
-      { status: response.status },
-    );
+    console.warn("Ashby sync backend rejected request", { status: response.status, payload });
+    return NextResponse.json({ error: "Ashby sync request failed." }, { status: response.status });
   }
 
   return NextResponse.json(payload, { status: response.status });

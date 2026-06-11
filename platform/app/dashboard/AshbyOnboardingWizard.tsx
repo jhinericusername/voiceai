@@ -65,7 +65,13 @@ function setupPayload(payload: unknown): SetupPayload | null {
   };
 }
 
-export function AshbyOnboardingWizard({ state }: { readonly state: AshbyCompanyState }) {
+export function AshbyOnboardingWizard({
+  state,
+  canManageSetup,
+}: {
+  readonly state: AshbyCompanyState;
+  readonly canManageSetup: boolean;
+}) {
   const router = useRouter();
   const [apiKey, setApiKey] = useState("");
   const [jobs, setJobs] = useState<AshbyJobOption[]>([]);
@@ -205,6 +211,23 @@ export function AshbyOnboardingWizard({ state }: { readonly state: AshbyCompanyS
   function checkWebhookConnection() {
     setFeedback({ tone: "success", text: "Checking webhook connection." });
     router.refresh();
+  }
+
+  if (!canManageSetup) {
+    return (
+      <SectionPanel
+        title="Connect Ashby"
+        eyebrow="Setup"
+        action={<StatusPill status={statusLabel} className="capitalize" />}
+      >
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
+          <div className="text-sm font-semibold text-amber-950">Ashby setup needs an admin</div>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
+            Ask a workspace admin or owner to finish Ashby setup.
+          </p>
+        </div>
+      </SectionPanel>
+    );
   }
 
   return (

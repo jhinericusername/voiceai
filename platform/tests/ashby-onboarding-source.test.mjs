@@ -14,6 +14,10 @@ const syncRoute = await readFile(
   new URL("../app/api/ashby/onboarding/sync/route.ts", import.meta.url),
   "utf8",
 ).catch(() => "");
+const adminHelperSource = await readFile(
+  new URL("../lib/auth/ashby-onboarding-admin.ts", import.meta.url),
+  "utf8",
+).catch(() => "");
 const webhookRoute = await readFile(new URL("../app/api/ashby/webhook/route.ts", import.meta.url), "utf8");
 const wizardSource = await readFile(
   new URL("../app/dashboard/AshbyOnboardingWizard.tsx", import.meta.url),
@@ -25,10 +29,38 @@ test("Ashby onboarding API routes are authenticated and derive company identity 
   for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
     assert.match(source, /withAuth/);
     assert.match(source, /isAllowedAuthEmail/);
+    assert.match(source, /canManageAshbyOnboarding/);
     assert.match(source, /companyIdentityFromUser/);
     assert.match(source, /PUDDLE_BACKEND_BASE_URL|backendBaseUrl/);
     assert.doesNotMatch(source, /emailDomain:\s*body\.emailDomain/);
     assert.doesNotMatch(source, /organizationId:\s*body\.organizationId/);
+  }
+});
+
+test("Ashby onboarding setup management requires WorkOS privilege or bootstrap admin email", () => {
+  assert.match(adminHelperSource, /PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/);
+  assert.match(adminHelperSource, /Ashby onboarding setup requires a workspace admin or owner\./);
+  for (const role of ["admin", "owner", "organization_admin", "org_admin"]) {
+    assert.match(adminHelperSource, new RegExp(role));
+  }
+  for (const permission of [
+    "integrations:manage",
+    "ashby:onboarding:manage",
+    "ashby:manage",
+    "organization:admin",
+  ]) {
+    assert.ok(adminHelperSource.includes(`"${permission}"`));
+  }
+  assert.match(adminHelperSource, /toLowerCase\(\)/);
+  assert.match(adminHelperSource, /trim\(\)/);
+
+  for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
+    const adminGateIndex = source.indexOf("canManageAshbyOnboarding");
+    const fetchIndex = source.indexOf("fetch(");
+    assert.notEqual(adminGateIndex, -1);
+    assert.notEqual(fetchIndex, -1);
+    assert.ok(adminGateIndex < fetchIndex);
+    assert.match(source, /ASHBY_ONBOARDING_ADMIN_DENIED_ERROR/);
   }
 });
 
@@ -49,14 +81,16 @@ test("Ashby onboarding sync proxies to the existing backend sync route", () => {
 test("Ashby onboarding proxy routes sanitize non-OK backend responses", () => {
   for (const source of [apiKeyRoute, jobsRoute]) {
     assert.match(source, /response\.ok/);
-    assert.match(source, /payload\.error \?\? "Ashby onboarding request failed\."/);
+    assert.match(source, /"Ashby onboarding request failed\."/);
+    assert.doesNotMatch(source, /payload\.error\s*\?\?/);
     assert.doesNotMatch(source, /message/);
     assert.doesNotMatch(source, /stack/);
     assert.doesNotMatch(source, /details/);
   }
 
   assert.match(syncRoute, /response\.ok/);
-  assert.match(syncRoute, /payload\.error \?\? "Ashby sync request failed\."/);
+  assert.match(syncRoute, /"Ashby sync request failed\."/);
+  assert.doesNotMatch(syncRoute, /payload\.error\s*\?\?/);
   assert.doesNotMatch(syncRoute, /request\.json\(\)/);
   assert.doesNotMatch(syncRoute, /message/);
   assert.doesNotMatch(syncRoute, /stack/);
@@ -65,7 +99,10 @@ test("Ashby onboarding proxy routes sanitize non-OK backend responses", () => {
 
 test("Ashby webhook proxy sanitizes rejected backend responses", () => {
   assert.match(webhookRoute, /backendResponse\.ok/);
-  assert.match(webhookRoute, /responsePayload\.error \?\? "Ashby webhook was rejected\."/);
+  assert.match(webhookRoute, /"Ashby webhook was rejected\."/);
+  assert.match(webhookRoute, /status:\s*400/);
+  assert.doesNotMatch(webhookRoute, /responsePayload\.error/);
+  assert.doesNotMatch(webhookRoute, /status:\s*backendResponse\.status/);
   assert.doesNotMatch(webhookRoute, /message/);
   assert.doesNotMatch(webhookRoute, /stack/);
   assert.doesNotMatch(webhookRoute, /details/);
@@ -73,8 +110,10 @@ test("Ashby webhook proxy sanitizes rejected backend responses", () => {
 
 test("dashboard uses the Ashby onboarding wizard for non-connected companies", () => {
   assert.match(dashboardSource, /AshbyOnboardingWizard/);
-  assert.match(dashboardSource, /state\.connected && Boolean\(state\.lastSyncAt\)/);
+  assert.match(dashboardSource, /state\.setupStatus === "connected" && state\.connected && Boolean\(state\.lastSyncAt\)/);
   assert.match(dashboardSource, /onboardingComplete \? await getRecentAshbyScreens/);
+  assert.match(dashboardSource, /canManageAshbyOnboarding/);
+  assert.match(dashboardSource, /canManageSetup=\{canManageSetup\}/);
   assert.match(wizardSource, /\/api\/ashby\/onboarding\/api-key/);
   assert.match(wizardSource, /\/api\/ashby\/onboarding\/jobs/);
   assert.match(wizardSource, /\/api\/ashby\/onboarding\/sync/);
@@ -92,7 +131,21 @@ test("dashboard uses the Ashby onboarding wizard for non-connected companies", (
   assert.match(wizardSource, /hasVerifiedWebhook/);
   assert.match(wizardSource, /Check webhook connection/);
   assert.match(wizardSource, /Sync active candidates/);
+  assert.match(wizardSource, /canManageSetup/);
+  assert.match(wizardSource, /Ask a workspace admin or owner to finish Ashby setup\./);
   assert.doesNotMatch(wizardSource, /state\.setupStatus\.replaceAll/);
+});
+
+test("wizard hides setup controls from non-admin users before rendering setup actions", () => {
+  const guardIndex = wizardSource.indexOf("if (!canManageSetup)");
+  const apiKeyControlIndex = wizardSource.indexOf("<input");
+  const syncControlIndex = wizardSource.indexOf("Sync active candidates");
+
+  assert.notEqual(guardIndex, -1);
+  assert.notEqual(apiKeyControlIndex, -1);
+  assert.notEqual(syncControlIndex, -1);
+  assert.ok(guardIndex < apiKeyControlIndex);
+  assert.ok(guardIndex < syncControlIndex);
 });
 
 test("wizard clears submitted Ashby API keys before awaiting validation", () => {

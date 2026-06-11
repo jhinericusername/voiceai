@@ -1341,6 +1341,12 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_ALLOWED_AUTH_DOMAINS: this.cfg.platform.allowedAuthDomains,
       PUDDLE_BACKEND_BASE_URL: `http://${backendDeployment.loadBalancer.loadBalancerDnsName}`,
       PUDDLE_DEFAULT_SCRIPT_VERSION: this.cfg.platform.defaultScriptVersion,
+      ...(this.cfg.platform.ashbyOnboardingAdminEmails
+        ? {
+            PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS:
+              this.cfg.platform.ashbyOnboardingAdminEmails,
+          }
+        : {}),
     };
     const containerSecrets = {
       WORKOS_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.workosApiKey),

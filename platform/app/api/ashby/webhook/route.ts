@@ -25,11 +25,8 @@ export async function POST(request: Request) {
 
   const responsePayload = await backendResponse.json().catch(() => ({}));
   if (!backendResponse.ok) {
-    return NextResponse.json(
-      { error: responsePayload.error ?? "Ashby webhook was rejected." },
-      { status: backendResponse.status },
-    );
+    return NextResponse.json({ error: "Ashby webhook was rejected." }, { status: 400 });
   }
 
-  return NextResponse.json(responsePayload, { status: backendResponse.status });
+  return NextResponse.json(responsePayload);
 }

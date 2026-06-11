@@ -19,9 +19,23 @@ The CDK stack also emits this secret name as the
 
 The platform does not need `PUDDLE_ASHBY_WEBHOOK_SECRET`.
 
+Ashby setup actions require a privileged WorkOS role or permission. When
+WorkOS roles and permissions are not configured yet, set the bootstrap fallback
+below to a comma-separated list of exact admin email addresses:
+
+```text
+PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS=admin@example.com,owner@example.com
+```
+
+For CDK platform container deployments, provide the same value with the
+`platformAshbyOnboardingAdminEmails` context key so the platform task receives
+`PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS`.
+
 ## Customer setup
 
-1. Sign in to `/dashboard` with an allowed company email domain.
+1. Sign in to `/dashboard` with an allowed company email domain. The signed-in
+   user must be a workspace admin/owner, have an Ashby setup permission, or be
+   listed in `PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS`.
 2. Paste an Ashby API key.
 3. Select one or more Ashby jobs.
 4. Copy the generated webhook URL and webhook secret shown after saving jobs.

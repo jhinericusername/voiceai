@@ -605,6 +605,41 @@ describe('InfraStack', () => {
       ]),
     });
   });
+
+  test('injects Ashby onboarding admin bootstrap emails into platform tasks when configured', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'backend-test',
+      },
+      platform: {
+        ...defaultConfig().platform,
+        hosting: 'container',
+        imageTag: 'platform-test',
+        ashbyOnboardingAdminEmails: 'admin@usepuddle.com,owner@usepuddle.com',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'platform',
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS',
+              Value: 'admin@usepuddle.com,owner@usepuddle.com',
+            }),
+          ]),
+        }),
+      ]),
+    });
+  });
 });
 
 function createStack(overrides: Partial<PuddleEnvConfig> = {}): InfraStack {

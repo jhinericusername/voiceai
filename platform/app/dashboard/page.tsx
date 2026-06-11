@@ -3,6 +3,7 @@ import {
   getAshbyCompanyState,
   getRecentAshbyScreens,
 } from "@/lib/ashby/server";
+import { canManageAshbyOnboarding } from "@/lib/auth/ashby-onboarding-admin";
 import { AshbyOnboardingWizard } from "./AshbyOnboardingWizard";
 import { RecentScreensTable } from "./DashboardSections";
 import { requireDashboardUser } from "./auth";
@@ -10,10 +11,12 @@ import { requireDashboardUser } from "./auth";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const { user, organizationId } = await requireDashboardUser();
+  const session = await requireDashboardUser();
+  const { user, organizationId } = session;
   const identity = companyIdentityFromUser({ email: user.email, organizationId });
   const state = await getAshbyCompanyState(identity);
-  const onboardingComplete = state.connected && Boolean(state.lastSyncAt);
+  const onboardingComplete = state.setupStatus === "connected" && state.connected && Boolean(state.lastSyncAt);
+  const canManageSetup = canManageAshbyOnboarding(session);
   const screens = onboardingComplete ? await getRecentAshbyScreens(identity) : [];
 
   return (
@@ -30,7 +33,7 @@ export default async function DashboardPage() {
       {onboardingComplete ? (
         <RecentScreensTable screens={screens} />
       ) : (
-        <AshbyOnboardingWizard state={state} />
+        <AshbyOnboardingWizard state={state} canManageSetup={canManageSetup} />
       )}
     </div>
   );

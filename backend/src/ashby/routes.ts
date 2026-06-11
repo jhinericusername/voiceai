@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { getPool } from "../db/pool.js";
 import {
   decryptIntegrationSecret,
@@ -24,6 +24,7 @@ import {
   recentScreensStatement,
   scoreUpsertStatement,
   searchActiveApplicationsStatement,
+  staleActiveApplicationsStatement,
   webhookEventInsertStatement,
   webhookEventProcessedStatement,
 } from "./repository.js";
@@ -167,6 +168,31 @@ function integrationIdFrom(row: IntegrationRow | undefined): string | null {
   return stringValue(row?.integration_id);
 }
 
+function integrationSetupStatus(row: IntegrationRow | undefined): string {
+  return stringValue(row?.setup_status) ?? "job_selection_pending";
+}
+
+function integrationHasWebhookSecret(row: IntegrationRow | undefined): boolean {
+  return Boolean(stringValue(row?.ashby_webhook_secret_ciphertext));
+}
+
+function integrationReadyForSync(row: IntegrationRow | undefined): boolean {
+  return (
+    integrationSetupStatus(row) === "connected" &&
+    Boolean(row?.connected_at) &&
+    Boolean(row?.last_ping_at) &&
+    integrationHasWebhookSecret(row)
+  );
+}
+
+function integrationReadyForUse(row: IntegrationRow | undefined): boolean {
+  return integrationReadyForSync(row) && Boolean(row?.last_sync_at);
+}
+
+function incompleteSetup(reply: FastifyReply) {
+  return reply.code(409).send({ error: "Ashby integration setup is not complete" });
+}
+
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -259,6 +285,11 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
           SetupRow & { readonly ashby_webhook_secret_ciphertext?: unknown }
         >(upsert.sql, [...upsert.params]);
         rows = result.rows;
+        const integrationId = stringValue(rows[0]?.integration_id);
+        if (integrationId) {
+          const stale = staleActiveApplicationsStatement(integrationId);
+          await client.query(stale.sql, [...stale.params]);
+        }
         await client.query("COMMIT");
         committed = true;
       } catch (error) {
@@ -324,6 +355,10 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       });
       const { rows } = await getPool().query<IntegrationRow>(update.sql, [...update.params]);
       const updated = rows[0];
+      if (updated) {
+        const stale = staleActiveApplicationsStatement(integrationId);
+        await getPool().query(stale.sql, [...stale.params]);
+      }
       const encryptedWebhookSecret = stringValue(updated?.ashby_webhook_secret_ciphertext);
       if (!encryptedWebhookSecret) {
         return reply.code(500).send({ error: "Ashby webhook secret is not configured" });
@@ -373,6 +408,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return reply.code(500).send({ error: "Ashby integration setup did not return an integration id" });
     }
 
+    const stale = staleActiveApplicationsStatement(integrationId);
+    await getPool().query(stale.sql, [...stale.params]);
+
     return reply.code(201).send({
       integrationId,
       emailDomain: identity.emailDomain,
@@ -388,14 +426,16 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
 
     const integration = await integrationForIdentity(identity);
     const integrationId = integrationIdFrom(integration);
+    const hasWebhookSecret = integrationHasWebhookSecret(integration);
+    const connected = integrationReadyForSync(integration);
     return reply.send({
-      connected: Boolean(integration?.connected_at),
-      setupStatus: stringValue(integration?.setup_status) ?? "job_selection_pending",
+      connected,
+      setupStatus: hasWebhookSecret ? integrationSetupStatus(integration) : "job_selection_pending",
       integrationId,
       emailDomain: stringValue(integration?.email_domain) ?? identity.emailDomain,
       selectedJobIds: stringArray(integration?.selected_job_ids),
-      lastPingAt: integration?.last_ping_at ?? null,
-      lastSyncAt: integration?.last_sync_at ?? null,
+      lastPingAt: connected ? (integration?.last_ping_at ?? null) : null,
+      lastSyncAt: connected ? (integration?.last_sync_at ?? null) : null,
       webhookUrlPath: integrationId
         ? `/api/ashby/webhook?integrationId=${encodeURIComponent(integrationId)}`
         : null,
@@ -413,35 +453,36 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return reply.code(404).send({ error: "Ashby integration is not configured" });
     }
 
-    let payload: AshbyWebhookPayload | null = null;
     const rawBody = typeof envelope?.rawBody === "string" ? envelope.rawBody : null;
-    if (rawBody !== null) {
-      const encryptedWebhookSecret = stringValue(integration?.ashby_webhook_secret_ciphertext);
-      if (!encryptedWebhookSecret) {
-        return reply.code(404).send({ error: "Ashby webhook secret is not configured" });
-      }
+    const signature = stringValue(envelope?.signature);
+    if (rawBody === null || !signature) {
+      return reply.code(401).send({ error: "invalid webhook signature" });
+    }
 
-      const webhookSecret = decryptIntegrationSecret(
-        encryptedWebhookSecret,
-        integrationSecretKeyFromEnv(),
-      );
-      if (
-        !verifyAshbyWebhookSignature({
-          body: rawBody,
-          secret: webhookSecret,
-          signature: stringValue(envelope?.signature),
-        })
-      ) {
-        return reply.code(401).send({ error: "invalid webhook signature" });
-      }
+    const encryptedWebhookSecret = stringValue(integration?.ashby_webhook_secret_ciphertext);
+    if (!encryptedWebhookSecret) {
+      return reply.code(404).send({ error: "Ashby webhook secret is not configured" });
+    }
 
-      try {
-        payload = JSON.parse(rawBody) as AshbyWebhookPayload;
-      } catch {
-        return reply.code(400).send({ error: "invalid Ashby webhook json" });
-      }
-    } else {
-      payload = objectValue(envelope?.payload) as AshbyWebhookPayload | null;
+    const webhookSecret = decryptIntegrationSecret(
+      encryptedWebhookSecret,
+      integrationSecretKeyFromEnv(),
+    );
+    if (
+      !verifyAshbyWebhookSignature({
+        body: rawBody,
+        secret: webhookSecret,
+        signature,
+      })
+    ) {
+      return reply.code(401).send({ error: "invalid webhook signature" });
+    }
+
+    let payload: AshbyWebhookPayload | null = null;
+    try {
+      payload = JSON.parse(rawBody) as AshbyWebhookPayload;
+    } catch {
+      return reply.code(400).send({ error: "invalid Ashby webhook json" });
     }
 
     const action = stringValue(payload?.action);
@@ -519,7 +560,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         return reply.code(404).send({ error: "Ashby integration is not configured" });
       }
 
-      if (!integration?.connected_at) {
+      if (!integrationReadyForSync(integration)) {
         return reply.code(409).send({ error: "Ashby webhook ping has not been verified" });
       }
 
@@ -529,8 +570,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       ]);
       const configuredIntegration = secretResult.rows[0];
       const encryptedApiKey = stringValue(configuredIntegration?.ashby_api_key_ciphertext);
+      const encryptedWebhookSecret = stringValue(configuredIntegration?.ashby_webhook_secret_ciphertext);
       const jobIds = stringArray(configuredIntegration?.selected_job_ids);
-      if (!encryptedApiKey || jobIds.length === 0) {
+      if (!encryptedApiKey || !encryptedWebhookSecret || jobIds.length === 0) {
         return reply.code(404).send({ error: "Ashby integration is not configured" });
       }
 
@@ -562,6 +604,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const integrationId = integrationIdFrom(integration);
     if (!integrationId) {
       return reply.code(404).send({ error: "Ashby integration is not configured" });
+    }
+    if (!integrationReadyForUse(integration)) {
+      return incompleteSetup(reply);
     }
 
     const stmt = searchActiveApplicationsStatement({
@@ -602,6 +647,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     if (!integrationId) {
       return reply.code(404).send({ error: "Ashby integration is not configured" });
     }
+    if (!integrationReadyForUse(integration)) {
+      return incompleteSetup(reply);
+    }
 
     const stmt = scoreUpsertStatement({
       integrationId,
@@ -631,6 +679,9 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const integrationId = integrationIdFrom(integration);
     if (!integrationId) {
       return reply.code(404).send({ error: "Ashby integration is not configured" });
+    }
+    if (!integrationReadyForUse(integration)) {
+      return incompleteSetup(reply);
     }
 
     const stmt = recentScreensStatement({

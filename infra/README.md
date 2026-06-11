@@ -87,6 +87,7 @@ platformMemoryMiB=1024
 platformDomainName=app.usepuddle.com
 platformCertificateArn=<acm-certificate-arn>
 platformAllowedAuthDomains=usepuddle.com,workweave.ai
+platformAshbyOnboardingAdminEmails=admin@example.com,owner@example.com
 platformDefaultScriptVersion=pilot-v1
 
 useExternalDatabase=false

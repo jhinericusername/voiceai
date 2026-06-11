@@ -72,6 +72,7 @@ describe("Ashby backend routes", () => {
           integration_id: "int_1",
           email_domain: "usepuddle.com",
           selected_job_ids: ["job_1", "job_2"],
+          ashby_webhook_secret_ciphertext: "encrypted-webhook",
           connected_at: "2026-06-10T14:00:00.000Z",
           last_ping_at: "2026-06-10T14:05:00.000Z",
           last_sync_at: "2026-06-10T14:10:00.000Z",
@@ -106,6 +107,44 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("does not report migrated connected integrations complete when webhook secret is missing", async () => {
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          email_domain: "usepuddle.com",
+          selected_job_ids: ["job_1"],
+          ashby_webhook_secret_ciphertext: null,
+          connected_at: "2026-06-10T14:00:00.000Z",
+          last_ping_at: "2026-06-10T14:05:00.000Z",
+          last_sync_at: "2026-06-10T14:10:00.000Z",
+          setup_status: "connected",
+        },
+      ],
+      rowCount: 1,
+    });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/company-state",
+        headers: { "content-type": "application/json" },
+        payload: { emailDomain: "usepuddle.com", organizationId: null },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        connected: false,
+        setupStatus: "job_selection_pending",
+        lastPingAt: null,
+        lastSyncAt: null,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns non-connected Ashby company-state defaults when no integration exists", async () => {
     queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
@@ -134,7 +173,7 @@ describe("Ashby backend routes", () => {
     }
   });
 
-  it("rejects malformed webhook payloads after resolving the integration", async () => {
+  it("rejects webhook envelopes without signed raw bodies after resolving the integration", async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ integration_id: "int_1" }], rowCount: 1 });
 
     const app = buildServer(FAKE_LK);
@@ -146,8 +185,31 @@ describe("Ashby backend routes", () => {
         payload: { integrationId: "int_1", payload: { data: {} } },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(401);
       expect(queryMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects parsed-only ping payloads without marking setup connected", async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ integration_id: "int_1" }], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/webhook",
+        headers: { "content-type": "application/json" },
+        payload: {
+          integrationId: "int_1",
+          payload: { action: "ping", data: { webhookId: "hook_1" } },
+        },
+      });
+
+      expect(res.statusCode).toBe(401);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(String(queryMock.mock.calls[0]?.[0])).not.toContain("setup_status = 'connected'");
     } finally {
       await app.close();
     }
@@ -406,11 +468,14 @@ describe("Ashby backend routes", () => {
       expect(JSON.stringify(res.json())).not.toContain("ashby-secret");
       expect(connectMock).toHaveBeenCalledTimes(1);
       expect(queryMock).not.toHaveBeenCalled();
-      expect(clientQueryMock).toHaveBeenCalledTimes(4);
+      expect(clientQueryMock).toHaveBeenCalledTimes(5);
       expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
       expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("pg_advisory_xact_lock");
       expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("ashby_api_key_ciphertext");
-      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("COMMIT");
+      expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("UPDATE ashby_applications");
+      expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("status = $2");
+      expect(clientQueryMock.mock.calls[3]?.[1]).toEqual(["int_1", "Stale"]);
+      expect(clientQueryMock.mock.calls[4]?.[0]).toBe("COMMIT");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
       global.fetch = previousFetch;
@@ -560,6 +625,46 @@ describe("Ashby backend routes", () => {
           "candidateHire",
         ],
       });
+      expect(queryMock).toHaveBeenCalledTimes(3);
+      expect(String(queryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
+      expect(queryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("stores legacy setup values and marks stale active applications during reconfiguration", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [{ integration_id: "int_1", identity_conflict: false }],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/setup",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_123",
+          emailDomain: "usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+          selectedJobIds: ["job_1"],
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toEqual({
+        integrationId: "int_1",
+        emailDomain: "usepuddle.com",
+        selectedJobIds: ["job_1"],
+      });
+      expect(queryMock).toHaveBeenCalledTimes(2);
+      expect(String(queryMock.mock.calls[1]?.[0])).toContain("UPDATE ashby_applications");
+      expect(queryMock.mock.calls[1]?.[1]).toEqual(["int_1", "Stale"]);
     } finally {
       await app.close();
     }
@@ -652,7 +757,18 @@ describe("Ashby backend routes", () => {
     ) as unknown as typeof fetch;
     queryMock
       .mockResolvedValueOnce({
-        rows: [{ integration_id: "int_1", connected_at: "2026-06-10T14:05:00.000Z" }],
+        rows: [
+          {
+            integration_id: "int_1",
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+              "webhook-secret",
+              "test-secret",
+            ),
+          },
+        ],
         rowCount: 1,
       })
       .mockResolvedValueOnce({
@@ -660,6 +776,7 @@ describe("Ashby backend routes", () => {
           {
             integration_id: "int_1",
             ashby_api_key_ciphertext: encryptIntegrationSecret("ashby-key", "test-secret"),
+            ashby_webhook_secret_ciphertext: encryptIntegrationSecret("webhook-secret", "test-secret"),
             selected_job_ids: ["job_1"],
           },
         ],
@@ -723,6 +840,168 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("rejects active application sync when a migrated row is missing the webhook secret", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ success: true, results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          connected_at: "2026-06-10T14:05:00.000Z",
+          last_ping_at: "2026-06-10T14:05:00.000Z",
+          setup_status: "connected",
+          ashby_webhook_secret_ciphertext: null,
+        },
+      ],
+      rowCount: 1,
+    });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/sync-active-applications",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+        },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toContain("webhook ping");
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(global.fetch).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("rejects application search until the integration is connected, verified, synced, and has a webhook secret", async () => {
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            last_sync_at: null,
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [{ application_id: "app_1" }], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/applications/search",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+          query: "maya",
+        },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toContain("setup is not complete");
+      expect(queryMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects score writes while an integration is pending reconfiguration", async () => {
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            connected_at: null,
+            last_ping_at: null,
+            last_sync_at: null,
+            setup_status: "pending_webhook",
+            ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [{ score_id: "score_1", total_score: 12 }], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/scores",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          applicationId: "app_1",
+          roleId: "role_1",
+          reviewerEmail: "reviewer@usepuddle.com",
+          problemSolving: 3,
+          agency: 3,
+          competitiveness: 3,
+          curiosity: 3,
+        },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toContain("setup is not complete");
+      expect(queryMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects recent screens until the integration is fully synced and has a webhook secret", async () => {
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            last_sync_at: "2026-06-10T14:10:00.000Z",
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: null,
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [{ score_id: "score_1" }], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/recent-screens",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+        },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toContain("setup is not complete");
+      expect(queryMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("rejects webhooks when the integration cannot be resolved", async () => {
     queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
@@ -779,8 +1058,26 @@ describe("Ashby backend routes", () => {
   });
 
   it("reprocesses duplicate webhook events that have not been marked processed", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const rawBody = JSON.stringify({
+      webhookActionId: "action_1",
+      action: "applicationUpdate",
+      data: {},
+    });
+    const signature = `sha256=${ashbyWebhookDigest(rawBody, "webhook-secret")}`;
     queryMock
-      .mockResolvedValueOnce({ rows: [{ integration_id: "int_1" }], rowCount: 1 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+              "webhook-secret",
+              "test-secret",
+            ),
+          },
+        ],
+        rowCount: 1,
+      })
       .mockResolvedValueOnce({
         rows: [{ inserted: false, processed_at: null }],
         rowCount: 1,
@@ -795,11 +1092,8 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           integrationId: "int_1",
-          payload: {
-            webhookActionId: "action_1",
-            action: "applicationUpdate",
-            data: {},
-          },
+          rawBody,
+          signature,
         },
       });
 

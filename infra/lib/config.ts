@@ -44,6 +44,7 @@ export interface PuddleEnvConfig {
     domainName?: string;
     certificateArn?: string;
     allowedAuthDomains: string;
+    ashbyOnboardingAdminEmails?: string;
     defaultScriptVersion: string;
   };
   database: {
@@ -146,6 +147,10 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
       allowedAuthDomains:
         readStringContext(app, 'platformAllowedAuthDomains') ??
         'usepuddle.com,workweave.ai',
+      ashbyOnboardingAdminEmails: readStringContext(
+        app,
+        'platformAshbyOnboardingAdminEmails',
+      ),
       defaultScriptVersion:
         readStringContext(app, 'platformDefaultScriptVersion') ?? 'pilot-v1',
     },

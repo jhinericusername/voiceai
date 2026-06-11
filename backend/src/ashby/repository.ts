@@ -60,7 +60,8 @@ export function integrationSetupUpsertStatement(input: {
       "), updated AS (" +
       "UPDATE ashby_company_integrations SET " +
       "organization_id = COALESCE($2, organization_id), email_domain = $3, " +
-      "ashby_api_key_ciphertext = $4, selected_job_ids = $5, updated_at = now() " +
+      "ashby_api_key_ciphertext = $4, selected_job_ids = $5, setup_status = 'pending_webhook', " +
+      "connected_at = NULL, last_ping_at = NULL, last_sync_at = NULL, updated_at = now() " +
       "WHERE integration_id = (SELECT integration_id FROM target) " +
       "AND NOT (SELECT has_conflict FROM identity_conflict) " +
       "RETURNING integration_id, false AS identity_conflict" +
@@ -123,7 +124,8 @@ export function integrationApiKeyUpsertStatement(input: {
       "organization_id = COALESCE(organization_id, $2), email_domain = $3, " +
       "ashby_api_key_ciphertext = $4, " +
       "ashby_webhook_secret_ciphertext = COALESCE(ashby_webhook_secret_ciphertext, $5), " +
-      "setup_status = $6, updated_by_email = $7, updated_at = now() " +
+      "setup_status = $6, connected_at = NULL, last_ping_at = NULL, last_sync_at = NULL, " +
+      "updated_by_email = $7, updated_at = now() " +
       "WHERE integration_id = (SELECT integration_id FROM target) " +
       "AND NOT (SELECT has_conflict FROM identity_conflict) " +
       "RETURNING integration_id, ashby_webhook_secret_ciphertext, false AS identity_conflict" +
@@ -158,6 +160,7 @@ export function integrationJobsUpdateStatement(input: {
   return {
     sql:
       "UPDATE ashby_company_integrations SET selected_job_ids = $2, setup_status = 'pending_webhook', " +
+      "connected_at = NULL, last_ping_at = NULL, last_sync_at = NULL, " +
       "updated_by_email = $3, updated_at = now() WHERE integration_id = $1 " +
       "RETURNING integration_id, email_domain, ashby_webhook_secret_ciphertext, selected_job_ids",
     params: [input.integrationId, [...input.selectedJobIds], input.reviewerEmail],
@@ -253,6 +256,15 @@ export function inactiveCandidateApplicationsStatement(input: {
       "UPDATE ashby_applications SET status = $3, updated_at = now() " +
       "WHERE integration_id = $1 AND candidate_id = $2",
     params: [input.integrationId, input.candidateId, input.status],
+  };
+}
+
+export function staleActiveApplicationsStatement(integrationId: string): SqlStatement {
+  return {
+    sql:
+      "UPDATE ashby_applications SET status = $2, updated_at = now() " +
+      "WHERE integration_id = $1 AND status = 'Active'",
+    params: [integrationId, "Stale"],
   };
 }
 

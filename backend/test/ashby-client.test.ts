@@ -167,6 +167,80 @@ describe("Ashby API client", () => {
     ]);
   });
 
+  it("throws when Ashby application.list repeats a pagination cursor", async () => {
+    const bodies: unknown[] = [];
+    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      if (bodies.length > 2) {
+        throw new Error("test detected repeated application cursor loop");
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: [
+            {
+              id: `app_${bodies.length}`,
+              candidate: { id: `cand_${bodies.length}`, name: `Candidate ${bodies.length}` },
+              jobId: "job_1",
+            },
+          ],
+          moreDataAvailable: true,
+          nextCursor: "repeated_cursor",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await expect(
+      listActiveApplicationsForJob({
+        apiKey: "ashby-key",
+        integrationId: "int_1",
+        jobId: "job_1",
+        fetchImpl: fakeFetch as typeof fetch,
+      }),
+    ).rejects.toThrow("Ashby application.list pagination repeated cursor");
+    expect(bodies).toEqual([
+      { jobId: "job_1", status: "Active" },
+      { jobId: "job_1", status: "Active", cursor: "repeated_cursor" },
+    ]);
+  });
+
+  it("throws when Ashby application.list exceeds the pagination safety limit", async () => {
+    let page = 0;
+    const fakeFetch = async () => {
+      page += 1;
+      if (page > 105) {
+        throw new Error("test detected unbounded application.list pagination");
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: [
+            {
+              id: "app_1",
+              candidate: { id: "cand_1", name: "Maya Chen" },
+              jobId: "job_1",
+            },
+          ],
+          moreDataAvailable: true,
+          nextCursor: `cursor_${page}`,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await expect(
+      listActiveApplicationsForJob({
+        apiKey: "ashby-key",
+        integrationId: "int_1",
+        jobId: "job_1",
+        fetchImpl: fakeFetch as typeof fetch,
+      }),
+    ).rejects.toThrow("Ashby application.list exceeded maximum pagination limit");
+  });
+
   it("ignores malformed records returned from Ashby", async () => {
     const fakeFetch = async () =>
       new Response(
@@ -227,7 +301,7 @@ describe("Ashby API client", () => {
     ).rejects.toThrow("Ashby application.list failed: Invalid API key");
   });
 
-  it("lists jobs with the Ashby API key for onboarding", async () => {
+  it("lists only open jobs with the Ashby API key for onboarding", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       calls.push({ url, init });
@@ -245,17 +319,100 @@ describe("Ashby API client", () => {
 
     await expect(listJobs({ apiKey: "ashby-key", fetchImpl })).resolves.toEqual([
       { id: "job_1", name: "Founding Engineer", status: "Open" },
-      { id: "job_2", name: "Designer", status: "Closed" },
     ]);
 
     expect(calls[0]?.url).toBe("https://api.ashbyhq.com/job.list");
     expect(calls[0]?.init.method).toBe("POST");
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({});
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ status: "Open" });
     expect(calls[0]?.init.headers).toMatchObject({
       accept: "application/json; version=1",
       authorization: `Basic ${Buffer.from("ashby-key:").toString("base64")}`,
       "content-type": "application/json",
     });
+  });
+
+  it("paginates through Ashby job.list and filters closed or archived jobs", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      const isFirstPage = bodies.length === 1;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: isFirstPage
+            ? [
+                { id: "job_1", name: "Founding Engineer", status: "Open" },
+                { id: "job_2", name: "Designer", status: "Closed" },
+              ]
+            : [
+                { id: "job_3", title: "Product Engineer", status: "open" },
+                { id: "job_4", name: "Archived Role", status: "Archived" },
+              ],
+          moreDataAvailable: isFirstPage,
+          nextCursor: isFirstPage ? "cursor_2" : null,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(listJobs({ apiKey: "ashby-key", fetchImpl })).resolves.toEqual([
+      { id: "job_1", name: "Founding Engineer", status: "Open" },
+      { id: "job_3", name: "Product Engineer", status: "open" },
+    ]);
+
+    expect(bodies).toEqual([{ status: "Open" }, { status: "Open", cursor: "cursor_2" }]);
+  });
+
+  it("throws when Ashby job.list repeats a pagination cursor", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      if (bodies.length > 2) {
+        throw new Error("test detected repeated cursor loop");
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: `job_${bodies.length}`, name: `Role ${bodies.length}`, status: "Open" }],
+          moreDataAvailable: true,
+          nextCursor: "repeated_cursor",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(listJobs({ apiKey: "ashby-key", fetchImpl })).rejects.toThrow(
+      "Ashby job.list pagination repeated cursor",
+    );
+    expect(bodies).toEqual([
+      { status: "Open" },
+      { status: "Open", cursor: "repeated_cursor" },
+    ]);
+  });
+
+  it("throws when Ashby job.list exceeds the pagination safety limit", async () => {
+    let page = 0;
+    const fetchImpl = vi.fn(async () => {
+      page += 1;
+      if (page > 105) {
+        throw new Error("test detected unbounded job.list pagination");
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
+          moreDataAvailable: true,
+          nextCursor: `cursor_${page}`,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(listJobs({ apiKey: "ashby-key", fetchImpl })).rejects.toThrow(
+      "Ashby job.list exceeded maximum pagination limit",
+    );
   });
 
   it("throws when Ashby job.list returns a non-OK response", async () => {

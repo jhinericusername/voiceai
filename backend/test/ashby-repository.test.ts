@@ -16,6 +16,7 @@ import {
   recentScreensStatement,
   scoreUpsertStatement,
   searchActiveApplicationsStatement,
+  staleActiveApplicationsStatement,
   webhookEventProcessedStatement,
   webhookEventInsertStatement,
 } from "../src/ashby/repository.js";
@@ -57,6 +58,10 @@ describe("Ashby repository statements", () => {
     expect(stmt.sql).toContain("UPDATE ashby_company_integrations");
     expect(stmt.sql).toContain("FOR UPDATE");
     expect(stmt.sql).toContain("identity_conflict");
+    expect(stmt.sql).toContain("setup_status = 'pending_webhook'");
+    expect(stmt.sql).toContain("connected_at = NULL");
+    expect(stmt.sql).toContain("last_ping_at = NULL");
+    expect(stmt.sql).toContain("last_sync_at = NULL");
     expect(stmt.params).toEqual(["int_1", "org_123", "usepuddle.com", "v1:encrypted", ["job_1"]]);
   });
 
@@ -94,6 +99,9 @@ describe("Ashby repository statements", () => {
     expect(stmt.sql).toContain("organization_id <> $2");
     expect(stmt.sql).toContain("ashby_webhook_secret_ciphertext = COALESCE(ashby_webhook_secret_ciphertext, $5)");
     expect(stmt.sql).toContain("organization_id = COALESCE(organization_id, $2)");
+    expect(stmt.sql).toContain("connected_at = NULL");
+    expect(stmt.sql).toContain("last_ping_at = NULL");
+    expect(stmt.sql).toContain("last_sync_at = NULL");
     expect(stmt.params).toEqual([
       expect.any(String),
       "org_1",
@@ -132,12 +140,24 @@ describe("Ashby repository statements", () => {
     });
     expect(update.sql).toContain("selected_job_ids = $2");
     expect(update.sql).toContain("setup_status = 'pending_webhook'");
+    expect(update.sql).toContain("connected_at = NULL");
+    expect(update.sql).toContain("last_ping_at = NULL");
+    expect(update.sql).toContain("last_sync_at = NULL");
     expect(update.params).toEqual(["int_1", ["job_1", "job_2"], "admin@usepuddle.com"]);
 
     const lookup = integrationSecretLookupStatement("int_1");
     expect(lookup.sql).toContain("ashby_api_key_ciphertext");
     expect(lookup.sql).toContain("ashby_webhook_secret_ciphertext");
     expect(lookup.params).toEqual(["int_1"]);
+  });
+
+  it("builds stale active applications update for reconfiguration", () => {
+    const stmt = staleActiveApplicationsStatement("int_1");
+
+    expect(stmt.sql).toContain("UPDATE ashby_applications");
+    expect(stmt.sql).toContain("status = $2");
+    expect(stmt.sql).toContain("WHERE integration_id = $1 AND status = 'Active'");
+    expect(stmt.params).toEqual(["int_1", "Stale"]);
   });
 
   it("builds sync timestamp and connected status updates", () => {

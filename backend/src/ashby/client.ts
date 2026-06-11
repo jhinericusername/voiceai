@@ -1,6 +1,8 @@
 import type { AshbyJob, SyncedAshbyApplication } from "./types.js";
 
 const ASHBY_API_BASE_URL = "https://api.ashbyhq.com";
+const ASHBY_JOB_LIST_MAX_PAGES = 100;
+const ASHBY_APPLICATION_LIST_MAX_PAGES = 100;
 
 interface AshbyListResponse {
   readonly success?: boolean;
@@ -84,33 +86,66 @@ function jobFromAshby(value: Record<string, unknown>): AshbyJob | null {
   };
 }
 
+function isOpenJob(job: AshbyJob): boolean {
+  return job.status?.trim().toLowerCase() === "open";
+}
+
 export async function listJobs(input: {
   readonly apiKey: string;
   readonly fetchImpl?: typeof fetch;
 }): Promise<AshbyJob[]> {
   const fetchImpl = input.fetchImpl ?? fetch;
-  const response = await fetchImpl(`${ASHBY_API_BASE_URL}/job.list`, {
-    method: "POST",
-    headers: {
-      accept: "application/json; version=1",
-      authorization: authHeader(input.apiKey),
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({}),
-  });
+  const jobs: AshbyJob[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+  let pageCount = 0;
 
-  if (!response.ok) {
-    throw new Error(`Ashby job.list failed with ${response.status}`);
-  }
+  do {
+    pageCount += 1;
+    if (pageCount > ASHBY_JOB_LIST_MAX_PAGES) {
+      throw new Error("Ashby job.list exceeded maximum pagination limit");
+    }
 
-  const payload = (await response.json()) as AshbyListResponse;
-  if (payload.success === false) {
-    throw new Error(`Ashby job.list failed: ${ashbyErrorMessage(payload)}`);
-  }
+    const response = await fetchImpl(`${ASHBY_API_BASE_URL}/job.list`, {
+      method: "POST",
+      headers: {
+        accept: "application/json; version=1",
+        authorization: authHeader(input.apiKey),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        status: "Open",
+        ...(cursor ? { cursor } : {}),
+      }),
+    });
 
-  return (payload.results ?? [])
-    .map(jobFromAshby)
-    .filter((job): job is AshbyJob => job !== null);
+    if (!response.ok) {
+      throw new Error(`Ashby job.list failed with ${response.status}`);
+    }
+
+    const payload = (await response.json()) as AshbyListResponse;
+    if (payload.success === false) {
+      throw new Error(`Ashby job.list failed: ${ashbyErrorMessage(payload)}`);
+    }
+
+    for (const result of payload.results ?? []) {
+      const job = jobFromAshby(result);
+      if (job && isOpenJob(job)) {
+        jobs.push(job);
+      }
+    }
+
+    const nextCursor = payload.moreDataAvailable && payload.nextCursor ? payload.nextCursor : null;
+    if (nextCursor && seenCursors.has(nextCursor)) {
+      throw new Error("Ashby job.list pagination repeated cursor");
+    }
+    if (nextCursor) {
+      seenCursors.add(nextCursor);
+    }
+    cursor = nextCursor;
+  } while (cursor);
+
+  return jobs;
 }
 
 export async function listActiveApplicationsForJob(input: {
@@ -121,9 +156,16 @@ export async function listActiveApplicationsForJob(input: {
 }): Promise<SyncedAshbyApplication[]> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const applications: SyncedAshbyApplication[] = [];
+  const seenCursors = new Set<string>();
   let cursor: string | null = null;
+  let pageCount = 0;
 
   do {
+    pageCount += 1;
+    if (pageCount > ASHBY_APPLICATION_LIST_MAX_PAGES) {
+      throw new Error("Ashby application.list exceeded maximum pagination limit");
+    }
+
     const response = await fetchImpl(`${ASHBY_API_BASE_URL}/application.list`, {
       method: "POST",
       headers: {
@@ -157,7 +199,14 @@ export async function listActiveApplicationsForJob(input: {
       }
     }
 
-    cursor = payload.moreDataAvailable && payload.nextCursor ? payload.nextCursor : null;
+    const nextCursor = payload.moreDataAvailable && payload.nextCursor ? payload.nextCursor : null;
+    if (nextCursor && seenCursors.has(nextCursor)) {
+      throw new Error("Ashby application.list pagination repeated cursor");
+    }
+    if (nextCursor) {
+      seenCursors.add(nextCursor);
+    }
+    cursor = nextCursor;
   } while (cursor);
 
   return applications;

@@ -48,4 +48,23 @@ describe("database migrations", () => {
     );
     expect(migration).toContain("ELSE 'pending_webhook'");
   });
+
+  it("keeps Ashby onboarding hardening after self-serve onboarding and repairs migrated connected rows without webhook secrets", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const selfServeIndex = files.indexOf("007_ashby_self_serve_onboarding.sql");
+    const hardeningIndex = files.indexOf("008_ashby_onboarding_hardening.sql");
+
+    expect(selfServeIndex).toBeGreaterThanOrEqual(0);
+    expect(hardeningIndex).toBeGreaterThan(selfServeIndex);
+
+    const migration = readFileSync(join(migrationsDir, "008_ashby_onboarding_hardening.sql"), "utf-8");
+    expect(migration).toContain("ashby_webhook_secret_ciphertext IS NULL");
+    expect(migration).toContain("setup_status = 'job_selection_pending'");
+    expect(migration).toContain("connected_at = NULL");
+    expect(migration).toContain("last_ping_at = NULL");
+    expect(migration).toContain("last_sync_at = NULL");
+    expect(migration).toContain("UPDATE ashby_applications");
+    expect(migration).toContain("status = 'Stale'");
+    expect(migration).toContain("status = 'Active'");
+  });
 });
