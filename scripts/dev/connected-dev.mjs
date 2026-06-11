@@ -80,11 +80,14 @@ export function awsArgs(args, options) {
   return full;
 }
 
-export function awsJson(args, options) {
-  const result = spawnSync("aws", awsArgs(args, options), {
+export function awsJson(args, options, { spawnSyncFn = spawnSync } = {}) {
+  const result = spawnSyncFn("aws", awsArgs(args, options), {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
+  if (result.error) {
+    throw new Error(`Failed to start AWS CLI: ${result.error.message}`);
+  }
   if (result.status !== 0) {
     throw new Error(result.stderr.trim() || `aws ${args.join(" ")} failed`);
   }
@@ -142,32 +145,40 @@ export async function assertPortAvailable(port, host = "127.0.0.1") {
   });
 }
 
-export function startAwsTunnel({ args, options, label }) {
-  const child = spawn("aws", awsArgs(args, options), {
+export function startAwsTunnel({ args, options, label, spawnFn = spawn, logger = console }) {
+  const child = spawnFn("aws", awsArgs(args, options), {
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.on("error", (error) => {
+    logger.error(`[${label}] failed to start: ${error.message}`);
   });
   child.stdout.on("data", (chunk) => {
     const text = String(chunk).trim();
-    if (text) console.log(`[${label}] ${text}`);
+    if (text) logger.log(`[${label}] ${text}`);
   });
   child.stderr.on("data", (chunk) => {
     const text = String(chunk).trim();
-    if (text) console.error(`[${label}] ${text}`);
+    if (text) logger.error(`[${label}] ${text}`);
   });
   return child;
 }
 
-export function startProcess(command, args, { cwd, env, label }) {
-  const child = spawn(command, args, {
+export function startProcess(command, args, { cwd, env, label, spawnFn = spawn, logger = console }) {
+  const child = spawnFn(command, args, {
     cwd,
+    detached: true,
     env: { ...process.env, ...env },
     stdio: "inherit",
   });
+  child.on("error", (error) => {
+    logger.error(`[${label}] failed to start: ${error.message}`);
+  });
   child.on("exit", (code, signal) => {
     if (signal) {
-      console.log(`[${label}] exited via ${signal}`);
+      logger.log(`[${label}] exited via ${signal}`);
     } else if (code !== 0) {
-      console.error(`[${label}] exited with code ${code}`);
+      logger.error(`[${label}] exited with code ${code}`);
     }
   });
   return child;
@@ -210,9 +221,7 @@ export function cleanupOnExit(children) {
     if (cleaned) return;
     cleaned = true;
     for (const child of children) {
-      if (!child.killed) {
-        child.kill("SIGTERM");
-      }
+      terminateChild(child);
     }
   };
   process.on("SIGINT", () => {
@@ -225,4 +234,23 @@ export function cleanupOnExit(children) {
   });
   process.on("exit", cleanup);
   return cleanup;
+}
+
+export function terminateChild(child, { killProcessGroup = process.kill } = {}) {
+  if (child.killed) {
+    return;
+  }
+  if (child.pid) {
+    try {
+      killProcessGroup(-child.pid, "SIGTERM");
+      return;
+    } catch (error) {
+      // The process may have already exited; fall back to direct child termination.
+    }
+  }
+  try {
+    child.kill("SIGTERM");
+  } catch (error) {
+    // Cleanup must not throw while handling process exit signals.
+  }
 }
