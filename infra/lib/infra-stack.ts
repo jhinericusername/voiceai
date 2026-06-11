@@ -27,6 +27,7 @@ interface RuntimeSecrets {
   platformAuthSecret: secretsmanager.ISecret;
   workosApiKey: secretsmanager.ISecret;
   workosClientId: secretsmanager.ISecret;
+  integrationEncryptionKey: secretsmanager.ISecret;
   livekitEgressS3Credentials?: secretsmanager.ISecret;
 }
 
@@ -85,6 +86,7 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   platformAuthSecret: 'platform/auth-secret',
   workosApiKey: 'platform/workos-api-key',
   workosClientId: 'platform/workos-client-id',
+  integrationEncryptionKey: 'integrations/encryption-key',
   livekitEgressS3Credentials: 'livekit/egress-s3-credentials',
 };
 
@@ -762,6 +764,11 @@ export class InfraStack extends cdk.Stack {
         RUNTIME_SECRET_PATHS.backendInternalToken,
         removalPolicy,
       ),
+      integrationEncryptionKey: this.createSecret(
+        'IntegrationEncryptionKey',
+        RUNTIME_SECRET_PATHS.integrationEncryptionKey,
+        removalPolicy,
+      ),
       platformAuthSecret: this.createSecret(
         'PlatformAuthSecret',
         RUNTIME_SECRET_PATHS.platformAuthSecret,
@@ -903,6 +910,7 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.livekitApiKey,
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.backendInternalToken,
+      runtimeSecrets.integrationEncryptionKey,
       ...(runtimeSecrets.livekitEgressS3Credentials
         ? [runtimeSecrets.livekitEgressS3Credentials]
         : []),
@@ -1045,6 +1053,9 @@ export class InfraStack extends cdk.Stack {
       ),
       PUDDLE_BACKEND_INTERNAL_TOKEN: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.backendInternalToken,
+      ),
+      PUDDLE_INTEGRATION_SECRET_KEY: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.integrationEncryptionKey,
       ),
       ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
         ? {

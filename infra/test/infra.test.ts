@@ -13,7 +13,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 9);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 10);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
@@ -258,6 +258,72 @@ describe('InfraStack', () => {
       ]),
     });
     template.resourceCountIs('AWS::IAM::User', 0);
+  });
+
+  test('injects the Ashby integration encryption key only into backend tasks', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'test',
+      },
+      agent: {
+        ...defaultConfig().agent,
+        deployService: true,
+        imageTag: 'test',
+      },
+      platform: {
+        ...defaultConfig().platform,
+        hosting: 'container',
+        imageTag: 'test',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.hasOutput('IntegrationEncryptionKeySecretName', {
+      Value: Match.stringLikeRegexp('/integrations/encryption-key$'),
+    });
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'backend',
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'backend-migrations',
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
+    const taskDefinitions = template.findResources('AWS::ECS::TaskDefinition');
+    const platformTask = Object.values(taskDefinitions).find((task) =>
+      JSON.stringify(task).includes('"Name":"platform"'),
+    );
+    const agentTask = Object.values(taskDefinitions).find((task) =>
+      JSON.stringify(task).includes('"Name":"agent"'),
+    );
+
+    expect(JSON.stringify(platformTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
+    expect(JSON.stringify(agentTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
   });
 
   test('creates LiveKit Egress S3 credentials only when recordings are enabled', () => {
