@@ -307,14 +307,14 @@ async function loadOrCreateTranscriptInput(
   return transcriptInput;
 }
 
-async function parseAndRepair(input: {
+async function parseAndRepair<T extends Record<string, unknown>>(input: {
   readonly raw: string;
   readonly bedrock: BedrockJsonClient;
   readonly label: string;
   readonly target: "extraction" | "aggregate";
   readonly maxTokens: number;
-  readonly validate: (value: unknown) => boolean;
-}): Promise<Record<string, unknown>> {
+  readonly validate: (value: unknown) => value is T;
+}): Promise<T> {
   const parsed = parseAndValidate(input.raw, input.validate);
   if (parsed) {
     return parsed;
@@ -332,13 +332,13 @@ async function parseAndRepair(input: {
   return repaired;
 }
 
-function parseAndValidate(
+function parseAndValidate<T extends Record<string, unknown>>(
   raw: string,
-  validate: (value: unknown) => boolean,
-): Record<string, unknown> | null {
+  validate: (value: unknown) => value is T,
+): T | null {
   try {
     const parsed = extractJsonObject(raw);
-    return validate(parsed) ? (parsed as Record<string, unknown>) : null;
+    return validate(parsed) ? parsed : null;
   } catch {
     return null;
   }

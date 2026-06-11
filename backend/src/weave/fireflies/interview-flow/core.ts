@@ -3,6 +3,11 @@ import { ManifestEntry, TranscriptInput } from "./types.js";
 
 type JsonRecord = Record<string, unknown>;
 
+export interface AggregateOutputShape extends JsonRecord {
+  readonly mermaid_flowchart: string;
+  readonly summary: unknown;
+}
+
 export function buildManifestEntries(
   bucket: string,
   keys: readonly string[],
@@ -73,7 +78,7 @@ export function isExtractionOutput(value: unknown): value is JsonRecord {
   );
 }
 
-export function isAggregateOutput(value: unknown): value is JsonRecord {
+export function isAggregateOutput(value: unknown): value is AggregateOutputShape {
   const record = asRecord(value);
   return Boolean(
     record.global_interview_flow &&
