@@ -16,6 +16,10 @@ type ArtifactLike = {
   readonly storagePath?: string | null;
 };
 
+type DashboardQuery = {
+  readonly orgId?: string;
+};
+
 function artifactsBucketFromEnv(env: NodeJS.ProcessEnv = process.env): string {
   const bucket = env.PUDDLE_ARTIFACTS_BUCKET?.trim();
   if (!bucket) {
@@ -78,17 +82,32 @@ export async function signedCompositeVideoUrl<Client extends S3LikeClient>(
   });
 }
 
+function orgIdFromQuery(query: DashboardQuery): string | null {
+  const orgId = query.orgId?.trim();
+  return orgId || null;
+}
+
 export function registerDashboardRoutes(app: FastifyInstance): void {
-  app.get("/internal/interviews", async (_request, reply) => {
-    const stmt = interviewListStatement({ limit: 100 });
+  app.get<{ Querystring: DashboardQuery }>("/internal/interviews", async (request, reply) => {
+    const orgId = orgIdFromQuery(request.query);
+    if (!orgId) {
+      return reply.code(400).send({ error: "orgId is required" });
+    }
+
+    const stmt = interviewListStatement({ limit: 100, orgId });
     const result = await getPool().query(stmt.sql, [...stmt.params]);
     return reply.code(200).send({ interviews: result.rows });
   });
 
-  app.get<{ Params: { sessionId: string } }>(
+  app.get<{ Params: { sessionId: string }; Querystring: DashboardQuery }>(
     "/internal/interviews/:sessionId",
     async (request, reply) => {
-      const stmt = interviewDetailStatement(request.params.sessionId);
+      const orgId = orgIdFromQuery(request.query);
+      if (!orgId) {
+        return reply.code(400).send({ error: "orgId is required" });
+      }
+
+      const stmt = interviewDetailStatement(request.params.sessionId, orgId);
       const result = await getPool().query(stmt.sql, [...stmt.params]);
       const packet = result.rows[0];
       if (!packet) {

@@ -13,7 +13,11 @@ import {
   RecentScreensTable,
   WorkspaceMetricStrip,
 } from "./DashboardSections";
-import { getRealInterviews } from "./backend-data";
+import {
+  dashboardDemoFallbackEnabled,
+  dashboardOrgId,
+  getRealInterviews,
+} from "./backend-data";
 import { requireDashboardUser } from "./auth";
 
 export const dynamic = "force-dynamic";
@@ -21,10 +25,19 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const { user, organizationId } = await requireDashboardUser();
   const identity = companyIdentityFromUser({ email: user.email, organizationId });
+  const orgId = dashboardOrgId({ organizationId, userId: user.id });
   const state = await getAshbyCompanyState(identity);
   const screens = state.connected ? await getRecentAshbyScreens(identity) : [];
   const webhookUrl = `${publicBaseUrl()}/api/ashby/webhook?companyDomain=${encodeURIComponent(identity.emailDomain)}`;
-  const realInterviews = await getRealInterviews().catch(() => undefined);
+  let realInterviews: Awaited<ReturnType<typeof getRealInterviews>> | undefined;
+
+  try {
+    realInterviews = await getRealInterviews({ orgId });
+  } catch (error) {
+    if (!dashboardDemoFallbackEnabled()) {
+      throw error;
+    }
+  }
 
   return (
     <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">

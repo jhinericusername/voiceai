@@ -1,10 +1,25 @@
 import { NeedsReviewQueue, OperationalHealthPanel } from "../DashboardSections";
-import { getRealInterviews } from "../backend-data";
+import {
+  dashboardDemoFallbackEnabled,
+  dashboardOrgId,
+  getRealInterviews,
+} from "../backend-data";
+import { requireDashboardUser } from "../auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReviewQueuePage() {
-  const realInterviews = await getRealInterviews().catch(() => undefined);
+  const { user, organizationId } = await requireDashboardUser();
+  const orgId = dashboardOrgId({ organizationId, userId: user.id });
+  let realInterviews: Awaited<ReturnType<typeof getRealInterviews>> | undefined;
+
+  try {
+    realInterviews = await getRealInterviews({ orgId });
+  } catch (error) {
+    if (!dashboardDemoFallbackEnabled()) {
+      throw error;
+    }
+  }
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">

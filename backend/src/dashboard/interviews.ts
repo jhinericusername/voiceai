@@ -1,6 +1,9 @@
 import type { SqlStatement } from "../consent/repository.js";
 
-export function interviewListStatement(input: { readonly limit: number }): SqlStatement {
+export function interviewListStatement(input: {
+  readonly limit: number;
+  readonly orgId: string;
+}): SqlStatement {
   return {
     sql:
       "SELECT s.session_id, s.org_id, s.candidate_email, s.script_version, " +
@@ -11,13 +14,14 @@ export function interviewListStatement(input: { readonly limit: number }): SqlSt
       "FROM sessions s " +
       "LEFT JOIN recordings r ON r.session_id = s.session_id " +
       "LEFT JOIN assessments a ON a.session_id = s.session_id " +
+      "WHERE s.org_id = $2 " +
       "ORDER BY COALESCE(s.started_at, s.scheduled_at, s.created_at) DESC " +
       "LIMIT $1",
-    params: [input.limit],
+    params: [input.limit, input.orgId],
   };
 }
 
-export function interviewDetailStatement(sessionId: string): SqlStatement {
+export function interviewDetailStatement(sessionId: string, orgId: string): SqlStatement {
   return {
     sql:
       "SELECT s.session_id, s.org_id, s.candidate_email, s.script_version, " +
@@ -48,7 +52,7 @@ export function interviewDetailStatement(sessionId: string): SqlStatement {
       "FROM (SELECT turn_index, speaker, question_id, text, occurred_at, offset_ms " +
       "FROM transcript_turns WHERE session_id = s.session_id ORDER BY turn_index) ordered" +
       ") transcript_turns ON true " +
-      "WHERE s.session_id = $1",
-    params: [sessionId],
+      "WHERE s.session_id = $1 AND s.org_id = $2",
+    params: [sessionId, orgId],
   };
 }

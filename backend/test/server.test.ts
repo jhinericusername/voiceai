@@ -151,6 +151,34 @@ describe("buildServer", () => {
     }
   });
 
+  it("rejects dashboard interview reads without an organization scope", async () => {
+    const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    const app = buildServer(FAKE_LK);
+    try {
+      const listRes = await app.inject({
+        method: "GET",
+        url: "/internal/interviews",
+      });
+      expect(listRes.statusCode).toBe(400);
+      expect(listRes.json()).toEqual({ error: "orgId is required" });
+
+      const detailRes = await app.inject({
+        method: "GET",
+        url: "/internal/interviews/sess1",
+      });
+      expect(detailRes.statusCode).toBe(400);
+      expect(detailRes.json()).toEqual({ error: "orgId is required" });
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+      } else {
+        process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousToken;
+      }
+      await app.close();
+    }
+  });
+
   it("requires internal auth when the backend token is configured", async () => {
     const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
     process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";

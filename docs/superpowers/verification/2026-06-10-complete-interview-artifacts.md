@@ -2,7 +2,6 @@
 
 Date: 2026-06-10
 Branch: `complete-interview-artifacts`
-Head: `9512b60`
 
 ## Local Verification
 

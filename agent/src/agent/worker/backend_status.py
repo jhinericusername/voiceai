@@ -11,6 +11,8 @@ import urllib.request
 from typing import Any
 
 logger = logging.getLogger(__name__)
+FINALIZATION_MAX_ATTEMPTS = 3
+FINALIZATION_RETRY_DELAYS_SECONDS = (1.0, 3.0)
 
 
 def _backend_base_url() -> str:
@@ -88,12 +90,44 @@ async def post_session_event(
 async def post_interview_finalization(
     session_id: str,
     payload: dict[str, Any],
+    *,
+    attempts: int = FINALIZATION_MAX_ATTEMPTS,
+    retry_delays_seconds: tuple[float, ...] = FINALIZATION_RETRY_DELAYS_SECONDS,
 ) -> None:
     """Persist the completed interview packet after the controller finishes."""
-    try:
-        await asyncio.to_thread(_post_interview_finalization_sync, session_id, payload)
-    except (OSError, urllib.error.URLError, RuntimeError) as exc:
-        logger.warning(
-            "backend interview finalization report failed",
-            extra={"session_id": session_id, "error": str(exc)},
-        )
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
+
+    for attempt in range(1, attempts + 1):
+        try:
+            await asyncio.to_thread(_post_interview_finalization_sync, session_id, payload)
+            return
+        except (OSError, urllib.error.URLError, RuntimeError) as exc:
+            if attempt >= attempts:
+                logger.error(
+                    "backend interview finalization report failed",
+                    extra={
+                        "session_id": session_id,
+                        "attempt": attempt,
+                        "attempts": attempts,
+                        "error": str(exc),
+                    },
+                )
+                raise
+
+            logger.warning(
+                "backend interview finalization report failed; retrying",
+                extra={
+                    "session_id": session_id,
+                    "attempt": attempt,
+                    "attempts": attempts,
+                    "error": str(exc),
+                },
+            )
+            delay = (
+                retry_delays_seconds[min(attempt - 1, len(retry_delays_seconds) - 1)]
+                if retry_delays_seconds
+                else 0
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)

@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRealInterview, type RealInterviewDetail } from "../../backend-data";
+import {
+  dashboardDemoFallbackEnabled,
+  dashboardOrgId,
+  getRealInterview,
+  type RealInterviewDetail,
+} from "../../backend-data";
+import { requireDashboardUser } from "../../auth";
 import { demoSessions, getCandidateById, getRole, getSession } from "../../demo-data";
 import {
   EmptyState,
@@ -22,19 +28,25 @@ export function generateStaticParams() {
 
 export default async function InterviewSessionPage({ params }: { readonly params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
+  const { user, organizationId } = await requireDashboardUser();
+  const orgId = dashboardOrgId({ organizationId, userId: user.id });
   const demoSession = getSession(sessionId);
   let realInterview: RealInterviewDetail | null = null;
 
   try {
-    realInterview = await getRealInterview(sessionId);
+    realInterview = await getRealInterview(sessionId, { orgId });
   } catch (error) {
-    if (!demoSession) {
+    if (!demoSession || !dashboardDemoFallbackEnabled()) {
       throw error;
     }
   }
 
   if (realInterview) {
     return <RealInterviewSessionView realInterview={realInterview} />;
+  }
+
+  if (!dashboardDemoFallbackEnabled()) {
+    notFound();
   }
 
   const session = demoSession;
