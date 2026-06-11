@@ -24,3 +24,9 @@ corpus/**
 # Local artifacts
 *.log
 .DS_Store
+
+# Runtime interview artifacts (real-session data, never committed)
+artifacts/
+
+# Experimental scratch area (big/experimental changes start here)
+tmp/
