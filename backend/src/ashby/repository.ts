@@ -39,6 +39,13 @@ export function integrationByIdStatement(integrationId: string): SqlStatement {
   };
 }
 
+export function integrationByIdForUpdateStatement(integrationId: string): SqlStatement {
+  return {
+    sql: "SELECT * FROM ashby_company_integrations WHERE integration_id = $1 LIMIT 1 FOR UPDATE",
+    params: [integrationId],
+  };
+}
+
 export function integrationSetupUpsertStatement(input: {
   readonly organizationId?: string | null;
   readonly emailDomain: string;

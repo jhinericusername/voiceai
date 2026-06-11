@@ -10,6 +10,7 @@ import { listActiveApplicationsForJob, listJobs, syncedApplicationFromAshby } fr
 import {
   activeApplicationUpsertStatement,
   inactiveCandidateApplicationsStatement,
+  integrationByIdForUpdateStatement,
   integrationApiKeyUpsertStatement,
   integrationByIdStatement,
   integrationIdentityLockStatement,
@@ -353,12 +354,33 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         selectedJobIds: jobs,
         reviewerEmail,
       });
-      const { rows } = await getPool().query<IntegrationRow>(update.sql, [...update.params]);
-      const updated = rows[0];
-      if (updated) {
-        const stale = staleActiveApplicationsStatement(integrationId);
-        await getPool().query(stale.sql, [...stale.params]);
+
+      const client = await getPool().connect();
+      let updated: IntegrationRow | undefined;
+      let committed = false;
+      try {
+        await client.query("BEGIN");
+        const { rows } = await client.query<IntegrationRow>(update.sql, [...update.params]);
+        updated = rows[0];
+        if (updated) {
+          const stale = staleActiveApplicationsStatement(integrationId);
+          await client.query(stale.sql, [...stale.params]);
+        }
+        await client.query("COMMIT");
+        committed = true;
+      } catch (error) {
+        if (!committed) {
+          try {
+            await client.query("ROLLBACK");
+          } catch (rollbackError) {
+            request.log.error({ err: rollbackError }, "failed to roll back Ashby job selection transaction");
+          }
+        }
+        throw error;
+      } finally {
+        client.release();
       }
+
       const encryptedWebhookSecret = stringValue(updated?.ashby_webhook_secret_ciphertext);
       if (!encryptedWebhookSecret) {
         return reply.code(500).send({ error: "Ashby webhook secret is not configured" });
@@ -395,27 +417,50 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       ashbyApiKeyCiphertext: encrypted,
       selectedJobIds: jobs,
     });
-    const { rows } = await getPool().query<SetupRow>(stmt.sql, [...stmt.params]);
-    const row = rows[0];
-    if (row?.identity_conflict) {
-      return reply.code(409).send({
-        error: "Ashby identity conflict: organizationId and emailDomain match different integrations.",
+
+    const client = await getPool().connect();
+    let transactionClosed = false;
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query<SetupRow>(stmt.sql, [...stmt.params]);
+      const row = rows[0];
+      if (row?.identity_conflict) {
+        await client.query("ROLLBACK");
+        transactionClosed = true;
+        return reply.code(409).send({
+          error: "Ashby identity conflict: organizationId and emailDomain match different integrations.",
+        });
+      }
+
+      const integrationId = stringValue(row?.integration_id);
+      if (!integrationId) {
+        await client.query("ROLLBACK");
+        transactionClosed = true;
+        return reply.code(500).send({ error: "Ashby integration setup did not return an integration id" });
+      }
+
+      const stale = staleActiveApplicationsStatement(integrationId);
+      await client.query(stale.sql, [...stale.params]);
+      await client.query("COMMIT");
+      transactionClosed = true;
+
+      return reply.code(201).send({
+        integrationId,
+        emailDomain: identity.emailDomain,
+        selectedJobIds: jobs,
       });
+    } catch (error) {
+      if (!transactionClosed) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          request.log.error({ err: rollbackError }, "failed to roll back Ashby setup transaction");
+        }
+      }
+      throw error;
+    } finally {
+      client.release();
     }
-
-    const integrationId = stringValue(row?.integration_id);
-    if (!integrationId) {
-      return reply.code(500).send({ error: "Ashby integration setup did not return an integration id" });
-    }
-
-    const stale = staleActiveApplicationsStatement(integrationId);
-    await getPool().query(stale.sql, [...stale.params]);
-
-    return reply.code(201).send({
-      integrationId,
-      emailDomain: identity.emailDomain,
-      selectedJobIds: jobs,
-    });
   });
 
   app.post("/integrations/ashby/company-state", async (request, reply) => {
@@ -497,53 +542,92 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return reply.send({ ok: true, action: "ping" });
     }
 
-    const webhookActionId = stringValue(payload.webhookActionId);
-    if (!webhookActionId) {
-      return reply.code(400).send({ error: "webhookActionId is required" });
-    }
+    const client = await getPool().connect();
+    let transactionClosed = false;
+    try {
+      await client.query("BEGIN");
+      const lockedLookup = integrationByIdForUpdateStatement(resolvedIntegrationId);
+      const lockedResult = await client.query<IntegrationRow>(lockedLookup.sql, [
+        ...lockedLookup.params,
+      ]);
+      const lockedIntegration = lockedResult.rows[0];
+      if (!integrationIdFrom(lockedIntegration)) {
+        await client.query("ROLLBACK");
+        transactionClosed = true;
+        return reply.code(404).send({ error: "Ashby integration is not configured" });
+      }
 
-    const insert = webhookEventInsertStatement({
-      webhookActionId,
-      integrationId: resolvedIntegrationId,
-      action,
-      payload,
-    });
-    const inserted = await getPool().query<WebhookEventRow>(insert.sql, [...insert.params]);
-    const eventRow = inserted.rows[0];
-    if (eventRow?.inserted === false && eventRow.processed_at) {
-      return reply.send({ ok: true, duplicate: true });
-    }
+      if (!integrationReadyForUse(lockedIntegration)) {
+        await client.query("COMMIT");
+        transactionClosed = true;
+        return reply.send({ ok: true, ignored: true, action });
+      }
 
-    if (resolvedIntegrationId && ACTIVE_APPLICATION_ACTIONS.has(action)) {
-      const application = applicationFromPayload(payload);
-      if (application) {
-        const synced = syncedApplicationFromAshby({
-          integrationId: resolvedIntegrationId,
-          application,
-        });
-        if (synced) {
-          const upsert = activeApplicationUpsertStatement({
-            ...synced,
-            status: action === "candidateHire" ? "Hired" : synced.status,
+      const webhookActionId = stringValue(payload.webhookActionId);
+      if (!webhookActionId) {
+        await client.query("ROLLBACK");
+        transactionClosed = true;
+        return reply.code(400).send({ error: "webhookActionId is required" });
+      }
+
+      const insert = webhookEventInsertStatement({
+        webhookActionId,
+        integrationId: resolvedIntegrationId,
+        action,
+        payload,
+      });
+      const inserted = await client.query<WebhookEventRow>(insert.sql, [...insert.params]);
+      const eventRow = inserted.rows[0];
+      if (eventRow?.inserted === false && eventRow.processed_at) {
+        await client.query("COMMIT");
+        transactionClosed = true;
+        return reply.send({ ok: true, duplicate: true });
+      }
+
+      if (ACTIVE_APPLICATION_ACTIONS.has(action)) {
+        const application = applicationFromPayload(payload);
+        if (application) {
+          const synced = syncedApplicationFromAshby({
+            integrationId: resolvedIntegrationId,
+            application,
           });
-          await getPool().query(upsert.sql, [...upsert.params]);
+          if (synced) {
+            const upsert = activeApplicationUpsertStatement({
+              ...synced,
+              status: action === "candidateHire" ? "Hired" : synced.status,
+            });
+            await client.query(upsert.sql, [...upsert.params]);
+          }
         }
       }
-    }
 
-    const candidateId = candidateIdFromPayload(payload);
-    if (resolvedIntegrationId && candidateId && INACTIVE_CANDIDATE_ACTIONS.has(action)) {
-      const inactive = inactiveCandidateApplicationsStatement({
-        integrationId: resolvedIntegrationId,
-        candidateId,
-        status: action === "candidateDelete" ? "Deleted" : "Merged",
-      });
-      await getPool().query(inactive.sql, [...inactive.params]);
-    }
+      const candidateId = candidateIdFromPayload(payload);
+      if (candidateId && INACTIVE_CANDIDATE_ACTIONS.has(action)) {
+        const inactive = inactiveCandidateApplicationsStatement({
+          integrationId: resolvedIntegrationId,
+          candidateId,
+          status: action === "candidateDelete" ? "Deleted" : "Merged",
+        });
+        await client.query(inactive.sql, [...inactive.params]);
+      }
 
-    const processed = webhookEventProcessedStatement(webhookActionId);
-    await getPool().query(processed.sql, [...processed.params]);
-    return reply.send({ ok: true, action });
+      const processed = webhookEventProcessedStatement(webhookActionId);
+      await client.query(processed.sql, [...processed.params]);
+      await client.query("COMMIT");
+      transactionClosed = true;
+      return reply.send({ ok: true, action });
+    } catch (error) {
+      if (!transactionClosed) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          request.log.error({ err: rollbackError }, "failed to roll back Ashby webhook transaction");
+        }
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   });
 
   app.post<{ Body: AshbySyncRequest }>(

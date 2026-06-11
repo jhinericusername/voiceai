@@ -289,6 +289,165 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("ignores signed application updates while setup is pending without writing application rows", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const rawBody = JSON.stringify({
+      webhookActionId: "action_pending",
+      action: "applicationUpdate",
+      data: {
+        application: {
+          id: "app_1",
+          candidate: {
+            id: "cand_1",
+            name: "Maya Chen",
+            primaryEmailAddress: "maya@example.com",
+          },
+          jobId: "job_1",
+          status: "Active",
+          updatedAt: "2026-06-10T14:20:00.000Z",
+        },
+      },
+    });
+    const signature = `sha256=${ashbyWebhookDigest(rawBody, "webhook-secret")}`;
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+            "webhook-secret",
+            "test-secret",
+          ),
+        },
+      ],
+      rowCount: 1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            selected_job_ids: ["job_1"],
+            setup_status: "pending_webhook",
+            connected_at: null,
+            last_ping_at: null,
+            last_sync_at: null,
+            ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+              "webhook-secret",
+              "test-secret",
+            ),
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/webhook",
+        headers: { "content-type": "application/json" },
+        payload: {
+          integrationId: "int_1",
+          rawBody,
+          signature,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, ignored: true, action: "applicationUpdate" });
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(3);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("FOR UPDATE");
+      expect(clientQueryMock.mock.calls[2]?.[0]).toBe("COMMIT");
+      const clientSql = clientQueryMock.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(clientSql).not.toContain("INSERT INTO ashby_webhook_events");
+      expect(clientSql).not.toContain("INSERT INTO ashby_applications");
+      expect(clientSql).not.toContain("processed_at = now()");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("processes ready signed application updates after locking the integration row", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const rawBody = JSON.stringify({
+      webhookActionId: "action_ready",
+      action: "applicationUpdate",
+      data: {
+        application: {
+          id: "app_1",
+          candidate: {
+            id: "cand_1",
+            name: "Maya Chen",
+            primaryEmailAddress: "maya@example.com",
+          },
+          jobId: "job_1",
+          status: "Active",
+          updatedAt: "2026-06-10T14:20:00.000Z",
+        },
+      },
+    });
+    const signature = `sha256=${ashbyWebhookDigest(rawBody, "webhook-secret")}`;
+    const readyIntegration = {
+      integration_id: "int_1",
+      selected_job_ids: ["job_1"],
+      setup_status: "connected",
+      connected_at: "2026-06-10T14:05:00.000Z",
+      last_ping_at: "2026-06-10T14:05:00.000Z",
+      last_sync_at: "2026-06-10T14:10:00.000Z",
+      ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+        "webhook-secret",
+        "test-secret",
+      ),
+    };
+    queryMock.mockResolvedValueOnce({
+      rows: [readyIntegration],
+      rowCount: 1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [readyIntegration], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ inserted: true, processed_at: null }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/webhook",
+        headers: { "content-type": "application/json" },
+        payload: {
+          integrationId: "int_1",
+          rawBody,
+          signature,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, action: "applicationUpdate" });
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(6);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("FOR UPDATE");
+      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("INSERT INTO ashby_webhook_events");
+      expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("INSERT INTO ashby_applications");
+      expect(clientQueryMock.mock.calls[3]?.[1]?.[0]).toBe("app_1");
+      expect(String(clientQueryMock.mock.calls[4]?.[0])).toContain("processed_at = now()");
+      expect(clientQueryMock.mock.calls[5]?.[0]).toBe("COMMIT");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("verifies signed Ashby webhooks using the exact whitespace-preserving raw body", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const rawBody = ` \n${JSON.stringify({ action: "ping", data: { webhookId: "hook_1" } })}\n `;
@@ -391,10 +550,13 @@ describe("Ashby backend routes", () => {
 
   it("returns 409 when setup finds an identity conflict", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
-    queryMock.mockResolvedValueOnce({
-      rows: [{ integration_id: null, identity_conflict: true }],
-      rowCount: 1,
-    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ integration_id: null, identity_conflict: true }],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const app = buildServer(FAKE_LK);
     try {
       const res = await app.inject({
@@ -411,7 +573,13 @@ describe("Ashby backend routes", () => {
 
       expect(res.statusCode).toBe(409);
       expect(res.json().error).toContain("identity conflict");
-      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(3);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("ashby_api_key_ciphertext");
+      expect(clientQueryMock.mock.calls[2]?.[0]).toBe("ROLLBACK");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
       await app.close();
     }
@@ -569,17 +737,18 @@ describe("Ashby backend routes", () => {
   it("stores selected jobs and returns webhook setup values", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const decryptedWebhookSecret = "webhook-secret";
-    queryMock
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            integration_id: "int_1",
-            email_domain: "usepuddle.com",
-            ashby_webhook_secret_ciphertext: "encrypted-webhook",
-          },
-        ],
-        rowCount: 1,
-      })
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          email_domain: "usepuddle.com",
+          ashby_webhook_secret_ciphertext: "encrypted-webhook",
+        },
+      ],
+      rowCount: 1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -593,7 +762,9 @@ describe("Ashby backend routes", () => {
           },
         ],
         rowCount: 1,
-      });
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
     const app = buildServer(FAKE_LK);
     try {
@@ -625,9 +796,73 @@ describe("Ashby backend routes", () => {
           "candidateHire",
         ],
       });
-      expect(queryMock).toHaveBeenCalledTimes(3);
-      expect(String(queryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
-      expect(queryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(4);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("selected_job_ids = $2");
+      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
+      expect(clientQueryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
+      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("COMMIT");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rolls back selected job reconfiguration when staling active applications fails", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const encryptedWebhookSecret = encryptIntegrationSecret("webhook-secret", "test-secret");
+    const updatedIntegration = {
+      integration_id: "int_1",
+      email_domain: "usepuddle.com",
+      ashby_webhook_secret_ciphertext: encryptedWebhookSecret,
+      selected_job_ids: ["job_1"],
+    };
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            email_domain: "usepuddle.com",
+            ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [updatedIntegration], rowCount: 1 })
+      .mockRejectedValueOnce(new Error("stale failed"));
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [updatedIntegration], rowCount: 1 })
+      .mockRejectedValueOnce(new Error("stale failed"))
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/onboarding/jobs",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+          reviewerEmail: "admin@usepuddle.com",
+          selectedJobIds: ["job_1"],
+          publicBaseUrl: "https://app.usepuddle.com",
+        },
+      });
+
+      expect(res.statusCode).toBe(500);
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(4);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("selected_job_ids = $2");
+      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
+      expect(clientQueryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
+      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("ROLLBACK");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
       await app.close();
     }
@@ -635,12 +870,14 @@ describe("Ashby backend routes", () => {
 
   it("stores legacy setup values and marks stale active applications during reconfiguration", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
-    queryMock
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({
         rows: [{ integration_id: "int_1", identity_conflict: false }],
         rowCount: 1,
       })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
     const app = buildServer(FAKE_LK);
     try {
@@ -662,9 +899,61 @@ describe("Ashby backend routes", () => {
         emailDomain: "usepuddle.com",
         selectedJobIds: ["job_1"],
       });
-      expect(queryMock).toHaveBeenCalledTimes(2);
-      expect(String(queryMock.mock.calls[1]?.[0])).toContain("UPDATE ashby_applications");
-      expect(queryMock.mock.calls[1]?.[1]).toEqual(["int_1", "Stale"]);
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(4);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("ashby_api_key_ciphertext");
+      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
+      expect(clientQueryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
+      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("COMMIT");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rolls back legacy setup when staling active applications fails", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [{ integration_id: "int_1", identity_conflict: false }],
+        rowCount: 1,
+      })
+      .mockRejectedValueOnce(new Error("stale failed"));
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ integration_id: "int_1", identity_conflict: false }],
+        rowCount: 1,
+      })
+      .mockRejectedValueOnce(new Error("stale failed"))
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/setup",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_123",
+          emailDomain: "usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+          selectedJobIds: ["job_1"],
+        },
+      });
+
+      expect(res.statusCode).toBe(500);
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(4);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("ashby_api_key_ciphertext");
+      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
+      expect(clientQueryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
+      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("ROLLBACK");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
       await app.close();
     }
@@ -1065,24 +1354,30 @@ describe("Ashby backend routes", () => {
       data: {},
     });
     const signature = `sha256=${ashbyWebhookDigest(rawBody, "webhook-secret")}`;
-    queryMock
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            integration_id: "int_1",
-            ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
-              "webhook-secret",
-              "test-secret",
-            ),
-          },
-        ],
-        rowCount: 1,
-      })
+    const readyIntegration = {
+      integration_id: "int_1",
+      connected_at: "2026-06-10T14:05:00.000Z",
+      last_ping_at: "2026-06-10T14:05:00.000Z",
+      last_sync_at: "2026-06-10T14:10:00.000Z",
+      setup_status: "connected",
+      ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+        "webhook-secret",
+        "test-secret",
+      ),
+    };
+    queryMock.mockResolvedValueOnce({
+      rows: [readyIntegration],
+      rowCount: 1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [readyIntegration], rowCount: 1 })
       .mockResolvedValueOnce({
         rows: [{ inserted: false, processed_at: null }],
         rowCount: 1,
       })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
     const app = buildServer(FAKE_LK);
     try {
@@ -1099,8 +1394,15 @@ describe("Ashby backend routes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ ok: true, action: "applicationUpdate" });
-      expect(queryMock).toHaveBeenCalledTimes(3);
-      expect(String(queryMock.mock.calls[2]?.[0])).toContain("processed_at = now()");
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      expect(clientQueryMock).toHaveBeenCalledTimes(5);
+      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
+      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("FOR UPDATE");
+      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("INSERT INTO ashby_webhook_events");
+      expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("processed_at = now()");
+      expect(clientQueryMock.mock.calls[4]?.[0]).toBe("COMMIT");
+      expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
       await app.close();
     }
