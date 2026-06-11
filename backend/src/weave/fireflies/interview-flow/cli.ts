@@ -51,6 +51,7 @@ interface OutputPaths {
   readonly inputsDir: string;
   readonly extractionsDir: string;
   readonly aggregateDir: string;
+  readonly debugDir: string;
   readonly manifestPath: string;
   readonly logPath: string;
 }
@@ -62,8 +63,8 @@ const DEFAULT_OUTPUT_DIR = "artifacts/interview-flow";
 const DEFAULT_S3_REGION = "us-west-2";
 const DEFAULT_BEDROCK_REGION = "us-east-1";
 const DEFAULT_MODEL_ID = "us.anthropic.claude-opus-4-8";
-const DEFAULT_EXTRACTION_TOKENS = 12000;
-const DEFAULT_AGGREGATION_TOKENS = 16000;
+const DEFAULT_EXTRACTION_TOKENS = 32000;
+const DEFAULT_AGGREGATION_TOKENS = 32000;
 
 export async function runCli(argv: readonly string[]): Promise<void> {
   const options = parseArgs(argv);
@@ -196,6 +197,7 @@ async function runExtraction(input: {
         label: entry.transcriptId,
         target: "extraction",
         maxTokens: input.maxTokens,
+        debugDir: input.paths.debugDir,
         validate: isExtractionOutput,
       });
       await writeJson(extractionPath, extraction);
@@ -264,6 +266,7 @@ async function runAggregation(input: {
     label: "aggregate",
     target: "aggregate",
     maxTokens: input.maxTokens,
+    debugDir: input.paths.debugDir,
     validate: isAggregateOutput,
   });
 
@@ -313,12 +316,14 @@ async function parseAndRepair<T extends Record<string, unknown>>(input: {
   readonly label: string;
   readonly target: "extraction" | "aggregate";
   readonly maxTokens: number;
+  readonly debugDir: string;
   readonly validate: (value: unknown) => value is T;
 }): Promise<T> {
   const parsed = parseAndValidate(input.raw, input.validate);
   if (parsed) {
     return parsed;
   }
+  await writeDebugResponse(input.debugDir, input.label, input.target, 1, input.raw);
 
   const repairedRaw = await input.bedrock.invokeJsonPrompt({
     prompt: buildJsonRepairPrompt(input.raw, input.target),
@@ -327,6 +332,7 @@ async function parseAndRepair<T extends Record<string, unknown>>(input: {
   });
   const repaired = parseAndValidate(repairedRaw, input.validate);
   if (!repaired) {
+    await writeDebugResponse(input.debugDir, input.label, input.target, 2, repairedRaw);
     throw new Error(`Model response for ${input.label} was not valid ${input.target} JSON.`);
   }
   return repaired;
@@ -361,6 +367,7 @@ function outputPaths(outputDir: string, manifestPath?: string): OutputPaths {
     inputsDir: join(outputDir, "inputs"),
     extractionsDir: join(outputDir, "extractions"),
     aggregateDir: join(outputDir, "aggregate"),
+    debugDir: join(outputDir, "debug"),
     manifestPath: manifestPath ?? join(outputDir, "manifest.json"),
     logPath: join(outputDir, "run-log.jsonl"),
   };
@@ -371,6 +378,7 @@ async function ensureOutputDirs(paths: OutputPaths): Promise<void> {
   await mkdir(paths.inputsDir, { recursive: true });
   await mkdir(paths.extractionsDir, { recursive: true });
   await mkdir(paths.aggregateDir, { recursive: true });
+  await mkdir(paths.debugDir, { recursive: true });
 }
 
 async function appendRunLog(
@@ -383,6 +391,17 @@ async function appendRunLog(
 
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function writeDebugResponse(
+  debugDir: string,
+  label: string,
+  target: "extraction" | "aggregate",
+  attempt: number,
+  raw: string,
+): Promise<void> {
+  const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, "_");
+  await writeFile(join(debugDir, `${target}-${safeLabel}-attempt-${attempt}.txt`), raw);
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -440,6 +459,8 @@ function parseArgs(argv: readonly string[]): RunInterviewFlowOptions {
     bedrockRegion: stringFlag(flags, "--bedrock-region") ?? process.env.BEDROCK_REGION ?? DEFAULT_BEDROCK_REGION,
     modelId: stringFlag(flags, "--model-id") ?? process.env.BEDROCK_MODEL_ID ?? DEFAULT_MODEL_ID,
     manifestPath: stringFlag(flags, "--manifest"),
+    maxExtractionTokens: numberFlag(flags, "--max-extraction-tokens") ?? DEFAULT_EXTRACTION_TOKENS,
+    maxAggregationTokens: numberFlag(flags, "--max-aggregation-tokens") ?? DEFAULT_AGGREGATION_TOKENS,
   };
 }
 
