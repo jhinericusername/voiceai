@@ -3,8 +3,8 @@ import {
   getAshbyCompanyState,
   getRecentAshbyScreens,
 } from "@/lib/ashby/server";
-import { publicBaseUrl } from "@/lib/site-url";
-import { AshbySetupPanel, RecentScreensTable } from "./DashboardSections";
+import { AshbyOnboardingWizard } from "./AshbyOnboardingWizard";
+import { RecentScreensTable } from "./DashboardSections";
 import { requireDashboardUser } from "./auth";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,8 @@ export default async function DashboardPage() {
   const { user, organizationId } = await requireDashboardUser();
   const identity = companyIdentityFromUser({ email: user.email, organizationId });
   const state = await getAshbyCompanyState(identity);
-  const screens = state.connected ? await getRecentAshbyScreens(identity) : [];
-  const webhookUrl = `${publicBaseUrl()}/api/ashby/webhook?companyDomain=${encodeURIComponent(identity.emailDomain)}`;
+  const onboardingComplete = state.connected && Boolean(state.lastSyncAt);
+  const screens = onboardingComplete ? await getRecentAshbyScreens(identity) : [];
 
   return (
     <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">
@@ -27,10 +27,10 @@ export default async function DashboardPage() {
         </p>
       </header>
 
-      {state.connected ? (
+      {onboardingComplete ? (
         <RecentScreensTable screens={screens} />
       ) : (
-        <AshbySetupPanel state={state} webhookUrl={webhookUrl} />
+        <AshbyOnboardingWizard state={state} />
       )}
     </div>
   );

@@ -231,6 +231,12 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         });
       }
 
+      if (jobs.length === 0) {
+        return reply.code(400).send({
+          error: "No Ashby jobs were returned. Confirm this API key can read Ashby jobs, then try again.",
+        });
+      }
+
       const secretKey = integrationSecretKeyFromEnv();
       const encryptedApiKey = encryptIntegrationSecret(apiKey, secretKey);
       const encryptedWebhookSecret = encryptIntegrationSecret(generateIntegrationSecret(), secretKey);
@@ -381,12 +387,18 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     }
 
     const integration = await integrationForIdentity(identity);
+    const integrationId = integrationIdFrom(integration);
     return reply.send({
       connected: Boolean(integration?.connected_at),
-      integrationId: integrationIdFrom(integration),
+      setupStatus: stringValue(integration?.setup_status) ?? "job_selection_pending",
+      integrationId,
       emailDomain: stringValue(integration?.email_domain) ?? identity.emailDomain,
       selectedJobIds: stringArray(integration?.selected_job_ids),
       lastPingAt: integration?.last_ping_at ?? null,
+      lastSyncAt: integration?.last_sync_at ?? null,
+      webhookUrlPath: integrationId
+        ? `/api/ashby/webhook?integrationId=${encodeURIComponent(integrationId)}`
+        : null,
     });
   });
 
@@ -505,6 +517,10 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       const integrationId = integrationIdFrom(integration);
       if (!integrationId) {
         return reply.code(404).send({ error: "Ashby integration is not configured" });
+      }
+
+      if (!integration?.connected_at) {
+        return reply.code(409).send({ error: "Ashby webhook ping has not been verified" });
       }
 
       const secretLookup = integrationSecretLookupStatement(integrationId);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { AshbyCompanyState, RecentScreen } from "@/lib/ashby/server";
+import type { RecentScreen } from "@/lib/ashby/server";
 import {
   demoActivity,
   demoCandidates,
@@ -384,48 +384,6 @@ export function ReadinessPanel() {
         title="No blocked review packets"
         detail="When a candidate has missing consent, transcript, or recording artifacts, the blocked packet state appears here before it reaches reviewers."
       />
-    </SectionPanel>
-  );
-}
-
-export function AshbySetupPanel({
-  state,
-  webhookUrl,
-}: {
-  readonly state: AshbyCompanyState;
-  readonly webhookUrl: string;
-}) {
-  return (
-    <SectionPanel title="Connect Ashby" eyebrow="Internal setup">
-      <div className="grid gap-4">
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-          <div className="text-sm font-semibold text-slate-950">{state.emailDomain}</div>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            One Ashby integration is shared by teammates on this company domain after setup is complete.
-          </p>
-        </div>
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Webhook URL</div>
-          <code className="mt-2 block break-all rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800">
-            {webhookUrl}
-          </code>
-        </div>
-        <div className="grid gap-2 text-sm text-slate-700">
-          {[
-            "ping",
-            "applicationSubmit",
-            "applicationUpdate",
-            "candidateStageChange",
-            "candidateDelete",
-            "candidateMerge",
-            "candidateHire",
-          ].map((event) => (
-            <div key={event} className="rounded-md border border-slate-200 bg-white px-3 py-2 font-medium">
-              {event}
-            </div>
-          ))}
-        </div>
-      </div>
     </SectionPanel>
   );
 }

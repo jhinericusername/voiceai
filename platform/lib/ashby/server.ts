@@ -10,10 +10,19 @@ export interface CompanyIdentityPayload {
 
 export interface AshbyCompanyState {
   readonly connected: boolean;
+  readonly setupStatus: string;
   readonly integrationId: string | null;
   readonly emailDomain: string;
   readonly selectedJobIds: readonly string[];
   readonly lastPingAt: string | null;
+  readonly lastSyncAt: string | null;
+  readonly webhookUrlPath?: string | null;
+}
+
+export interface AshbyJobOption {
+  readonly id: string;
+  readonly name: string;
+  readonly status: string | null;
 }
 
 export interface RecentScreen {

@@ -65,6 +65,75 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("returns the full Ashby company-state contract for configured integrations", async () => {
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          email_domain: "usepuddle.com",
+          selected_job_ids: ["job_1", "job_2"],
+          connected_at: "2026-06-10T14:00:00.000Z",
+          last_ping_at: "2026-06-10T14:05:00.000Z",
+          last_sync_at: "2026-06-10T14:10:00.000Z",
+          setup_status: "connected",
+        },
+      ],
+      rowCount: 1,
+    });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/company-state",
+        headers: { "content-type": "application/json" },
+        payload: { emailDomain: "usepuddle.com", organizationId: null },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        connected: true,
+        setupStatus: "connected",
+        integrationId: "int_1",
+        emailDomain: "usepuddle.com",
+        selectedJobIds: ["job_1", "job_2"],
+        lastPingAt: "2026-06-10T14:05:00.000Z",
+        lastSyncAt: "2026-06-10T14:10:00.000Z",
+        webhookUrlPath: "/api/ashby/webhook?integrationId=int_1",
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns non-connected Ashby company-state defaults when no integration exists", async () => {
+    queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/company-state",
+        headers: { "content-type": "application/json" },
+        payload: { emailDomain: "usepuddle.com", organizationId: null },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        connected: false,
+        setupStatus: "job_selection_pending",
+        integrationId: null,
+        emailDomain: "usepuddle.com",
+        selectedJobIds: [],
+        lastPingAt: null,
+        lastSyncAt: null,
+        webhookUrlPath: null,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("rejects malformed webhook payloads after resolving the integration", async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ integration_id: "int_1" }], rowCount: 1 });
 
@@ -349,6 +418,44 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("rejects API key onboarding without storing the key when Ashby returns no jobs", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ success: true, results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/onboarding/api-key",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+          reviewerEmail: "admin@usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: "No Ashby jobs were returned. Confirm this API key can read Ashby jobs, then try again.",
+      });
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
   it("rolls back and releases the checked-out client when API key onboarding storage fails", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const previousFetch = global.fetch;
@@ -544,7 +651,10 @@ describe("Ashby backend routes", () => {
       }),
     ) as unknown as typeof fetch;
     queryMock
-      .mockResolvedValueOnce({ rows: [{ integration_id: "int_1" }], rowCount: 1 })
+      .mockResolvedValueOnce({
+        rows: [{ integration_id: "int_1", connected_at: "2026-06-10T14:05:00.000Z" }],
+        rowCount: 1,
+      })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -573,6 +683,40 @@ describe("Ashby backend routes", () => {
       expect(res.json()).toEqual({ ok: true, syncedCount: 0 });
       expect(queryMock).toHaveBeenCalledTimes(3);
       expect(String(queryMock.mock.calls[2]?.[0])).toContain("last_sync_at = now()");
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("rejects active application sync before webhook ping is verified", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ success: true, results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+    queryMock.mockResolvedValueOnce({ rows: [{ integration_id: "int_1", connected_at: null }], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/sync-active-applications",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: null,
+        },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toContain("webhook ping");
+      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(String(queryMock.mock.calls[0]?.[0])).toContain("ashby_company_integrations");
+      expect(global.fetch).not.toHaveBeenCalled();
     } finally {
       global.fetch = previousFetch;
       await app.close();
