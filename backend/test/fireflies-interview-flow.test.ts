@@ -1,3 +1,6 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildExtractionPrompt,
@@ -11,6 +14,7 @@ import {
   makeBedrockJsonClient,
   makeS3TranscriptClient,
 } from "../src/weave/fireflies/interview-flow/aws.js";
+import { runInterviewFlow } from "../src/weave/fireflies/interview-flow/cli.js";
 
 describe("Fireflies interview flow core", () => {
   it("assigns stable transcript IDs from sorted transcript keys", () => {
@@ -129,5 +133,57 @@ describe("Fireflies interview flow core", () => {
     await expect(
       bedrock.invokeJsonPrompt({ prompt: "Return JSON", maxTokens: 128, label: "test" }),
     ).resolves.toBe("{\"ok\":true}");
+  });
+
+  it("runs extraction and aggregation with fake clients and writes artifacts", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "interview-flow-"));
+    const s3 = {
+      listTranscriptKeys: async () => ["raw/fireflies/a/transcript.json"],
+      getJsonObject: async () => ({
+        sentences: [
+          { speaker_name: "Prakul Singh", text: "What did you build?", start_time: 1 },
+          { speaker_name: "Candidate", text: "A queue.", start_time: 3 },
+        ],
+      }),
+    };
+    const bedrock = {
+      invokeJsonPrompt: async ({ label }: { label: string }) =>
+        label === "aggregate"
+          ? JSON.stringify({
+              global_interview_flow: {},
+              canonical_questions: [],
+              follow_up_logic: [],
+              flowchart: {},
+              mermaid_flowchart: "flowchart TD\nCQ001[Question]",
+              summary: {},
+            })
+          : JSON.stringify({
+              interview_metadata: {},
+              question_events: [],
+              observed_patterns: {},
+              flowchart_edges: [],
+              quality_notes: {},
+            }),
+    };
+
+    await runInterviewFlow({
+      command: "run",
+      bucket: "bucket",
+      prefix: "raw/fireflies/",
+      limit: 1,
+      outputDir: outDir,
+      s3,
+      bedrock,
+      refreshManifest: true,
+    });
+
+    await expect(readFile(join(outDir, "manifest.json"), "utf8")).resolves.toContain(
+      "interview_001",
+    );
+    await expect(
+      readFile(join(outDir, "extractions", "interview_001.json"), "utf8"),
+    ).resolves.toContain("question_events");
+    await expect(readFile(join(outDir, "aggregate", "interview-flow.mmd"), "utf8"))
+      .resolves.toContain("flowchart TD");
   });
 });
