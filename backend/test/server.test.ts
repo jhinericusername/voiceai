@@ -126,6 +126,31 @@ describe("buildServer", () => {
     }
   });
 
+  it("registers dashboard interview routes behind internal auth", async () => {
+    const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";
+    const app = buildServer(FAKE_LK);
+    try {
+      expect(app.hasRoute({ method: "GET", url: "/internal/interviews" })).toBe(true);
+      expect(app.hasRoute({ method: "GET", url: "/internal/interviews/:sessionId" })).toBe(
+        true,
+      );
+      const res = await app.inject({
+        method: "GET",
+        url: "/internal/interviews",
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: "unauthorized" });
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+      } else {
+        process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousToken;
+      }
+      await app.close();
+    }
+  });
+
   it("requires internal auth when the backend token is configured", async () => {
     const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
     process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";
