@@ -22,7 +22,7 @@ export default function NotAuthorizedPage() {
 
         <section className="mt-8 rounded-lg border border-white/70 bg-white/[0.78] p-6 shadow-[0_22px_70px_rgba(15,23,42,0.09)] backdrop-blur">
           <div className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">Access restricted</div>
-          <h1 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 md:text-5xl">
+          <h1 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 md:text-4xl">
             This workspace is limited to approved domains.
           </h1>
           <p className="mt-5 text-base leading-7 text-slate-600">

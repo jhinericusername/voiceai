@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { PublicFooter } from "./PublicFooter";
@@ -311,7 +311,6 @@ function WorkflowSection() {
   const [workflowProgress, setWorkflowProgress] = useState(0);
   const stepCount = howItWorksSteps.length;
   const activeStep = Math.min(stepCount - 1, Math.max(0, Math.floor(workflowProgress * stepCount)));
-  const stepPosition = workflowProgress * stepCount - 0.5;
   const getStepAnchorProgress = (index: number) => (index + 0.5) / stepCount;
 
   useEffect(() => {
@@ -348,64 +347,42 @@ function WorkflowSection() {
     };
   }, []);
 
-  const getCrossfadeStyle = (index: number) => {
-    const fadeWidth = 0.026;
-    const segmentStart = index / stepCount;
-    const segmentEnd = (index + 1) / stepCount;
-    const isFirst = index === 0;
-    const isLast = index === stepCount - 1;
-    let rawOpacity = 1;
-
-    if (!isFirst && workflowProgress < segmentStart - fadeWidth) {
-      rawOpacity = 0;
-    } else if (!isFirst && workflowProgress < segmentStart + fadeWidth) {
-      rawOpacity = (workflowProgress - (segmentStart - fadeWidth)) / (fadeWidth * 2);
-    } else if (!isLast && workflowProgress > segmentEnd + fadeWidth) {
-      rawOpacity = 0;
-    } else if (!isLast && workflowProgress > segmentEnd - fadeWidth) {
-      rawOpacity = ((segmentEnd + fadeWidth) - workflowProgress) / (fadeWidth * 2);
-    }
-
-    rawOpacity = Math.max(0, Math.min(1, rawOpacity));
-    const easedOpacity = rawOpacity * rawOpacity * (3 - 2 * rawOpacity);
-    const opacity = easedOpacity < 0.06 ? 0 : easedOpacity;
-    const offset = (index - stepPosition) * 10;
-
+  const getPanelStyle = (index: number): CSSProperties => {
+    const isActive = activeStep === index;
     return {
-      opacity,
-      transform: `translate3d(0, ${offset}px, 0) scale(${0.985 + opacity * 0.015})`,
-      filter: `blur(${(1 - opacity) * 0.8}px)`,
-      zIndex: Math.round(opacity * 10),
+      opacity: isActive ? 1 : 0,
+      zIndex: isActive ? 1 : 0,
     };
   };
 
   return (
     <section
       id="system"
-      className="relative z-10 scroll-mt-24 overflow-visible bg-white px-5 pb-16 pt-0 sm:px-6 md:pb-24 lg:min-h-[230vh] lg:pb-0"
+      className="relative z-10 scroll-mt-24 overflow-visible bg-white px-5 pb-16 pt-0 sm:px-6 md:pb-24 lg:scroll-mt-0 lg:min-h-[230vh] lg:pb-0"
     >
-      <div className="relative z-10 mx-auto max-w-5xl pt-12 md:pt-14 lg:sticky lg:top-[52px] lg:flex lg:min-h-[calc(100svh-52px)] lg:flex-col lg:pb-5 lg:pt-7">
+      <div className="puddle-workflow-shell relative z-10 mx-auto max-w-5xl pt-12 md:pt-14 lg:sticky lg:top-[52px] lg:flex lg:min-h-[calc(100svh-52px)] lg:flex-col lg:justify-center lg:pb-8 lg:pt-8">
         <div data-reveal className="puddle-how-heading-shell relative mx-auto max-w-3xl text-center">
           <span className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-700">How it works</span>
-          <h2 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-slate-950 md:text-3xl">
+          <h2 className="puddle-how-heading-title mt-3 text-2xl font-semibold leading-tight tracking-normal text-slate-950 md:text-3xl">
             From hiring bar to reviewer output.
           </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
+          <p className="puddle-how-heading-copy mx-auto mt-3 max-w-2xl text-base leading-7 text-slate-600">
             Define the standard once, run every screen against it, and give reviewers the evidence trail behind the next
             decision.
           </p>
         </div>
 
-        <div data-reveal className="mt-7 hidden gap-6 lg:grid lg:grid-cols-[0.72fr_1fr] lg:items-center">
-          <div>
-            <div className="relative min-h-[244px]">
+        <div data-reveal className="puddle-workflow-grid mt-7 hidden gap-6 lg:grid lg:grid-cols-[0.72fr_1fr] lg:items-stretch">
+          <div className="puddle-workflow-stage flex lg:h-[450px] lg:flex-col">
+            <div className="relative lg:flex-1">
               {howItWorksSteps.map((step, index) => (
                 <div
                   key={step.stage}
-                  className={`absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  className={`absolute inset-0 transition-opacity duration-500 ease-out ${
                     activeStep === index ? "pointer-events-auto" : "pointer-events-none"
                   }`}
-                  style={getCrossfadeStyle(index)}
+                  style={getPanelStyle(index)}
+                  aria-hidden={activeStep !== index}
                 >
                   <HowItWorksStepCard
                     step={step}
@@ -417,13 +394,13 @@ function WorkflowSection() {
               ))}
             </div>
 
-            <div className="mt-8 grid grid-cols-3 gap-2">
+            <div className="mt-3 grid shrink-0 grid-cols-3 gap-2">
               {howItWorksSteps.map((step, index) => (
                 <button
                   key={step.stage}
                   type="button"
                   onClick={() => setWorkflowProgress(getStepAnchorProgress(index))}
-                  className={`rounded-md border px-3 py-2 text-left transition duration-500 ${
+                  className={`min-h-[68px] rounded-md border px-3 py-2 text-left transition duration-500 ${
                     activeStep === index
                       ? "border-cyan-300 bg-cyan-50 text-cyan-950"
                       : "border-slate-200 bg-white/70 text-slate-500 hover:border-slate-300"
@@ -436,14 +413,15 @@ function WorkflowSection() {
             </div>
           </div>
 
-          <div className="puddle-how-artifact-stage relative min-h-[340px]">
+          <div className="puddle-how-artifact-stage puddle-workflow-stage relative lg:h-[450px]">
             {howItWorksSteps.map((step, index) => (
               <div
                 key={step.stage}
-                className={`absolute inset-0 transition-[opacity,transform,filter] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                className={`absolute inset-0 transition-opacity duration-500 ease-out ${
                   activeStep === index ? "pointer-events-auto" : "pointer-events-none"
                 }`}
-                style={getCrossfadeStyle(index)}
+                style={getPanelStyle(index)}
+                aria-hidden={activeStep !== index}
               >
                 <HowItWorksArtifact step={step} activeStep={index} />
               </div>
@@ -484,7 +462,7 @@ function HowItWorksStepCard({
   return (
     <article
       onMouseEnter={onMouseEnter}
-      className={`puddle-how-step-card w-full rounded-lg border bg-white/86 p-4 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur transition duration-300 lg:p-5 ${
+      className={`puddle-how-step-card flex w-full rounded-lg border bg-white/86 p-4 shadow-[0_18px_56px_rgba(15,23,42,0.06)] backdrop-blur transition duration-300 lg:h-full lg:flex-col lg:p-5 ${
         active ? "border-cyan-300 shadow-[0_24px_70px_rgba(8,145,178,0.12)]" : "border-slate-200 lg:opacity-80"
       }`}
     >
@@ -503,7 +481,7 @@ function HowItWorksStepCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:mt-auto">
         {step.proof.map((item) => (
           <div
             key={item}
@@ -531,8 +509,8 @@ function HowItWorksArtifact({
   readonly activeStep: number;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+    <div className="puddle-how-artifact-card flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">Process output</div>
           <h3 className="mt-1 text-lg font-semibold leading-tight">{step.stage}</h3>
@@ -540,13 +518,13 @@ function HowItWorksArtifact({
         <div className="rounded-md bg-emerald-300 px-2.5 py-1.5 text-xs font-semibold text-slate-950">{step.badge}</div>
       </div>
 
-      <div key={step.stage} className="puddle-how-artifact-motion p-4">
+      <div key={step.stage} className="puddle-how-artifact-motion flex flex-1 p-4">
         {step.kind === "rubric" ? <HiringBarArtifact /> : null}
         {step.kind === "screen" ? <PuddleScreenArtifact /> : null}
         {step.kind === "packet" ? <ReviewerOutputArtifact /> : null}
       </div>
 
-      <div className="border-t border-white/10 px-4 py-3">
+      <div className="shrink-0 border-t border-white/10 px-4 py-3">
         <div className="grid grid-cols-3 gap-2">
           {howItWorksSteps.map((item, index) => (
             <div
@@ -562,9 +540,9 @@ function HowItWorksArtifact({
 
 function HiringBarArtifact() {
   return (
-    <div className="grid gap-3">
-      <div className="grid gap-3 lg:grid-cols-[0.72fr_1.28fr]">
-        <div className="rounded-lg border border-white/10 bg-white/[0.06] p-3">
+    <div className="grid h-full w-full grid-rows-[minmax(0,1fr)_auto] gap-3">
+      <div className="grid min-h-0 gap-3 lg:grid-cols-[0.72fr_1.28fr]">
+        <div className="min-h-0 rounded-lg border border-white/10 bg-white/[0.06] p-3">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Role brief</div>
           <p className="mt-3 text-sm leading-6 text-slate-200">
             Backend engineer for infra-heavy product work. Strong signal comes from tradeoff reasoning, ownership, and
@@ -572,7 +550,7 @@ function HiringBarArtifact() {
           </p>
         </div>
 
-        <div className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 p-3">
+        <div className="min-h-0 rounded-lg border border-cyan-300/30 bg-cyan-300/10 p-3">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">Hiring bar</div>
           <div className="mt-3 grid gap-2">
             {[
@@ -602,13 +580,13 @@ function HiringBarArtifact() {
 
 function PuddleScreenArtifact() {
   return (
-    <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
+      <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="text-sm font-semibold text-white">Puddle screen</div>
         <div className="rounded-md bg-cyan-300 px-2.5 py-1 text-xs font-semibold text-slate-950">10 min</div>
       </div>
 
-      <div className="grid gap-0 lg:grid-cols-[1.08fr_0.92fr]">
+      <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[1.08fr_0.92fr]">
         <div className="border-b border-white/10 p-3 lg:border-b-0 lg:border-r">
           <div className="rounded-lg bg-slate-950 p-3">
             <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Current probe</div>
@@ -648,7 +626,7 @@ function PuddleScreenArtifact() {
 
 function ReviewerOutputArtifact() {
   return (
-    <div className="grid gap-2.5 lg:grid-cols-[0.9fr_1.1fr]">
+    <div className="grid h-full w-full gap-2.5 lg:grid-cols-[0.9fr_1.1fr]">
       <div className="grid gap-2.5">
         <div className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 p-2.5">
           <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Recommendation</div>

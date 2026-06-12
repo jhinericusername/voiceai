@@ -34,7 +34,7 @@ test("dashboard pages use the compact workspace width", () => {
 });
 
 test("dashboard overview keeps review queue compact", () => {
-  assert.ok(overviewSource.includes("<NeedsReviewQueue limit={3} />"));
+  assert.match(overviewSource, /<NeedsReviewQueue[\s\S]*limit=\{3\}/);
   assert.equal(dashboardSource.includes("min-w-[980px]"), false);
 });
 

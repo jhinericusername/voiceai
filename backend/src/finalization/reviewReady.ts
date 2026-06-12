@@ -19,6 +19,17 @@ export interface ArtifactStatusRow {
   readonly status: RecordingArtifactStatus;
 }
 
+export type ArtifactReadinessRow = ArtifactStatusRow;
+
+export interface Queryable<Row> {
+  query(
+    sql: string,
+    params: readonly unknown[],
+  ): Promise<{ readonly rows: readonly Row[] }>;
+}
+
+export type ReviewReadyQueryable = Queryable<ArtifactReadinessRow>;
+
 export function reviewReadyArtifactStatusesStatement(sessionId: string): SqlStatement {
   return {
     sql:
@@ -39,6 +50,18 @@ export function sessionReviewReadyStatement(sessionId: string): SqlStatement {
   });
 }
 
+export function artifactReadinessBySessionStatement(sessionId: string): SqlStatement {
+  return reviewReadyArtifactStatusesStatement(sessionId);
+}
+
+export function reviewReadyStatusStatement(sessionId: string): SqlStatement {
+  const stmt = sessionStatusUpdateStatement(sessionId, "review_ready");
+  return {
+    sql: `${stmt.sql} AND status = 'recording_finalizing'`,
+    params: stmt.params,
+  };
+}
+
 export async function markSessionReviewReadyIfComplete(
   pool: Pick<Pool, "query">,
   sessionId: string,
@@ -54,5 +77,20 @@ export async function markSessionReviewReadyIfComplete(
 
   const updateStmt = sessionReviewReadyStatement(sessionId);
   await pool.query(updateStmt.sql, [...updateStmt.params]);
+  return true;
+}
+
+export async function markReviewReadyIfArtifactsAvailable(
+  sessionId: string,
+  pool: ReviewReadyQueryable,
+): Promise<boolean> {
+  const readinessStmt = artifactReadinessBySessionStatement(sessionId);
+  const readiness = await pool.query(readinessStmt.sql, readinessStmt.params);
+  if (!shouldMarkReviewReady(readiness.rows)) {
+    return false;
+  }
+
+  const reviewReadyStmt = reviewReadyStatusStatement(sessionId);
+  await pool.query(reviewReadyStmt.sql, reviewReadyStmt.params);
   return true;
 }

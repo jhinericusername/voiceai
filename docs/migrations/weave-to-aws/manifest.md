@@ -143,3 +143,15 @@ Use one of these two rehearsal data modes:
 For the current database size, prefer native Postgres dump/restore for rehearsal and final cutover.
 
 Use DMS or logical replication only if the final downtime window is not acceptable or if Weave keeps writing heavily during cutover. If DMS is used, pre-create the schema and constraints, use table mapping from this manifest, and reset sequences after CDC stops.
+
+## AWS Promotion Status
+
+Status as of 2026-06-10:
+
+- Rehearsal database `weave_rehearsal_20260610` was restored on `puddle-videoagent-postgres`.
+- Permanent database `weave` was created from the verified rehearsal database.
+- AWS Secrets Manager secret `/puddle-videoagent/weave/database/credentials` was created with the same shape as `/puddle-videoagent/database/credentials` and `dbname = weave`.
+- CDK stack `Puddle-VideoAgent-Infra` was deployed with backend and backend migration task definitions receiving `WEAVE_DATABASE_HOST`, `WEAVE_DATABASE_PORT`, `WEAVE_DATABASE_NAME`, `WEAVE_DATABASE_SSL`, `WEAVE_DATABASE_SSL_REJECT_UNAUTHORIZED`, `WEAVE_DATABASE_USER`, and `WEAVE_DATABASE_PASSWORD`.
+- Runtime ECS verification using backend task definition `puddle-videoagent-backend:15` connected through `WEAVE_DATABASE_*` and returned `ashby_applications = 2568`.
+
+The existing application database `puddle` was not overwritten. Application reads still need to be moved component by component to code paths that use the Weave database pool.

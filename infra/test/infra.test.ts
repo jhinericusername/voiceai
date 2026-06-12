@@ -3,6 +3,13 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { configFromApp, PuddleEnvConfig } from '../lib/config';
 import { InfraStack } from '../lib/infra-stack';
 
+const WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME =
+  'weave-fireflies-prod-851725544921-us-west-2';
+const WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION = 'us-west-2';
+const WEAVE_HISTORICAL_RECORDINGS_PREFIX = 'raw/fireflies/';
+const WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN =
+  'arn:aws:kms:us-west-2:851725544921:key/34ca088f-7a67-4cd8-b3a3-ba52cbfe4a73';
+
 describe('InfraStack', () => {
   test('creates the foundation resources with services disabled', () => {
     const stack = createStack();
@@ -244,6 +251,30 @@ describe('InfraStack', () => {
               Name: 'DATABASE_NAME',
               Value: 'puddle',
             }),
+            Match.objectLike({
+              Name: 'WEAVE_DATABASE_NAME',
+              Value: 'weave',
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_DATABASE_SSL',
+              Value: 'true',
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_DATABASE_SSL_REJECT_UNAUTHORIZED',
+              Value: 'false',
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_HISTORICAL_RECORDINGS_BUCKET',
+              Value: WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME,
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_HISTORICAL_RECORDINGS_REGION',
+              Value: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_HISTORICAL_RECORDINGS_PREFIX',
+              Value: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+            }),
           ]),
           Secrets: Match.arrayWith([
             Match.objectLike({
@@ -257,6 +288,12 @@ describe('InfraStack', () => {
             }),
             Match.objectLike({
               Name: 'DATABASE_PASSWORD',
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_DATABASE_USER',
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_DATABASE_PASSWORD',
             }),
           ]),
         }),
@@ -338,6 +375,55 @@ describe('InfraStack', () => {
 
     expect(JSON.stringify(platformTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
     expect(JSON.stringify(agentTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
+  });
+
+  test('connects the historical Fireflies bucket as a read-only backend source', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'test',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+    const policies = template.findResources('AWS::IAM::Policy');
+    const backendTaskPolicy = Object.values(policies).find((policy) =>
+      JSON.stringify(policy).includes('BackendTaskRole'),
+    );
+    expect(backendTaskPolicy).toBeDefined();
+    const backendTaskPolicyJson = JSON.stringify(backendTaskPolicy);
+    const historicalStatements = (
+      backendTaskPolicy as {
+        readonly Properties: {
+          readonly PolicyDocument: { readonly Statement: readonly unknown[] };
+        };
+      }
+    ).Properties.PolicyDocument.Statement.filter((statement) =>
+      JSON.stringify(statement).includes(WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME),
+    );
+
+    template.hasOutput('WeaveHistoricalRecordingsBucketName', {
+      Value: WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME,
+    });
+    template.hasOutput('WeaveHistoricalRecordingsBucketRegion', {
+      Value: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+    });
+    template.hasOutput('WeaveHistoricalRecordingsPrefix', {
+      Value: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+    });
+    expect(backendTaskPolicyJson).toContain(WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME);
+    expect(backendTaskPolicyJson).toContain(WEAVE_HISTORICAL_RECORDINGS_PREFIX);
+    expect(backendTaskPolicyJson).toContain('s3:GetBucketLocation');
+    expect(backendTaskPolicyJson).toContain('s3:ListBucket');
+    expect(backendTaskPolicyJson).toContain('s3:GetObject');
+    expect(backendTaskPolicyJson).toContain('s3:GetObjectVersion');
+    expect(backendTaskPolicyJson).toContain(WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN);
+    expect(backendTaskPolicyJson).toContain('kms:Decrypt');
+    expect(JSON.stringify(historicalStatements)).not.toContain('s3:DeleteObject');
   });
 
   test('creates LiveKit Egress S3 credentials only when recordings are enabled', () => {

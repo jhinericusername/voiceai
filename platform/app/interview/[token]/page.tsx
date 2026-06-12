@@ -16,7 +16,7 @@ export default async function InterviewInvitePage({ params }: InterviewInvitePag
 
   return (
     <main className="min-h-svh bg-[#f8fafd] p-3 text-[#202124] sm:p-4 lg:p-5">
-      <div className="mx-auto max-w-[1600px]">
+      <div className="mx-auto max-w-[1180px]">
         <InterviewJoinClient token={token} />
       </div>
     </main>

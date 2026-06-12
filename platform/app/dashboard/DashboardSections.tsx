@@ -127,7 +127,7 @@ export function WorkspaceMetricStrip() {
   const stats = getDashboardStats();
 
   return (
-    <section className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5" aria-label="Workspace metrics">
+    <section className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Workspace metrics">
       <MetricCard label="Needs review" value={String(stats.reviewReadySessions)} detail="Open packets with scorecards attached" />
       <MetricCard label="Unassigned" value={String(stats.unassignedReviews)} detail="Packets waiting for a human owner" />
       <MetricCard label="Oldest review" value={`${stats.oldestReviewHours}h`} detail="Time since the oldest packet updated" />

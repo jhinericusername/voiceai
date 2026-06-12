@@ -20,13 +20,13 @@ export function LegalPageShell({ page }: { readonly page: LegalPageContent }) {
   return (
     <main className="puddle-page min-h-svh bg-white text-slate-950">
       <PublicNav />
-      <article className="relative z-10 px-5 pb-16 pt-32 sm:px-6 lg:pt-36">
+      <article className="relative z-10 px-5 pb-16 pt-24 sm:px-6 lg:pt-28">
         <div className="mx-auto max-w-4xl">
           <div className="inline-flex items-center gap-2 rounded-md border border-cyan-200 bg-cyan-50/90 px-3 py-1.5 text-sm font-semibold text-cyan-900">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             {page.eyebrow}
           </div>
-          <h1 className="mt-6 text-4xl font-semibold leading-[1.04] tracking-normal text-slate-950 sm:text-5xl">
+          <h1 className="mt-6 text-3xl font-semibold leading-[1.04] tracking-normal text-slate-950 sm:text-4xl">
             {page.title}
           </h1>
           <p className="mt-5 text-lg leading-8 text-slate-600">{page.description}</p>

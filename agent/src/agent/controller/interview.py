@@ -11,9 +11,10 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from agent.config import SCORING
+from agent.config import MODELS, SCORING
 from agent.controller.decision import decide_next_action
 from agent.controller.event_log import EventLog
 from agent.controller.machine import InterviewStateMachine
@@ -34,6 +35,12 @@ _CLOSING_TEXT = "That's everything I wanted to cover. Thank you for your time."
 
 logger = logging.getLogger(__name__)
 
+ArtifactEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+async def _noop_emit(_payload: dict[str, Any]) -> None:
+    return None
+
 
 def _positive_float_env(name: str, default: float) -> float:
     raw = os.environ.get(name)
@@ -50,6 +57,25 @@ def _positive_float_env(name: str, default: float) -> float:
     return value
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("invalid integer environment value", extra={"env_var": name})
+        return default
+    if value <= 0:
+        logger.warning("non-positive integer environment value", extra={"env_var": name})
+        return default
+    return value
+
+
+_ARTIFACT_EMIT_TIMEOUT_SECONDS = _positive_float_env(
+    "PUDDLE_ARTIFACT_EMIT_TIMEOUT_SECONDS",
+    0.5,
+)
 _LISTEN_INITIAL_TIMEOUT_SECONDS = _positive_float_env(
     "PUDDLE_LISTEN_INITIAL_TIMEOUT_SECONDS",
     8.0,
@@ -58,6 +84,10 @@ _LISTEN_REPAIR_TIMEOUT_SECONDS = _positive_float_env(
     "PUDDLE_LISTEN_REPAIR_TIMEOUT_SECONDS",
     12.0,
 )
+_LISTEN_MAX_REPAIR_ATTEMPTS = _positive_int_env(
+    "PUDDLE_LISTEN_MAX_REPAIR_ATTEMPTS",
+    2,
+)
 _AUDIO_REPAIR_LINES = (
     "I'm listening. Please answer out loud when you're ready.",
     (
@@ -65,6 +95,54 @@ _AUDIO_REPAIR_LINES = (
         "unmuted, then continue."
     ),
 )
+
+
+class CandidateSilenceTimeoutError(TimeoutError):
+    """Raised when a connected candidate remains silent after repair prompts."""
+
+
+def _log_background_emit_result(kind: str, task: asyncio.Task[None]) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.warning(
+            "artifact emission task was cancelled",
+            extra={"artifact_kind": kind},
+        )
+    except Exception:
+        logger.warning(
+            "artifact emission failed",
+            extra={"artifact_kind": kind},
+            exc_info=True,
+        )
+
+
+async def _emit_best_effort(
+    kind: str,
+    emitter: ArtifactEmitter,
+    payload: dict[str, Any],
+) -> None:
+    task = asyncio.create_task(emitter(payload))
+    try:
+        await asyncio.wait_for(
+            asyncio.shield(task),
+            timeout=_ARTIFACT_EMIT_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        task.add_done_callback(lambda done: _log_background_emit_result(kind, done))
+        logger.warning(
+            "artifact emission timed out",
+            extra={
+                "artifact_kind": kind,
+                "timeout_seconds": _ARTIFACT_EMIT_TIMEOUT_SECONDS,
+            },
+        )
+    except Exception:
+        logger.warning(
+            "artifact emission failed",
+            extra={"artifact_kind": kind},
+            exc_info=True,
+        )
 
 
 class InterviewRunner:
@@ -79,6 +157,10 @@ class InterviewRunner:
         event_log: EventLog,
         clock_now: Callable[[], float],
         perception: object | None = None,
+        emit_transcript_turn: ArtifactEmitter | None = None,
+        emit_agent_event: ArtifactEmitter | None = None,
+        emit_score_checkpoint: ArtifactEmitter | None = None,
+        candidate_transcript_source: str = "unknown",
     ) -> None:
         self._rubric = rubric
         self._voice = voice
@@ -96,6 +178,13 @@ class InterviewRunner:
         self._turn_index = 0
         self._session_id: str | None = None
         self._reconnect_count = 0
+        # Emitters are expected to be best-effort and handle backend failures.
+        self._emit_transcript_turn = emit_transcript_turn or _noop_emit
+        self._emit_agent_event = emit_agent_event or _noop_emit
+        self._emit_score_checkpoint = emit_score_checkpoint or _noop_emit
+        self._candidate_transcript_source = candidate_transcript_source
+        self._agent_event_sequence = 0
+        self._score_checkpoint_sequence = 0
         participant_handlers = getattr(voice, "set_participant_state_handlers", None)
         if callable(participant_handlers):
             participant_handlers(
@@ -103,6 +192,18 @@ class InterviewRunner:
                 on_reconnect=self._handle_participant_reconnect,
                 on_reconnect_grace_expired=self._handle_reconnect_grace_expired,
             )
+
+    @property
+    def transcript(self) -> list[TranscriptTurn]:
+        return list(self._transcript)
+
+    @property
+    def event_log(self) -> EventLog:
+        return self._event_log
+
+    @property
+    def score_checkpoint_count(self) -> int:
+        return self._score_checkpoint_sequence
 
     async def run(self, session_id: str) -> Assessment:
         """Conduct the interview and return the rolled-up `Assessment`."""
@@ -177,6 +278,27 @@ class InterviewRunner:
             )
             for assessment in output.assessments:
                 latest[assessment.category] = assessment
+            score_payload = {
+                "sequence": self._score_checkpoint_sequence,
+                "questionId": question.question_id,  # type: ignore[attr-defined]
+                "model": MODELS.scorer_model,
+                "assessments": [
+                    {
+                        "category": assessment.category,
+                        "provisionalScore": assessment.provisional_score,
+                        "confidence": assessment.confidence,
+                        "evidenceQuotes": assessment.evidence_quotes,
+                        "missingOrAmbiguous": assessment.missing_or_ambiguous,
+                    }
+                    for assessment in output.assessments
+                ],
+            }
+            self._score_checkpoint_sequence += 1
+            await _emit_best_effort(
+                "score_checkpoint",
+                self._emit_score_checkpoint,
+                score_payload,
+            )
 
             directive = decide_next_action(
                 scorer_output=output,
@@ -257,6 +379,34 @@ class InterviewRunner:
             )
         )
         self._turn_index += 1
+        turn_index = self._turn_index - 1
+        transcript_payload = {
+            "turnIndex": turn_index,
+            "speaker": "agent",
+            "text": text,
+            "questionId": question_id,
+            "source": "agent-controller",
+        }
+        event_payload = {
+            "sequence": self._agent_event_sequence,
+            "turnIndex": turn_index,
+            "utterance": text,
+            "reasonCode": reason_code,
+            "questionId": question_id,
+            "category": category,
+            "missingElement": missing_element,
+        }
+        self._agent_event_sequence += 1
+        await _emit_best_effort(
+            "transcript_turn",
+            self._emit_transcript_turn,
+            transcript_payload,
+        )
+        await _emit_best_effort(
+            "agent_event",
+            self._emit_agent_event,
+            event_payload,
+        )
 
     async def _listen(self, question_id: str) -> None:
         """Capture one candidate turn into the transcript."""
@@ -277,7 +427,20 @@ class InterviewRunner:
                     timeout=timeout_seconds,
                 )
                 break
-            except TimeoutError:
+            except TimeoutError as exc:
+                if repair_attempts >= _LISTEN_MAX_REPAIR_ATTEMPTS:
+                    self._mark_incomplete()
+                    logger.warning(
+                        "candidate silence repair attempts exhausted",
+                        extra={
+                            "question_id": question_id,
+                            "repair_attempts": repair_attempts,
+                            "max_repair_attempts": _LISTEN_MAX_REPAIR_ATTEMPTS,
+                        },
+                    )
+                    raise CandidateSilenceTimeoutError(
+                        "candidate remained silent after audio repair prompts"
+                    ) from exc
                 repair_text = _AUDIO_REPAIR_LINES[
                     min(repair_attempts, len(_AUDIO_REPAIR_LINES) - 1)
                 ]
@@ -310,6 +473,24 @@ class InterviewRunner:
             )
         )
         self._turn_index += 1
+        transcript_payload = {
+            "turnIndex": self._turn_index - 1,
+            "speaker": "candidate",
+            "text": result.transcript,
+            "questionId": question_id,
+            "source": self._candidate_transcript_source_for(result),
+        }
+        await _emit_best_effort(
+            "transcript_turn",
+            self._emit_transcript_turn,
+            transcript_payload,
+        )
+
+    def _candidate_transcript_source_for(self, listen_result: object) -> str:
+        result_source = getattr(listen_result, "source", None)
+        if isinstance(result_source, str) and result_source.strip():
+            return result_source
+        return self._candidate_transcript_source
 
     def _handle_participant_disconnect(self) -> None:
         self._clock.pause_for_disconnect()

@@ -26,7 +26,7 @@ export default async function DashboardLayout({ children }: { readonly children:
   if (!onboardingComplete) {
     return (
       <main className="min-h-svh min-w-0 overflow-x-clip bg-white px-4 py-5 text-slate-950 sm:px-5">
-        <div className="mx-auto grid min-w-0 max-w-[1440px] gap-5">
+        <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
           <AshbyOnboardingWizard state={state} canManageSetup={canManageSetup} />
         </div>
       </main>

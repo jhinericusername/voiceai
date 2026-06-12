@@ -5,6 +5,7 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -29,6 +30,7 @@ interface RuntimeSecrets {
   ashbyWebhookSecret: secretsmanager.ISecret;
   workosApiKey: secretsmanager.ISecret;
   workosClientId: secretsmanager.ISecret;
+  weaveDatabaseCredentials: secretsmanager.ISecret;
   livekitEgressS3Credentials?: secretsmanager.ISecret;
 }
 
@@ -89,10 +91,23 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   ashbyWebhookSecret: 'integrations/ashby/webhook-secret',
   workosApiKey: 'platform/workos-api-key',
   workosClientId: 'platform/workos-client-id',
+  weaveDatabaseCredentials: 'weave/database/credentials',
   livekitEgressS3Credentials: 'livekit/egress-s3-credentials',
 };
 
 const DATABASE_PASSWORD_EXCLUDE_CHARS = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\';
+const WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME =
+  'weave-fireflies-prod-851725544921-us-west-2';
+const WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION = 'us-west-2';
+const WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT = '851725544921';
+const WEAVE_HISTORICAL_RECORDINGS_PREFIX = 'raw/fireflies/';
+const WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN =
+  'arn:aws:kms:us-west-2:851725544921:key/34ca088f-7a67-4cd8-b3a3-ba52cbfe4a73';
+
+interface HistoricalRecordingsSource {
+  bucket: s3.IBucket;
+  encryptionKey: kms.IKey;
+}
 
 export class InfraStack extends cdk.Stack {
   private readonly cfg: PuddleEnvConfig;
@@ -114,6 +129,7 @@ export class InfraStack extends cdk.Stack {
       removalPolicy,
       autoDeleteObjects,
     );
+    const weaveHistoricalRecordings = this.createWeaveHistoricalRecordingsSource();
     const webBuckets = this.createWebBuckets(
       accessLogsBucket,
       removalPolicy,
@@ -133,7 +149,12 @@ export class InfraStack extends cdk.Stack {
     });
     const devTunnelDeployment = this.createDevTunnelDeployment({ vpc, securityGroups });
 
-    const runtimeRoles = this.createRuntimeRoles(runtimeSecrets, artifactsBucket, database);
+    const runtimeRoles = this.createRuntimeRoles(
+      runtimeSecrets,
+      artifactsBucket,
+      weaveHistoricalRecordings,
+      database,
+    );
     const githubCiRole = this.createGithubCiRole(repositories, webBuckets);
     const backendDeployment = this.createBackendDeployment({
       vpc,
@@ -145,6 +166,7 @@ export class InfraStack extends cdk.Stack {
       runtimeRoles,
       database,
       artifactsBucket,
+      weaveHistoricalRecordingsBucket: weaveHistoricalRecordings.bucket,
     });
     const agentDeployment = this.createAgentDeployment({
       vpc,
@@ -175,6 +197,7 @@ export class InfraStack extends cdk.Stack {
       cluster,
       accessLogsBucket,
       artifactsBucket,
+      weaveHistoricalRecordings,
       webBuckets,
       repositories,
       runtimeSecrets,
@@ -623,6 +646,25 @@ export class InfraStack extends cdk.Stack {
     });
   }
 
+  private createWeaveHistoricalRecordingsSource(): HistoricalRecordingsSource {
+    const encryptionKey = kms.Key.fromKeyArn(
+      this,
+      'WeaveHistoricalRecordingsKey',
+      WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN,
+    );
+    const bucket = s3.Bucket.fromBucketAttributes(
+      this,
+      'WeaveHistoricalRecordingsBucket',
+      {
+        bucketName: WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME,
+        account: WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
+        region: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+      },
+    );
+
+    return { bucket, encryptionKey };
+  }
+
   private createWebBuckets(
     accessLogsBucket: s3.IBucket,
     removalPolicy: cdk.RemovalPolicy,
@@ -791,6 +833,11 @@ export class InfraStack extends cdk.Stack {
         'WorkosClientId',
         this.secretName(RUNTIME_SECRET_PATHS.workosClientId),
       ),
+      weaveDatabaseCredentials: secretsmanager.Secret.fromSecretNameV2(
+        this,
+        'WeaveDatabaseCredentials',
+        this.secretName(RUNTIME_SECRET_PATHS.weaveDatabaseCredentials),
+      ),
     };
 
     if (this.cfg.liveKit.recordingsEnabled) {
@@ -877,6 +924,7 @@ export class InfraStack extends cdk.Stack {
   private createRuntimeRoles(
     runtimeSecrets: RuntimeSecrets,
     artifactsBucket: s3.IBucket,
+    weaveHistoricalRecordings: HistoricalRecordingsSource,
     database: rds.DatabaseInstance | undefined,
   ): RuntimeRoles {
     const backendTaskRole = this.createTaskRole(
@@ -912,6 +960,7 @@ export class InfraStack extends cdk.Stack {
     artifactsBucket.grantReadWrite(backendTaskRole);
     artifactsBucket.grantReadWrite(agentTaskRole);
     artifactsBucket.grantRead(platformTaskRole);
+    this.grantHistoricalRecordingsRead(backendTaskRole, weaveHistoricalRecordings);
 
     grantSecretsRead(backendExecutionRole, [
       runtimeSecrets.livekitApiKey,
@@ -942,6 +991,7 @@ export class InfraStack extends cdk.Stack {
       database.secret.grantRead(backendExecutionRole);
       database.secret.grantRead(agentExecutionRole);
     }
+    runtimeSecrets.weaveDatabaseCredentials.grantRead(backendExecutionRole);
 
     return {
       backendTaskRole,
@@ -951,6 +1001,38 @@ export class InfraStack extends cdk.Stack {
       platformTaskRole,
       platformExecutionRole,
     };
+  }
+
+  private grantHistoricalRecordingsRead(
+    role: iam.Role,
+    source: HistoricalRecordingsSource,
+  ): void {
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetBucketLocation'],
+        resources: [source.bucket.bucketArn],
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: [source.bucket.bucketArn],
+        conditions: {
+          StringLike: {
+            's3:prefix': [`${WEAVE_HISTORICAL_RECORDINGS_PREFIX}*`],
+          },
+        },
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:GetObjectVersion'],
+        resources: [
+          source.bucket.arnForObjects(`${WEAVE_HISTORICAL_RECORDINGS_PREFIX}*`),
+        ],
+      }),
+    );
+    source.encryptionKey.grantDecrypt(role);
   }
 
   private createTaskRole(
@@ -994,6 +1076,7 @@ export class InfraStack extends cdk.Stack {
     runtimeRoles: RuntimeRoles;
     database?: rds.DatabaseInstance;
     artifactsBucket: s3.IBucket;
+    weaveHistoricalRecordingsBucket: s3.IBucket;
   }): BackendDeployment | undefined {
     if (!this.cfg.backend.deployService) {
       return undefined;
@@ -1052,6 +1135,15 @@ export class InfraStack extends cdk.Stack {
       DATABASE_NAME: this.cfg.database.name,
       DATABASE_SSL: 'true',
       DATABASE_SSL_REJECT_UNAUTHORIZED: 'false',
+      WEAVE_DATABASE_HOST: database.dbInstanceEndpointAddress,
+      WEAVE_DATABASE_PORT: database.dbInstanceEndpointPort,
+      WEAVE_DATABASE_NAME: 'weave',
+      WEAVE_DATABASE_SSL: 'true',
+      WEAVE_DATABASE_SSL_REJECT_UNAUTHORIZED: 'false',
+      WEAVE_HISTORICAL_RECORDINGS_BUCKET:
+        params.weaveHistoricalRecordingsBucket.bucketName,
+      WEAVE_HISTORICAL_RECORDINGS_REGION: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+      WEAVE_HISTORICAL_RECORDINGS_PREFIX: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
     };
     const containerSecrets = {
       LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.livekitApiKey),
@@ -1078,6 +1170,14 @@ export class InfraStack extends cdk.Stack {
         : {}),
       DATABASE_USER: ecs.Secret.fromSecretsManager(database.secret, 'username'),
       DATABASE_PASSWORD: ecs.Secret.fromSecretsManager(database.secret, 'password'),
+      WEAVE_DATABASE_USER: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.weaveDatabaseCredentials,
+        'username',
+      ),
+      WEAVE_DATABASE_PASSWORD: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.weaveDatabaseCredentials,
+        'password',
+      ),
     };
 
     const taskDefinition = new ecs.FargateTaskDefinition(
@@ -1526,6 +1626,7 @@ export class InfraStack extends cdk.Stack {
     cluster: ecs.ICluster;
     accessLogsBucket: s3.IBucket;
     artifactsBucket: s3.IBucket;
+    weaveHistoricalRecordings: HistoricalRecordingsSource;
     webBuckets: Record<string, s3.IBucket>;
     repositories: Record<string, ecr.IRepository>;
     runtimeSecrets: RuntimeSecrets;
@@ -1567,6 +1668,15 @@ export class InfraStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'ArtifactsBucketName', {
       value: values.artifactsBucket.bucketName,
+    });
+    new cdk.CfnOutput(this, 'WeaveHistoricalRecordingsBucketName', {
+      value: values.weaveHistoricalRecordings.bucket.bucketName,
+    });
+    new cdk.CfnOutput(this, 'WeaveHistoricalRecordingsBucketRegion', {
+      value: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+    });
+    new cdk.CfnOutput(this, 'WeaveHistoricalRecordingsPrefix', {
+      value: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
     });
 
     if (values.database) {

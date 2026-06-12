@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { EgressStatus, EncodedFileType } from "livekit-server-sdk";
+import { createHash } from "node:crypto";
+import Fastify from "fastify";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AccessToken, EgressStatus, EncodedFileType } from "livekit-server-sdk";
 import {
   buildRoomCompositeFileOutput,
   liveKitEgressStorageConfigFromEnv,
@@ -11,6 +13,8 @@ import {
   liveKitDurationSeconds,
   liveKitTimestampToIso,
   recordingStatusForEgressEvent,
+  registerLiveKitWebhookRoutes,
+  sessionStatusForFinalizedEgress,
 } from "../src/livekit/webhooks.js";
 import {
   ensureRoomReady,
@@ -18,6 +22,31 @@ import {
   roomName,
   sessionIdFromRoomName,
 } from "../src/livekit/provision.js";
+
+const { queryMock } = vi.hoisted(() => ({
+  queryMock: vi.fn(),
+}));
+
+vi.mock("../src/db/pool.js", () => ({
+  getPool: () => ({ query: queryMock }),
+}));
+
+beforeEach(() => {
+  queryMock.mockReset();
+  queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+});
+
+const liveKitConfig = {
+  host: "wss://livekit.example",
+  apiKey: "key",
+  apiSecret: "secret",
+};
+
+async function signedWebhookAuth(body: string): Promise<string> {
+  const token = new AccessToken(liveKitConfig.apiKey, liveKitConfig.apiSecret);
+  token.sha256 = createHash("sha256").update(body).digest("base64");
+  return token.toJwt();
+}
 
 describe("LiveKit Egress output configuration", () => {
   it("keeps recordings disabled unless explicitly enabled", () => {
@@ -137,12 +166,105 @@ describe("LiveKit Egress webhook mapping", () => {
   });
 });
 
+describe("LiveKit Egress finalization status decision", () => {
+  it("marks completed egress finalizing and failed egress incomplete", () => {
+    expect(sessionStatusForFinalizedEgress("complete")).toBe("recording_finalizing");
+    expect(sessionStatusForFinalizedEgress("failed")).toBe("incomplete");
+    expect(sessionStatusForFinalizedEgress("active")).toBeNull();
+  });
+});
+
+describe("LiveKit Egress webhook persistence", () => {
+  it("does not move an already incomplete session back to recording_finalizing after successful egress", async () => {
+    const previousRecordingsEnabled = process.env.PUDDLE_RECORDINGS_ENABLED;
+    process.env.PUDDLE_RECORDINGS_ENABLED = "true";
+    let sessionStatus = "incomplete";
+    queryMock.mockImplementation(async (sql: unknown, params: readonly unknown[] = []) => {
+      const sqlText = String(sql);
+      if (sqlText.includes("UPDATE sessions SET status = $2")) {
+        if (!sqlText.includes("status IN")) {
+          sessionStatus = String(params[1]);
+          return { rows: [], rowCount: 1 };
+        }
+        const eligibleStatuses = params.slice(4).map(String);
+        if (eligibleStatuses.includes(sessionStatus)) {
+          sessionStatus = String(params[1]);
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+      if (sqlText.includes("SELECT kind, status FROM recording_artifacts")) {
+        return {
+          rows: [
+            { kind: "composite_video", status: "available" },
+            { kind: "transcript", status: "available" },
+            { kind: "scores", status: "available" },
+            { kind: "integrity_flags", status: "available" },
+            { kind: "agent_events", status: "available" },
+          ],
+          rowCount: 5,
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+
+    const app = Fastify();
+    registerLiveKitWebhookRoutes(app, liveKitConfig);
+    const payload = {
+      event: "egress_ended",
+      egressInfo: {
+        egressId: "egress1",
+        roomName: "interview-session-1",
+        status: "EGRESS_COMPLETE",
+        startedAt: "1778932700000000000",
+        endedAt: "1778932800000000000",
+        fileResults: [
+          {
+            filename: "composite.mp4",
+            size: "123456",
+            duration: "90500000000",
+          },
+        ],
+      },
+    };
+    const body = JSON.stringify(payload);
+
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/livekit/webhook",
+        headers: {
+          authorization: await signedWebhookAuth(body),
+          "content-type": "application/json",
+        },
+        payload,
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, persisted: true });
+      expect(sessionStatus).toBe("incomplete");
+      const sessionUpdate = queryMock.mock.calls.find(([sql]) =>
+        String(sql).includes("UPDATE sessions SET status = $2"),
+      );
+      expect(sessionUpdate).toBeDefined();
+      expect(String(sessionUpdate?.[0])).toContain("status IN");
+      expect(
+        queryMock.mock.calls.some(([sql]) =>
+          String(sql).includes("SELECT kind, status FROM recording_artifacts"),
+        ),
+      ).toBe(false);
+    } finally {
+      if (previousRecordingsEnabled === undefined) {
+        delete process.env.PUDDLE_RECORDINGS_ENABLED;
+      } else {
+        process.env.PUDDLE_RECORDINGS_ENABLED = previousRecordingsEnabled;
+      }
+      await app.close();
+    }
+  });
+});
+
 describe("LiveKit room readiness", () => {
-  const liveKitConfig = {
-    host: "wss://livekit.example",
-    apiKey: "key",
-    apiSecret: "secret",
-  };
 
   it("normalizes websocket hosts for LiveKit server API clients", () => {
     expect(liveKitApiUrl("wss://livekit.example")).toBe("https://livekit.example");

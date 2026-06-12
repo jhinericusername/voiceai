@@ -13,6 +13,18 @@ This runbook intentionally separates:
 - Verification.
 - Production cutover approval.
 
+## Current AWS State
+
+As of 2026-06-10, the rehearsal has been promoted into a durable AWS target:
+
+- `weave_rehearsal_20260610` remains available as the verified rehearsal database.
+- `weave` exists as the permanent AWS database on `puddle-videoagent-postgres`.
+- `/puddle-videoagent/weave/database/credentials` points application consumers at `dbname = weave`.
+- Backend ECS task definition `puddle-videoagent-backend:15` has `WEAVE_DATABASE_*` env vars and secret injection.
+- A one-off task using `puddle-videoagent-backend:15` connected to `weave` and verified `public.ashby_applications` has `2568` rows.
+
+Do not restore Weave data into `puddle.public`. Future application cutover should introduce component-specific reads through the Weave database pool.
+
 ## Known Inputs
 
 Source:

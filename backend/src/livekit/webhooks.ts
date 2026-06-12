@@ -6,6 +6,7 @@ import {
   type WebhookEvent,
 } from "livekit-server-sdk";
 import { getPool } from "../db/pool.js";
+import { markReviewReadyIfArtifactsAvailable } from "../finalization/reviewReady.js";
 import {
   liveKitRecordingsEnabledFromEnv,
   recordingStatusFromEgressStatus,
@@ -17,7 +18,6 @@ import {
   type RecordingStatus,
 } from "../recordings/repository.js";
 import { sessionStatusUpdateStatement } from "../scheduler/sessions.js";
-import { markSessionReviewReadyIfComplete } from "../finalization/reviewReady.js";
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -91,6 +91,39 @@ function egressRoomName(info: EgressInfo): string | null {
   return null;
 }
 
+export function sessionStatusForFinalizedEgress(
+  status: RecordingStatus,
+): "recording_finalizing" | "incomplete" | null {
+  if (status === "complete") {
+    return "recording_finalizing";
+  }
+  if (status === "failed") {
+    return "incomplete";
+  }
+  return null;
+}
+
+const recordingFinalizingEligibleSessionStatuses = [
+  "in_progress",
+  "recording_finalizing",
+] as const;
+
+function sessionStatusUpdateForFinalizedEgress(
+  sessionId: string,
+  status: "recording_finalizing" | "incomplete",
+  options: { readonly endedAt?: string } = {},
+) {
+  const stmt = sessionStatusUpdateStatement(sessionId, status, options);
+  if (status !== "recording_finalizing") {
+    return stmt;
+  }
+
+  return {
+    sql: `${stmt.sql} AND status IN ($5, $6)`,
+    params: [...stmt.params, ...recordingFinalizingEligibleSessionStatuses],
+  };
+}
+
 async function persistEgressWebhook(event: WebhookEvent): Promise<boolean> {
   const info = event.egressInfo;
   if (!info) {
@@ -133,10 +166,22 @@ async function persistEgressWebhook(event: WebhookEvent): Promise<boolean> {
     });
     await pool.query(artifactStmt.sql, [...artifactStmt.params]);
 
-    const sessionStmt = sessionStatusUpdateStatement(sessionId, "recording_finalizing", {
+    const finalizedSessionStatus = sessionStatusForFinalizedEgress(status);
+    if (!finalizedSessionStatus) {
+      return true;
+    }
+
+    const sessionStmt = sessionStatusUpdateForFinalizedEgress(sessionId, finalizedSessionStatus, {
       endedAt: endedAt ?? undefined,
     });
-    await pool.query(sessionStmt.sql, [...sessionStmt.params]);
+    const sessionResult = await pool.query(sessionStmt.sql, [...sessionStmt.params]);
+
+    if (
+      finalizedSessionStatus === "recording_finalizing" &&
+      (sessionResult.rowCount ?? 0) > 0
+    ) {
+      await markReviewReadyIfArtifactsAvailable(sessionId, pool);
+    }
   }
 
   return true;
@@ -169,21 +214,6 @@ export function registerLiveKitWebhookRoutes(
         event.event === "egress_ended")
         ? await persistEgressWebhook(event)
         : false;
-
-    if (persisted && event.event === "egress_ended") {
-      const room = event.egressInfo ? egressRoomName(event.egressInfo) : null;
-      const sessionId = room ? sessionIdFromRoomName(room) : null;
-      if (sessionId) {
-        try {
-          await markSessionReviewReadyIfComplete(getPool(), sessionId);
-        } catch (error) {
-          request.log.warn(
-            { err: error, sessionId },
-            "failed to evaluate review readiness after LiveKit webhook",
-          );
-        }
-      }
-    }
 
     return reply.code(200).send({ ok: true, persisted });
   });

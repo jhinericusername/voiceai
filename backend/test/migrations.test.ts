@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migrationsDir = join(import.meta.dirname, "..", "migrations");
+const weaveMigrationsDir = join(import.meta.dirname, "..", "weave-migrations");
 
 describe("database migrations", () => {
   it("repairs early Ashby application and score uniqueness constraints after 005", () => {
@@ -66,5 +67,40 @@ describe("database migrations", () => {
     expect(migration).toContain("UPDATE ashby_applications");
     expect(migration).toContain("status = 'Stale'");
     expect(migration).toContain("status = 'Active'");
+  });
+
+  it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
+    const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
+
+    expect(files).toContain("001_fireflies_reconciliation.sql");
+
+    const migration = readFileSync(
+      join(weaveMigrationsDir, "001_fireflies_reconciliation.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS weave_fireflies_recordings");
+    expect(migration).toContain(
+      "CREATE TABLE IF NOT EXISTS weave_fireflies_recording_match_candidates",
+    );
+    expect(migration).toContain("match_status IN ('matched', 'ambiguous', 'unmatched')");
+    expect(migration).toContain("UNIQUE (s3_bucket, s3_prefix)");
+  });
+
+  it("migrates Fireflies match options to application-level identity", () => {
+    const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
+
+    expect(files).toContain("002_fireflies_application_reconciliation.sql");
+
+    const migration = readFileSync(
+      join(weaveMigrationsDir, "002_fireflies_application_reconciliation.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("decision_source");
+    expect(migration).toContain("decision_reason");
+    expect(migration).toContain("ALTER TABLE weave_fireflies_recording_match_candidates");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS id BIGINT");
+    expect(migration).toContain("PRIMARY KEY (id)");
+    expect(migration).toContain("ashby_application_id");
+    expect(migration).toContain("weave_fireflies_match_candidates_unique_option_idx");
   });
 });

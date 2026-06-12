@@ -64,8 +64,8 @@ export default async function ResourceArticlePage({ params }: ResourcePageProps)
         ]}
       />
       <PublicNav />
-      <article className="relative z-10 px-5 pb-16 pt-32 sm:px-6 lg:pt-36">
-        <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <article className="relative z-10 px-5 pb-16 pt-24 sm:px-6 lg:pt-28">
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
           <div className="max-w-4xl">
             <Link
               href="/resources"
@@ -73,7 +73,7 @@ export default async function ResourceArticlePage({ params }: ResourcePageProps)
             >
               Resources
             </Link>
-            <h1 className="mt-6 text-4xl font-semibold leading-[1.04] tracking-normal text-slate-950 sm:text-5xl">
+            <h1 className="mt-6 text-3xl font-semibold leading-[1.04] tracking-normal text-slate-950 sm:text-4xl">
               {resource.title}
             </h1>
             <p className="mt-5 text-xl font-semibold leading-8 text-slate-700">{resource.question}</p>
