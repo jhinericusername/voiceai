@@ -351,6 +351,7 @@ function RealInterviewSessionView({
   readonly realInterview: RealInterviewDetail;
 }) {
   const recommendation = realPacketRecommendation(realInterview);
+  const isFirefliesImport = realInterview.external_source === "fireflies";
   const transcriptTurns = [...realInterview.transcript_turns].sort(
     (first, second) => first.turnIndex - second.turnIndex,
   );
@@ -363,6 +364,7 @@ function RealInterviewSessionView({
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={formatBackendStatus(realInterview.status, "Unknown")} />
               <StatusPill status={recommendation} />
+              {isFirefliesImport ? <StatusPill status="Historical Fireflies import" /> : null}
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Real interview packet</span>
             </div>
             <h1 className="mt-2 break-words text-2xl font-semibold text-slate-950 sm:text-3xl">{realInterview.candidate_email}</h1>
@@ -443,6 +445,12 @@ function RealInterviewSessionView({
               <PacketMetaRow label="Room" value={realInterview.room_name ?? "No room"} />
               <PacketMetaRow label="Scheduled" value={formatNullableDate(realInterview.scheduled_at)} />
               <PacketMetaRow label="Integrity" value={formatUnknownCollection(realInterview.integrity_flags, "flags")} />
+              {isFirefliesImport ? (
+                <>
+                  <PacketMetaRow label="Source" value="Fireflies historical import" />
+                  <PacketMetaRow label="Transcript ID" value={realInterview.external_id ?? "Unknown"} />
+                </>
+              ) : null}
               {realInterview.error_message ? <PacketMetaRow label="Error" value={realInterview.error_message} /> : null}
             </dl>
           </SectionPanel>

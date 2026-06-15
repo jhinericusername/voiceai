@@ -15,6 +15,10 @@ const dashboardBackendSource = await readFile(
   new URL("../app/dashboard/backend-data.ts", import.meta.url),
   "utf8",
 );
+const interviewDetailPageSource = await readFile(
+  new URL("../app/dashboard/interviews/[sessionId]/page.tsx", import.meta.url),
+  "utf8",
+);
 const teamInvitationRouteSource = await readFile(
   new URL("../app/api/team-invitations/route.ts", import.meta.url),
   "utf8",
@@ -104,6 +108,15 @@ test("backend tenant identity requires WorkOS organizationId", () => {
   assert.match(dashboardBackendSource, /input\.organizationId\?\.trim\(\)/);
   assert.match(dashboardBackendSource, /WorkOS organization/);
   assert.doesNotMatch(dashboardBackendSource, /workos-user:/);
+});
+
+test("interview detail page displays Fireflies provenance without domain lookup access", () => {
+  assert.match(interviewDetailPageSource, /Historical Fireflies import/);
+  assert.match(interviewDetailPageSource, /Fireflies historical import/);
+  assert.match(interviewDetailPageSource, /Transcript ID/);
+  assert.match(interviewDetailPageSource, /external_source\s*===\s*"fireflies"/);
+  assert.doesNotMatch(interviewDetailPageSource, /isAllowedAuthEmail/);
+  assert.doesNotMatch(interviewDetailPageSource, /allowedAuthDomains/);
 });
 
 test("Ashby setup helper is WorkOS permission-first with opt-in bootstrap", () => {
