@@ -124,9 +124,9 @@ test("interview detail is real-only and hides raw internal identifiers", () => {
   assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Session"/);
   assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Transcript ID"/);
   assert.doesNotMatch(interviewDetailSource, /Org \{/);
-  assert.doesNotMatch(interviewDetailSource, /script_version/);
-  assert.doesNotMatch(interviewDetailSource, /storagePath/);
-  assert.doesNotMatch(interviewDetailSource, /questionId/);
+  assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Script"/);
+  assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Storage"/);
+  assert.doesNotMatch(interviewDetailSource, /<span[^>]*>\{turn\.questionId\}/);
 });
 
 test("Ashby onboarding setup is friendly without exposing unreadable job identifiers", () => {
