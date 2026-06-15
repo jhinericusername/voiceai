@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getWorkOS, withAuth } from "@workos-inc/authkit-nextjs";
 import { allowedAuthDomainsLabel, isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
 import { emailDomain, normalizeEmail } from "@/lib/auth/email-domain";
+import { canInviteTeam, sessionOrganizationId } from "@/lib/auth/org-access.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -43,13 +44,19 @@ function workosErrorMessage(error: unknown): string {
 }
 
 export async function POST(request: Request) {
-  const { user, organizationId } = await withAuth();
+  const session = await withAuth();
+  const { user } = session;
   if (!user) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
-  if (!isAllowedAuthEmail(user.email)) {
-    return NextResponse.json({ error: "Email domain is not allowed." }, { status: 403 });
+  const organizationId = sessionOrganizationId(session);
+  if (!organizationId) {
+    return NextResponse.json({ error: "You need an invitation to access this workspace." }, { status: 403 });
+  }
+
+  if (!canInviteTeam(session)) {
+    return NextResponse.json({ error: "Team invitations require workspace admin permission." }, { status: 403 });
   }
 
   const body = await request.json().catch(() => ({}));
@@ -70,7 +77,7 @@ export async function POST(request: Request) {
       email,
       expiresInDays: invitationExpiryDays(),
       inviterUserId: user.id,
-      ...(organizationId ? { organizationId } : {}),
+      organizationId,
     });
 
     const response: TeamInvitationResponse = {

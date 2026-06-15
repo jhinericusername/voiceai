@@ -40,6 +40,9 @@ export function internalAuthTokenFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const token = env.PUDDLE_BACKEND_INTERNAL_TOKEN?.trim();
+  if (!token && env.NODE_ENV === "production") {
+    throw new Error("PUDDLE_BACKEND_INTERNAL_TOKEN must be set in production");
+  }
   return token || undefined;
 }
 

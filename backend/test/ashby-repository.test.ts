@@ -23,12 +23,14 @@ import {
 } from "../src/ashby/repository.js";
 
 describe("Ashby repository statements", () => {
-  it("normalizes company integration lookup by email domain", () => {
-    const stmt = integrationLookupStatement({ organizationId: null, emailDomain: "UsePuddle.COM" });
+  it("looks up company integrations by WorkOS organization", () => {
+    const stmt = integrationLookupStatement({ organizationId: "org_1", emailDomain: "UsePuddle.COM" });
 
     expect(normalizeEmailDomain(" UsePuddle.COM ")).toBe("usepuddle.com");
     expect(stmt.sql).toContain("ashby_company_integrations");
-    expect(stmt.params).toEqual([null, "usepuddle.com"]);
+    expect(stmt.sql).toContain("WHERE organization_id = $1");
+    expect(stmt.sql).not.toContain("OR email_domain");
+    expect(stmt.params).toEqual(["org_1"]);
   });
 
   it("builds integration lookup by id", () => {
@@ -58,7 +60,6 @@ describe("Ashby repository statements", () => {
     expect(stmt.sql).toContain("WITH matching_integrations AS");
     expect(stmt.sql).toContain("UPDATE ashby_company_integrations");
     expect(stmt.sql).toContain("FOR UPDATE");
-    expect(stmt.sql).toContain("identity_conflict");
     expect(stmt.sql).toContain("setup_status = 'pending_webhook'");
     expect(stmt.sql).toContain("connected_at = NULL");
     expect(stmt.sql).toContain("last_ping_at = NULL");
@@ -66,7 +67,7 @@ describe("Ashby repository statements", () => {
     expect(stmt.params).toEqual(["int_1", "org_123", "usepuddle.com", "v1:encrypted", ["job_1"]]);
   });
 
-  it("returns a controlled setup conflict when organization and domain point to different rows", () => {
+  it("does not match setup upserts by email domain", () => {
     const stmt = integrationSetupUpsertStatement({
       emailDomain: "usepuddle.com",
       organizationId: "org_123",
@@ -75,9 +76,10 @@ describe("Ashby repository statements", () => {
       integrationId: "int_1",
     });
 
-    expect(stmt.sql).toContain("count(DISTINCT integration_id) > 1 AS has_conflict");
-    expect(stmt.sql).toContain("AND NOT (SELECT has_conflict FROM identity_conflict)");
-    expect(stmt.sql).toContain("NULL::text AS integration_id, true AS identity_conflict");
+    expect(stmt.sql).toContain("WHERE organization_id = $2");
+    expect(stmt.sql).not.toContain("OR email_domain");
+    expect(stmt.sql).not.toContain("identity_conflict AS");
+    expect(stmt.sql).not.toContain("NULL::text AS integration_id, true AS identity_conflict");
   });
 
   it("builds API key onboarding upsert with encrypted API and webhook secrets", () => {
@@ -96,10 +98,11 @@ describe("Ashby repository statements", () => {
     expect(stmt.sql).toContain("updated_by_email");
     expect(stmt.sql).not.toContain("advisory_lock");
     expect(stmt.sql).not.toContain("pg_advisory_xact_lock");
-    expect(stmt.sql).toContain("organization_id IS NOT NULL");
-    expect(stmt.sql).toContain("organization_id <> $2");
-    expect(stmt.sql).toContain("ashby_webhook_secret_ciphertext = COALESCE(ashby_webhook_secret_ciphertext, $5)");
-    expect(stmt.sql).toContain("organization_id = COALESCE(organization_id, $2)");
+    expect(stmt.sql).toContain("ashby_webhook_secret_ciphertext = $5");
+    expect(stmt.sql).not.toContain("ashby_webhook_secret_ciphertext = COALESCE");
+    expect(stmt.sql).toContain("WHERE organization_id = $2");
+    expect(stmt.sql).not.toContain("OR email_domain");
+    expect(stmt.sql).not.toContain("organization_id = COALESCE");
     expect(stmt.sql).toContain("connected_at = NULL");
     expect(stmt.sql).toContain("last_ping_at = NULL");
     expect(stmt.sql).toContain("last_sync_at = NULL");
@@ -122,15 +125,8 @@ describe("Ashby repository statements", () => {
 
     expect(withOrg.sql).toContain("pg_advisory_xact_lock");
     expect(withOrg.sql).toContain("hashtextextended");
-    expect(withOrg.params).toEqual(["usepuddle.com", "org_1"]);
-
-    const withoutOrg = integrationIdentityLockStatement({
-      organizationId: null,
-      emailDomain: "UsePuddle.COM",
-    });
-
-    expect(withoutOrg.sql).toContain("CASE WHEN $2::text IS NOT NULL");
-    expect(withoutOrg.params).toEqual(["usepuddle.com", null]);
+    expect(withOrg.sql).not.toContain("CASE WHEN $2::text IS NOT NULL");
+    expect(withOrg.params).toEqual(["org_1"]);
   });
 
   it("builds job selection update and exposes setup secret lookup", () => {

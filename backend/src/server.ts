@@ -22,6 +22,7 @@ import {
 import { generateInviteToken } from "./invites/tokens.js";
 import { registerInternalAuth } from "./integration/internal-auth.js";
 import { registerAshbyRoutes } from "./ashby/routes.js";
+import { backendLoggerOptions } from "./logging/redaction.js";
 
 // Reads the LiveKit credentials the room-provisioning code needs from the env.
 // Throws if any are missing — the server must never start half-configured.
@@ -73,7 +74,7 @@ export async function createSession(
 // Builds the Fastify app with the Scheduler/API and platform-integration
 // routes registered. Pure construction — no network I/O until a route is hit.
 export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: backendLoggerOptions() });
   app.addContentTypeParser(
     "application/webhook+json",
     { parseAs: "string" },

@@ -4,7 +4,7 @@ import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 import { emailDomain } from "@/lib/auth/email-domain";
 
 export interface CompanyIdentityPayload {
-  readonly organizationId: string | null;
+  readonly organizationId: string;
   readonly emailDomain: string;
 }
 
@@ -44,13 +44,18 @@ export function companyIdentityFromUser(input: {
   readonly email: string | null | undefined;
   readonly organizationId?: string | null;
 }): CompanyIdentityPayload {
+  const organizationId = input.organizationId?.trim();
+  if (!organizationId) {
+    throw new Error("Signed-in user does not belong to a WorkOS organization.");
+  }
+
   const domain = emailDomain(input.email);
   if (!domain) {
     throw new Error("Signed-in user does not have a valid email domain.");
   }
 
   return {
-    organizationId: input.organizationId ?? null,
+    organizationId,
     emailDomain: domain,
   };
 }

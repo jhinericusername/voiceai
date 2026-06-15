@@ -15,7 +15,7 @@ export default function TeamPage() {
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">Who can review with you?</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Workspace access is scoped to approved pilot domains. Invite reviewers from the top action bar or this page.
+              Workspace access is scoped to your WorkOS organization. Invite reviewers from the top action bar or this page.
             </p>
           </div>
           <DashboardActionButton action="invite" variant="secondary">
@@ -25,11 +25,11 @@ export default function TeamPage() {
       </header>
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <SectionPanel title="Access policy" eyebrow="Workspace">
+        <SectionPanel title="Input policy" eyebrow="Workspace">
           <div className="grid gap-3 sm:grid-cols-2">
             {domains.map((domain) => (
               <div key={domain} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Allowed domain</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Invite domain</div>
                 <div className="mt-1 font-mono text-sm font-semibold text-slate-950">{domain}</div>
               </div>
             ))}

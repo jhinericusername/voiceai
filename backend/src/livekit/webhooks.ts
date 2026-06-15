@@ -7,6 +7,7 @@ import {
 } from "livekit-server-sdk";
 import { getPool } from "../db/pool.js";
 import { markReviewReadyIfArtifactsAvailable } from "../finalization/reviewReady.js";
+import { safeErrorLogFields } from "../logging/redaction.js";
 import {
   liveKitRecordingsEnabledFromEnv,
   recordingStatusFromEgressStatus,
@@ -203,7 +204,7 @@ export function registerLiveKitWebhookRoutes(
     try {
       event = await receiver.receive(body, authHeader);
     } catch (error) {
-      request.log.warn({ err: error }, "invalid LiveKit webhook");
+      request.log.warn(safeErrorLogFields(error), "invalid LiveKit webhook");
       return reply.code(401).send({ error: "invalid webhook signature" });
     }
 

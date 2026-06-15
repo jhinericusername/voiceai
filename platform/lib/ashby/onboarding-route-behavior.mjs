@@ -1,5 +1,6 @@
 const ADMIN_DENIED_ERROR = "Ashby onboarding setup requires a workspace admin or owner.";
 const BACKEND_UNREACHABLE_ERROR = "Interview backend is not reachable.";
+const ORG_REQUIRED_ERROR = "You need an invitation to access this workspace.";
 const ONBOARDING_BACKEND_ERROR = "Ashby onboarding request failed.";
 const SYNC_BACKEND_ERROR = "Ashby sync request failed.";
 
@@ -32,8 +33,8 @@ async function proxyAshbyOnboarding(request, context, config) {
     return responseJson({ error: "Not signed in." }, 401);
   }
 
-  if (!context.isAllowedAuthEmail(email)) {
-    return responseJson({ error: "Email domain is not allowed." }, 403);
+  if (!context.canViewDashboard(context.session)) {
+    return responseJson({ error: ORG_REQUIRED_ERROR }, 403);
   }
 
   if (!context.canManageAshbyOnboarding(context.session)) {
@@ -41,9 +42,18 @@ async function proxyAshbyOnboarding(request, context, config) {
   }
 
   const body = await requestBody(request, config.readBody);
+  const organizationId = stringValue(
+    context.sessionOrganizationId
+      ? context.sessionOrganizationId(context.session)
+      : session.organizationId,
+  );
+  if (!organizationId) {
+    return responseJson({ error: ORG_REQUIRED_ERROR }, 403);
+  }
+
   const identity = context.companyIdentityFromUser({
     email,
-    organizationId: stringValue(session.organizationId) || null,
+    organizationId,
   });
 
   let response;
@@ -58,12 +68,15 @@ async function proxyAshbyOnboarding(request, context, config) {
     return responseJson({ error: BACKEND_UNREACHABLE_ERROR }, 502);
   }
 
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    context.logger?.warn?.(config.logMessage, { status: response.status, payload });
+    context.logger?.warn?.(config.logMessage, {
+      status: response.status,
+      backendPath: config.backendPath,
+    });
     return responseJson({ error: config.backendError }, response.status);
   }
 
+  const payload = await response.json().catch(() => ({}));
   return responseJson(payload, response.status);
 }
 

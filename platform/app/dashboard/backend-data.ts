@@ -1,11 +1,4 @@
-function backendBaseUrl(): string {
-  return (process.env.PUDDLE_BACKEND_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-}
-
-function backendHeaders(): HeadersInit {
-  const token = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN?.trim();
-  return token ? { authorization: `Bearer ${token}` } : {};
-}
+import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
 export function dashboardDemoFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.PUDDLE_DASHBOARD_DEMO_FALLBACK === "true" || env.NODE_ENV !== "production";
@@ -15,7 +8,12 @@ export function dashboardOrgId(input: {
   readonly organizationId?: string | null;
   readonly userId: string;
 }): string {
-  return input.organizationId ?? `workos-user:${input.userId}`;
+  const organizationId = input.organizationId?.trim();
+  if (!organizationId) {
+    throw new Error("Signed-in user does not belong to a WorkOS organization.");
+  }
+
+  return organizationId;
 }
 
 export interface RealInterviewListItem {

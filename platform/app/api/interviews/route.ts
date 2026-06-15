@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@workos-inc/authkit-nextjs";
-import { isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
+import { canViewDashboard, sessionOrganizationId } from "@/lib/auth/org-access.mjs";
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 import { publicBaseUrl } from "@/lib/site-url";
 
@@ -27,19 +27,23 @@ function candidateEmailFromBody(body: unknown, fallback: string): string {
 }
 
 export async function POST(request: Request) {
-  const { user, organizationId } = await withAuth();
+  const authSession = await withAuth();
+  const { user } = authSession;
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  if (!isAllowedAuthEmail(user.email)) {
-    return NextResponse.json({ error: "Email domain is not allowed." }, { status: 403 });
+  if (!canViewDashboard(authSession)) {
+    return NextResponse.json({ error: "You need an invitation to access this workspace." }, { status: 403 });
   }
 
   const body = await request.json().catch(() => ({}));
   const candidateEmail = candidateEmailFromBody(body, user.email);
   const scriptVersion = process.env.PUDDLE_DEFAULT_SCRIPT_VERSION ?? "pilot-v1";
-  const orgId = organizationId ?? `workos-user:${user.id}`;
+  const orgId = sessionOrganizationId(authSession);
+  if (!orgId) {
+    return NextResponse.json({ error: "You need an invitation to access this workspace." }, { status: 403 });
+  }
 
   let backendResponse: Response;
   try {
@@ -69,15 +73,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = payload as BackendCreateSessionResponse;
-  const invitePath = session.invitePath ?? `/interview/${encodeURIComponent(session.inviteToken)}`;
+  const createdSession = payload as BackendCreateSessionResponse;
+  const invitePath =
+    createdSession.invitePath ?? `/interview/${encodeURIComponent(createdSession.inviteToken)}`;
 
   return NextResponse.json(
     {
-      sessionId: session.sessionId,
-      room: session.room,
+      sessionId: createdSession.sessionId,
+      room: createdSession.room,
       inviteUrl: `${publicOrigin()}${invitePath}`,
-      inviteExpiresAt: session.inviteExpiresAt,
+      inviteExpiresAt: createdSession.inviteExpiresAt,
     },
     { status: 201 },
   );

@@ -344,11 +344,15 @@ export class InfraStack extends cdk.Stack {
       }
 
       if (this.cfg.platform.certificateArn && !this.cfg.platform.domainName) {
-        throw new Error('platformCertificateArn requires platformDomainName.');
+        throw new Error(
+          'HTTPS platform public URL requires platformDomainName when platformCertificateArn is set.',
+        );
       }
 
       if (this.cfg.envName === 'prod' && !this.cfg.platform.certificateArn) {
-        throw new Error('prod platform container deploy requires platformCertificateArn.');
+        throw new Error(
+          'prod platform container deploy requires an HTTPS platform public URL with platformCertificateArn.',
+        );
       }
     }
 

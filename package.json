@@ -13,6 +13,12 @@
     "migrate:backend": "corepack pnpm@9.12.0 --filter @puddle/backend migrate",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "test:connected-dev": "node --test scripts/dev/connected-dev.test.mjs"
+    "test:connected-dev": "node --test scripts/dev/connected-dev.test.mjs",
+    "test:workos": "node --test scripts/workos/*.test.mjs",
+    "workos": "node scripts/workos/workos-admin.mjs",
+    "workos:doctor": "node scripts/workos/workos-admin.mjs doctor",
+    "workos:orgs": "node scripts/workos/workos-admin.mjs orgs",
+    "workos:permissions": "node scripts/workos/workos-admin.mjs permissions",
+    "workos:roles": "node scripts/workos/workos-admin.mjs roles"
   }
 }

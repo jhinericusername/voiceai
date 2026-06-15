@@ -636,6 +636,48 @@ describe('InfraStack', () => {
     ).toThrow('platformHosting=container requires deployBackendService=true.');
   });
 
+  test('requires an HTTPS platform public URL for prod container deployments', () => {
+    const prodBase = {
+      envName: 'prod' as const,
+      vpc: {
+        ...defaultConfig().vpc,
+        natGateways: 2,
+      },
+      database: {
+        ...defaultConfig().database,
+        instanceType: 't4g.small',
+        backupRetentionDays: 30,
+        multiAz: true,
+        deletionProtection: true,
+      },
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'backend-test',
+      },
+      platform: {
+        ...defaultConfig().platform,
+        hosting: 'container' as const,
+        imageTag: 'platform-test',
+        certificateArn:
+          'arn:aws:acm:us-east-1:111111111111:certificate/test-certificate',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+      devTunnel: {
+        ...defaultConfig().devTunnel,
+        enabled: false,
+      },
+      logs: {
+        retentionDays: 90,
+      },
+    };
+
+    expect(() => createStack(prodBase)).toThrow(/HTTPS platform public URL/);
+  });
+
   test('creates a public ECS platform service when enabled', () => {
     const stack = createStack({
       backend: {

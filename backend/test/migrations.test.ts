@@ -69,6 +69,42 @@ describe("database migrations", () => {
     expect(migration).toContain("status = 'Active'");
   });
 
+  it("adds append-only Ashby integration audit events after onboarding hardening", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const hardeningIndex = files.indexOf("008_ashby_onboarding_hardening.sql");
+    const auditIndex = files.indexOf("009_ashby_integration_audit.sql");
+
+    expect(hardeningIndex).toBeGreaterThanOrEqual(0);
+    expect(auditIndex).toBeGreaterThan(hardeningIndex);
+
+    const migration = readFileSync(join(migrationsDir, "009_ashby_integration_audit.sql"), "utf-8");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS ashby_integration_audit_events");
+    expect(migration).toContain("integration_id TEXT NOT NULL");
+    expect(migration).not.toContain("ON DELETE CASCADE");
+    expect(migration).toContain("ON DELETE RESTRICT");
+    expect(migration).toContain("actor_email TEXT NOT NULL");
+    expect(migration).toContain("action TEXT NOT NULL");
+    expect(migration).toContain("metadata JSONB NOT NULL DEFAULT '{}'::jsonb");
+    expect(migration).toContain("created_at TIMESTAMPTZ NOT NULL DEFAULT now()");
+    expect(migration).toContain("api_key_replaced");
+    expect(migration).toContain("jobs_selected");
+    expect(migration).toContain("active_applications_synced");
+  });
+
+  it("drops Ashby email-domain uniqueness after audit migration for org-scoped tenancy", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const auditIndex = files.indexOf("009_ashby_integration_audit.sql");
+    const orgTenantingIndex = files.indexOf("010_ashby_org_tenanting.sql");
+
+    expect(auditIndex).toBeGreaterThanOrEqual(0);
+    expect(orgTenantingIndex).toBeGreaterThan(auditIndex);
+
+    const migration = readFileSync(join(migrationsDir, "010_ashby_org_tenanting.sql"), "utf-8");
+    expect(migration).toContain("DROP INDEX IF EXISTS ashby_company_integrations_email_domain_idx");
+    expect(migration).toContain("CREATE INDEX IF NOT EXISTS ashby_company_integrations_email_domain_lookup_idx");
+    expect(migration).not.toContain("CREATE UNIQUE INDEX");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 

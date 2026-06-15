@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { SqlStatement } from "../consent/repository.js";
 import type { CompanyIdentity, ScoreInput, SyncedAshbyApplication } from "./types.js";
 
+export type AshbyIntegrationAuditAction =
+  | "api_key_replaced"
+  | "jobs_selected"
+  | "active_applications_synced";
+
 function jsonParam(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
@@ -26,9 +31,8 @@ export function integrationLookupStatement(identity: CompanyIdentity): SqlStatem
   return {
     sql:
       "SELECT * FROM ashby_company_integrations " +
-      "WHERE ($1::text IS NOT NULL AND organization_id = $1) OR email_domain = $2 " +
-      "ORDER BY CASE WHEN organization_id = $1 THEN 0 ELSE 1 END LIMIT 1",
-    params: [identity.organizationId ?? null, normalizeEmailDomain(identity.emailDomain)],
+      "WHERE organization_id = $1 LIMIT 1",
+    params: [identity.organizationId],
   };
 }
 
@@ -47,7 +51,7 @@ export function integrationByIdForUpdateStatement(integrationId: string): SqlSta
 }
 
 export function integrationSetupUpsertStatement(input: {
-  readonly organizationId?: string | null;
+  readonly organizationId: string;
   readonly emailDomain: string;
   readonly ashbyApiKeyCiphertext: string;
   readonly selectedJobIds: readonly string[];
@@ -58,34 +62,28 @@ export function integrationSetupUpsertStatement(input: {
     sql:
       "WITH matching_integrations AS (" +
       "SELECT integration_id FROM ashby_company_integrations " +
-      "WHERE ($2::text IS NOT NULL AND organization_id = $2) OR email_domain = $3 " +
+      "WHERE organization_id = $2 " +
       "FOR UPDATE" +
-      "), identity_conflict AS (" +
-      "SELECT count(DISTINCT integration_id) > 1 AS has_conflict FROM matching_integrations" +
       "), target AS (" +
       "SELECT integration_id FROM matching_integrations ORDER BY integration_id LIMIT 1" +
       "), updated AS (" +
       "UPDATE ashby_company_integrations SET " +
-      "organization_id = COALESCE($2, organization_id), email_domain = $3, " +
+      "email_domain = $3, " +
       "ashby_api_key_ciphertext = $4, selected_job_ids = $5, setup_status = 'pending_webhook', " +
       "connected_at = NULL, last_ping_at = NULL, last_sync_at = NULL, updated_at = now() " +
       "WHERE integration_id = (SELECT integration_id FROM target) " +
-      "AND NOT (SELECT has_conflict FROM identity_conflict) " +
       "RETURNING integration_id, false AS identity_conflict" +
       "), inserted AS (" +
       "INSERT INTO ashby_company_integrations " +
       "(integration_id, organization_id, email_domain, ashby_api_key_ciphertext, selected_job_ids) " +
       "SELECT $1, $2, $3, $4, $5 " +
       "WHERE NOT EXISTS (SELECT 1 FROM matching_integrations) " +
-      "AND NOT (SELECT has_conflict FROM identity_conflict) " +
       "RETURNING integration_id, false AS identity_conflict" +
       ") SELECT integration_id, identity_conflict FROM updated " +
-      "UNION ALL SELECT integration_id, identity_conflict FROM inserted " +
-      "UNION ALL SELECT NULL::text AS integration_id, true AS identity_conflict " +
-      "WHERE (SELECT has_conflict FROM identity_conflict)",
+      "UNION ALL SELECT integration_id, identity_conflict FROM inserted",
     params: [
       integrationId,
-      input.organizationId ?? null,
+      input.organizationId,
       normalizeEmailDomain(input.emailDomain),
       input.ashbyApiKeyCiphertext,
       [...input.selectedJobIds],
@@ -94,19 +92,17 @@ export function integrationSetupUpsertStatement(input: {
 }
 
 export function integrationIdentityLockStatement(input: {
-  readonly organizationId?: string | null;
+  readonly organizationId: string;
   readonly emailDomain: string;
 }): SqlStatement {
   return {
-    sql:
-      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0)), " +
-      "CASE WHEN $2::text IS NOT NULL THEN pg_advisory_xact_lock(hashtextextended($2, 1)) END",
-    params: [normalizeEmailDomain(input.emailDomain), input.organizationId ?? null],
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended($1, 1))",
+    params: [input.organizationId],
   };
 }
 
 export function integrationApiKeyUpsertStatement(input: {
-  readonly organizationId?: string | null;
+  readonly organizationId: string;
   readonly emailDomain: string;
   readonly reviewerEmail: string;
   readonly ashbyApiKeyCiphertext: string;
@@ -118,38 +114,30 @@ export function integrationApiKeyUpsertStatement(input: {
     sql:
       "WITH matching_integrations AS (" +
       "SELECT integration_id, organization_id FROM ashby_company_integrations " +
-      "WHERE ($2::text IS NOT NULL AND organization_id = $2) OR email_domain = $3 " +
+      "WHERE organization_id = $2 " +
       "FOR UPDATE" +
-      "), identity_conflict AS (" +
-      "SELECT count(DISTINCT integration_id) > 1 OR " +
-      "COALESCE(bool_or($2::text IS NOT NULL AND organization_id IS NOT NULL AND organization_id <> $2), false) " +
-      "AS has_conflict FROM matching_integrations" +
       "), target AS (" +
       "SELECT integration_id FROM matching_integrations ORDER BY integration_id LIMIT 1" +
       "), updated AS (" +
       "UPDATE ashby_company_integrations SET " +
-      "organization_id = COALESCE(organization_id, $2), email_domain = $3, " +
+      "email_domain = $3, " +
       "ashby_api_key_ciphertext = $4, " +
-      "ashby_webhook_secret_ciphertext = COALESCE(ashby_webhook_secret_ciphertext, $5), " +
+      "ashby_webhook_secret_ciphertext = $5, " +
       "setup_status = $6, connected_at = NULL, last_ping_at = NULL, last_sync_at = NULL, " +
       "updated_by_email = $7, updated_at = now() " +
       "WHERE integration_id = (SELECT integration_id FROM target) " +
-      "AND NOT (SELECT has_conflict FROM identity_conflict) " +
       "RETURNING integration_id, ashby_webhook_secret_ciphertext, false AS identity_conflict" +
       "), inserted AS (" +
       "INSERT INTO ashby_company_integrations " +
       "(integration_id, organization_id, email_domain, ashby_api_key_ciphertext, ashby_webhook_secret_ciphertext, setup_status, created_by_email, updated_by_email) " +
       "SELECT $1, $2, $3, $4, $5, $6, $7, $7 " +
       "WHERE NOT EXISTS (SELECT 1 FROM matching_integrations) " +
-      "AND NOT (SELECT has_conflict FROM identity_conflict) " +
       "RETURNING integration_id, ashby_webhook_secret_ciphertext, false AS identity_conflict" +
       ") SELECT integration_id, ashby_webhook_secret_ciphertext, identity_conflict FROM updated " +
-      "UNION ALL SELECT integration_id, ashby_webhook_secret_ciphertext, identity_conflict FROM inserted " +
-      "UNION ALL SELECT NULL::text AS integration_id, NULL::text AS ashby_webhook_secret_ciphertext, true AS identity_conflict " +
-      "WHERE (SELECT has_conflict FROM identity_conflict)",
+      "UNION ALL SELECT integration_id, ashby_webhook_secret_ciphertext, identity_conflict FROM inserted",
     params: [
       integrationId,
-      input.organizationId ?? null,
+      input.organizationId,
       normalizeEmailDomain(input.emailDomain),
       input.ashbyApiKeyCiphertext,
       input.ashbyWebhookSecretCiphertext,
@@ -180,6 +168,25 @@ export function integrationSecretLookupStatement(integrationId: string): SqlStat
       "SELECT integration_id, email_domain, ashby_api_key_ciphertext, ashby_webhook_secret_ciphertext, selected_job_ids " +
       "FROM ashby_company_integrations WHERE integration_id = $1 LIMIT 1",
     params: [integrationId],
+  };
+}
+
+export function ashbyIntegrationAuditInsertStatement(input: {
+  readonly integrationId: string;
+  readonly actorEmail: string;
+  readonly action: AshbyIntegrationAuditAction;
+  readonly metadata?: Record<string, unknown>;
+}): SqlStatement {
+  return {
+    sql:
+      "INSERT INTO ashby_integration_audit_events " +
+      "(integration_id, actor_email, action, metadata) VALUES ($1, $2, $3, $4::jsonb)",
+    params: [
+      input.integrationId,
+      input.actorEmail,
+      input.action,
+      jsonParam(input.metadata ?? {}),
+    ],
   };
 }
 

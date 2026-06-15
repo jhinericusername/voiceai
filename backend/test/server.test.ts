@@ -1,4 +1,6 @@
+import Fastify from "fastify";
 import { beforeEach, describe, it, expect, vi } from "vitest";
+import { backendLoggerOptions, SECRET_REDACTION_CENSOR } from "../src/logging/redaction.js";
 import { buildServer, liveKitConfigFromEnv } from "../src/server.js";
 
 const {
@@ -156,6 +158,78 @@ describe("liveKitConfigFromEnv", () => {
 });
 
 describe("buildServer", () => {
+  it("configures explicit backend secret redaction", () => {
+    const loggerOptions = backendLoggerOptions();
+    expect(loggerOptions.redact).toMatchObject({
+      censor: SECRET_REDACTION_CENSOR,
+    });
+
+    expect(loggerOptions.redact.paths).toEqual(
+      expect.arrayContaining([
+        "req.headers.authorization",
+        "req.headers.cookie",
+        'req.headers["ashby-signature"]',
+        "body.ashbyApiKey",
+        "body.webhookSecret",
+        "body.signature",
+        "body.rawBody",
+        "payload.ashbyApiKey",
+        "payload.webhookSecret",
+        "payload.signature",
+        "payload.rawBody",
+      ]),
+    );
+  });
+
+  it("redacts representative secret fields from backend log output", async () => {
+    const chunks: string[] = [];
+    const app = Fastify({
+      logger: {
+        ...backendLoggerOptions(),
+        stream: {
+          write: (chunk: string) => {
+            chunks.push(chunk);
+          },
+        },
+      },
+    });
+
+    app.log.info(
+      {
+        req: {
+          headers: {
+            authorization: "Bearer internal-secret",
+            cookie: "session=secret-cookie",
+            "ashby-signature": "signature-secret",
+          },
+        },
+        body: {
+          ashbyApiKey: "ashby-secret",
+          webhookSecret: "webhook-secret",
+          rawBody: "raw-secret",
+          signature: "body-signature-secret",
+        },
+        payload: {
+          ashbyApiKey: "payload-ashby-secret",
+          webhookSecret: "payload-webhook-secret",
+        },
+        token: "internal-token-secret",
+      },
+      "redaction check",
+    );
+    await app.close();
+
+    const output = chunks.join("");
+    expect(output).toContain(SECRET_REDACTION_CENSOR);
+    expect(output).not.toContain("internal-secret");
+    expect(output).not.toContain("secret-cookie");
+    expect(output).not.toContain("signature-secret");
+    expect(output).not.toContain("ashby-secret");
+    expect(output).not.toContain("webhook-secret");
+    expect(output).not.toContain("raw-secret");
+    expect(output).not.toContain("internal-token-secret");
+  });
+
   it("serves a lightweight health check", async () => {
     const app = buildServer(FAKE_LK);
     const res = await app.inject({
@@ -165,6 +239,27 @@ describe("buildServer", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
     await app.close();
+  });
+
+  it("fails closed in production when the backend internal token is missing", () => {
+    const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    const previousNodeEnv = process.env.NODE_ENV;
+    delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    process.env.NODE_ENV = "production";
+    try {
+      expect(() => buildServer(FAKE_LK)).toThrow(/PUDDLE_BACKEND_INTERNAL_TOKEN/);
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+      } else {
+        process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousToken;
+      }
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+    }
   });
 
   it("rejects an invalid platform create-session request with 400", async () => {

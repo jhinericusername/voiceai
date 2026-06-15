@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  internalAuthTokenFromEnv,
   internalRouteRequiresAuth,
 } from "../src/integration/internal-auth.js";
 import {
@@ -85,5 +86,23 @@ describe("internal auth route matching", () => {
     expect(internalRouteRequiresAuth("GET", "/internal/interviews")).toBe(true);
     expect(internalRouteRequiresAuth("POST", "/internal/sessions/sess1/finalize")).toBe(true);
     expect(internalRouteRequiresAuth("GET", "/healthz")).toBe(false);
+  });
+
+  it("fails closed when production backend internal auth is missing", () => {
+    expect(() =>
+      internalAuthTokenFromEnv({
+        NODE_ENV: "production",
+        PUDDLE_BACKEND_INTERNAL_TOKEN: " ",
+      }),
+    ).toThrow(/PUDDLE_BACKEND_INTERNAL_TOKEN/);
+  });
+
+  it("keeps missing backend internal auth optional outside production", () => {
+    expect(
+      internalAuthTokenFromEnv({
+        NODE_ENV: "test",
+        PUDDLE_BACKEND_INTERNAL_TOKEN: " ",
+      }),
+    ).toBeUndefined();
   });
 });

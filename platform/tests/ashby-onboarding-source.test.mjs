@@ -18,10 +18,13 @@ const onboardingBehaviorSource = await readFile(
   new URL("../lib/ashby/onboarding-route-behavior.mjs", import.meta.url),
   "utf8",
 ).catch(() => "");
+const siteUrlSource = await readFile(new URL("../lib/site-url.ts", import.meta.url), "utf8").catch(() => "");
+const backendApiSource = await readFile(new URL("../lib/backend-api.ts", import.meta.url), "utf8").catch(() => "");
 const adminHelperSource = await readFile(
   new URL("../lib/auth/ashby-onboarding-admin.ts", import.meta.url),
   "utf8",
 ).catch(() => "");
+const orgAccessSource = await readFile(new URL("../lib/auth/org-access.mjs", import.meta.url), "utf8").catch(() => "");
 const webhookRoute = await readFile(new URL("../app/api/ashby/webhook/route.ts", import.meta.url), "utf8");
 const wizardSource = await readFile(
   new URL("../app/dashboard/AshbyOnboardingWizard.tsx", import.meta.url),
@@ -31,6 +34,10 @@ const dashboardLayoutSource = await readFile(new URL("../app/dashboard/layout.ts
 const dashboardSource = await readFile(new URL("../app/dashboard/page.tsx", import.meta.url), "utf8");
 const deployPlatformScript = await readFile(
   new URL("../../scripts/deploy-platform.sh", import.meta.url),
+  "utf8",
+).catch(() => "");
+const ashbySetupDocsSource = await readFile(
+  new URL("../docs/ashby-internal-setup.md", import.meta.url),
   "utf8",
 ).catch(() => "");
 const onboardingBehavior = await import(
@@ -64,10 +71,11 @@ function behaviorHarness({
       backendHeaders: () => ({ authorization: "Bearer internal" }),
       companyIdentityFromUser: ({ email, organizationId }) => ({
         emailDomain: String(email).split("@").at(-1).toLowerCase(),
-        organizationId: organizationId ?? null,
+        organizationId,
       }),
-      isAllowedAuthEmail: (email) => String(email).toLowerCase().endsWith("@usepuddle.com"),
+      canViewDashboard: (candidateSession) => Boolean(candidateSession?.organizationId),
       canManageAshbyOnboarding: (candidateSession) => Boolean(candidateSession?.canManage),
+      sessionOrganizationId: (candidateSession) => candidateSession?.organizationId ?? null,
       fetchImpl: async (...args) => {
         fetchCalls.push(args);
         return backendResponse;
@@ -155,6 +163,24 @@ for (const routeCase of onboardingHandlers) {
     });
   });
 
+  test(`Ashby onboarding ${routeCase.name} denies org-less users before backend fetch`, async () => {
+    const harness = behaviorHarness({
+      session: {
+        user: { email: "admin@usepuddle.com" },
+        canManage: true,
+      },
+    });
+
+    const response = await routeCase.handler(routeCase.request(), harness.context);
+
+    assert.equal(response.status, 403);
+    assert.equal(harness.fetchCalls.length, 0);
+    assert.deepEqual(await response.json(), {
+      error: "You need an invitation to access this workspace.",
+    });
+  });
+
+
   test(`Ashby onboarding ${routeCase.name} sends server-derived identity to backend`, async () => {
     const harness = behaviorHarness();
 
@@ -181,14 +207,17 @@ for (const routeCase of onboardingHandlers) {
     assert.equal(harness.fetchCalls.length, 1);
     assert.deepEqual(await response.json(), { error: routeCase.expectedError });
     assert.equal(harness.warnCalls.length, 1);
+    assert.doesNotMatch(JSON.stringify(harness.warnCalls), /Leaked backend detail/);
+    assert.doesNotMatch(JSON.stringify(harness.warnCalls), /secret stack/);
   });
 }
 
 test("Ashby onboarding API routes are authenticated and derive company identity server-side", () => {
   for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
     assert.match(source, /withAuth/);
-    assert.match(source, /isAllowedAuthEmail/);
+    assert.match(source, /canViewDashboard/);
     assert.match(source, /canManageAshbyOnboarding/);
+    assert.match(source, /sessionOrganizationId/);
     assert.match(source, /companyIdentityFromUser/);
     assert.match(source, /handleAshby.*Onboarding/);
     assert.match(source, /PUDDLE_BACKEND_BASE_URL|backendBaseUrl/);
@@ -201,10 +230,12 @@ test("Ashby onboarding API routes are authenticated and derive company identity 
 });
 
 test("Ashby onboarding setup management requires WorkOS privilege or bootstrap admin email", () => {
-  assert.match(adminHelperSource, /PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/);
+  assert.match(adminHelperSource, /canManageAshbyOnboardingAccess/);
+  assert.match(orgAccessSource, /PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/);
+  assert.match(orgAccessSource, /PUDDLE_ALLOW_BOOTSTRAP_ADMINS/);
   assert.match(adminHelperSource, /Ashby onboarding setup requires a workspace admin or owner\./);
   for (const role of ["admin", "owner", "organization_admin", "org_admin"]) {
-    assert.match(adminHelperSource, new RegExp(role));
+    assert.match(orgAccessSource, new RegExp(role));
   }
   for (const permission of [
     "integrations:manage",
@@ -212,10 +243,10 @@ test("Ashby onboarding setup management requires WorkOS privilege or bootstrap a
     "ashby:manage",
     "organization:admin",
   ]) {
-    assert.ok(adminHelperSource.includes(`"${permission}"`));
+    assert.ok(orgAccessSource.includes(`"${permission}"`));
   }
-  assert.match(adminHelperSource, /toLowerCase\(\)/);
-  assert.match(adminHelperSource, /trim\(\)/);
+  assert.match(orgAccessSource, /toLowerCase\(\)/);
+  assert.match(orgAccessSource, /trim\(\)/);
 
   const adminGateIndex = onboardingBehaviorSource.indexOf("canManageAshbyOnboarding");
   const fetchIndex = onboardingBehaviorSource.indexOf("fetchImpl(");
@@ -226,6 +257,22 @@ test("Ashby onboarding setup management requires WorkOS privilege or bootstrap a
   for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
     assert.match(source, /ASHBY_ONBOARDING_ADMIN_DENIED_ERROR/);
   }
+});
+
+test("Ashby onboarding URL helpers fail closed for production public URLs and backend auth", () => {
+  assert.match(siteUrlSource, /function isProduction/);
+  assert.match(siteUrlSource, /PUDDLE_PUBLIC_BASE_URL/);
+  assert.match(siteUrlSource, /NEXT_PUBLIC_SITE_URL/);
+  assert.match(siteUrlSource, /protocol !== "https:"/);
+  assert.match(siteUrlSource, /localhost|127\.0\.0\.1/);
+  assert.match(siteUrlSource, /NODE_ENV/);
+
+  assert.match(backendApiSource, /NODE_ENV/);
+  assert.match(backendApiSource, /PUDDLE_BACKEND_INTERNAL_TOKEN/);
+  assert.match(backendApiSource, /throw new Error\("PUDDLE_BACKEND_INTERNAL_TOKEN must be set in production"\)/);
+
+  assert.match(jobsRoute, /publicBaseUrl\(\)/);
+  assert.doesNotMatch(jobsRoute, /http:\/\/localhost:3000/);
 });
 
 test("deploy-platform forwards Ashby onboarding admin emails through environment only", () => {
@@ -285,6 +332,8 @@ test("Ashby webhook proxy forwards raw body and signature to backend", () => {
   assert.match(webhookRoute, /request\.headers\.get\("ashby-signature"\)/);
   assert.match(webhookRoute, /rawBody/);
   assert.match(webhookRoute, /signature/);
+  assert.match(webhookRoute, /integrationId/);
+  assert.doesNotMatch(webhookRoute, /companyDomain/);
   assert.doesNotMatch(webhookRoute, /PUDDLE_ASHBY_WEBHOOK_SECRET/);
   assert.doesNotMatch(webhookRoute, /verifyAshbyWebhookSignature/);
 });
@@ -298,10 +347,22 @@ test("Ashby onboarding proxy routes sanitize non-OK backend responses", () => {
   assert.match(onboardingBehaviorSource, /response\.ok/);
   assert.match(onboardingBehaviorSource, /"Ashby onboarding request failed\."/);
   assert.match(onboardingBehaviorSource, /"Ashby sync request failed\."/);
+  assert.match(onboardingBehaviorSource, /status: response\.status/);
+  assert.match(onboardingBehaviorSource, /backendPath: config\.backendPath/);
+  assert.doesNotMatch(onboardingBehaviorSource, /payload\s*}/);
   assert.doesNotMatch(onboardingBehaviorSource, /payload\.error\s*\?\?/);
   assert.doesNotMatch(onboardingBehaviorSource, /stack/);
   assert.doesNotMatch(onboardingBehaviorSource, /details/);
   assert.doesNotMatch(syncRoute, /request\.json\(\)/);
+});
+
+test("Ashby setup docs list the backend decryption allowlist", () => {
+  assert.match(ashbySetupDocsSource, /Secret decryption allowlist/);
+  assert.match(ashbySetupDocsSource, /selected-job-validation/);
+  assert.match(ashbySetupDocsSource, /active-application-sync/);
+  assert.match(ashbySetupDocsSource, /webhook-setup-display/);
+  assert.match(ashbySetupDocsSource, /webhook-signature-verification/);
+  assert.match(ashbySetupDocsSource, /Do not add new decrypt points/);
 });
 
 test("Ashby webhook proxy sanitizes rejected backend responses", () => {
@@ -364,6 +425,13 @@ test("dashboard uses the Ashby onboarding wizard for non-connected companies", (
   assert.match(wizardSource, /canManageSetup/);
   assert.match(wizardSource, /Ask a workspace admin or owner to finish Ashby setup\./);
   assert.doesNotMatch(wizardSource, /state\.setupStatus\.replaceAll/);
+});
+
+test("dashboard keeps an admin reconnect path after Ashby onboarding is complete", () => {
+  assert.match(dashboardSource, /canManageSetup && onboardingComplete/);
+  assert.match(dashboardSource, /AshbyOnboardingWizard state=\{state\} canManageSetup=\{canManageSetup\}/);
+  assert.match(wizardSource, /Replace Ashby key|Reconnect Ashby/);
+  assert.match(wizardSource, /Replacing the key resets webhook verification/);
 });
 
 test("wizard hides setup controls from non-admin users before rendering setup actions", () => {

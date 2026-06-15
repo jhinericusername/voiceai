@@ -6,7 +6,19 @@ import { noindexMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = noindexMetadata;
 
-export default function NotAuthorizedPage() {
+function firstSearchValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+export default async function NotAuthorizedPage({
+  searchParams,
+}: {
+  readonly searchParams?: Promise<{ readonly reason?: string | string[] }>;
+}) {
+  const reason = firstSearchValue((await searchParams)?.reason);
+  const invitationRequired = reason === "invitation";
+  const permissionRequired = reason === "permission";
+
   return (
     <main className="min-h-svh bg-[#eef7ff] px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
@@ -23,10 +35,18 @@ export default function NotAuthorizedPage() {
         <section className="mt-8 rounded-lg border border-white/70 bg-white/[0.78] p-6 shadow-[0_22px_70px_rgba(15,23,42,0.09)] backdrop-blur">
           <div className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">Access restricted</div>
           <h1 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 md:text-4xl">
-            This workspace is limited to approved domains.
+            {invitationRequired
+              ? "You need an invitation to this workspace."
+              : permissionRequired
+                ? "You do not have permission for this action."
+                : "This workspace is limited to approved domains."}
           </h1>
           <p className="mt-5 text-base leading-7 text-slate-600">
-            Sign in with an email address from {allowedAuthDomainsLabel()}.
+            {invitationRequired
+              ? "Ask a workspace admin to invite your account to the correct WorkOS organization."
+              : permissionRequired
+                ? "Ask a workspace admin to update your role before trying again."
+                : `Sign in with an email address from ${allowedAuthDomainsLabel()}.`}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <a

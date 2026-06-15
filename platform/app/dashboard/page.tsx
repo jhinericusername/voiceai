@@ -56,6 +56,9 @@ export default async function DashboardPage() {
 
       {onboardingComplete ? (
         <div className="grid min-w-0 gap-5">
+          {canManageSetup && onboardingComplete ? (
+            <AshbyOnboardingWizard state={state} canManageSetup={canManageSetup} />
+          ) : null}
           <RecentScreensTable screens={screens} />
           <WorkspaceMetricStrip />
           <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">

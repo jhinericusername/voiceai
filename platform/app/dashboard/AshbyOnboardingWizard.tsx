@@ -92,6 +92,8 @@ export function AshbyOnboardingWizard({
   const hasVerifiedWebhook = state.connected || Boolean(state.lastPingAt);
   const readyToSync = hasVerifiedWebhook && !state.lastSyncAt;
   const hasPendingWebhookSetup = !setup && !hasVerifiedWebhook && setupStatus === "pending_webhook";
+  const isConnectedSetup = setupStatus === "connected" && state.connected;
+  const panelTitle = isConnectedSetup ? "Reconnect Ashby" : "Connect Ashby";
   const statusLabel = state.lastSyncAt
     ? "Synced"
     : hasVerifiedWebhook
@@ -216,7 +218,7 @@ export function AshbyOnboardingWizard({
   if (!canManageSetup) {
     return (
       <SectionPanel
-        title="Connect Ashby"
+        title={panelTitle}
         eyebrow="Setup"
         action={<StatusPill status={statusLabel} className="capitalize" />}
       >
@@ -232,16 +234,19 @@ export function AshbyOnboardingWizard({
 
   return (
     <SectionPanel
-      title="Connect Ashby"
+      title={panelTitle}
       eyebrow="Setup"
       action={<StatusPill status={statusLabel} className="capitalize" />}
     >
       <div className="grid gap-5">
         <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-          <div className="text-sm font-semibold text-slate-950">{state.emailDomain}</div>
+          <div className="text-sm font-semibold text-slate-950">
+            {isConnectedSetup ? "Replace Ashby key" : state.emailDomain}
+          </div>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-            Add a company Ashby API key, choose the open jobs Puddle should screen, then configure the webhook
-            events in Ashby.
+            {isConnectedSetup
+              ? "Replacing the key resets webhook verification. Ashby must send a new ping before sync resumes."
+              : "Add a company Ashby API key, choose the open jobs Puddle should screen, then configure the webhook events in Ashby."}
           </p>
         </div>
 
@@ -263,7 +268,7 @@ export function AshbyOnboardingWizard({
             onClick={() => void submitApiKey()}
             className={cx(primaryButtonClass, "w-fit disabled:cursor-not-allowed disabled:opacity-60")}
           >
-            {isSubmitting ? "Validating" : "Validate key"}
+            {isSubmitting ? "Validating" : isConnectedSetup ? "Validate replacement key" : "Validate key"}
           </button>
         </div>
 

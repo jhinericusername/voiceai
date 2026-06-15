@@ -88,7 +88,7 @@ describe("Ashby backend routes", () => {
         method: "POST",
         url: "/integrations/ashby/company-state",
         headers: { "content-type": "application/json" },
-        payload: { emailDomain: "usepuddle.com", organizationId: null },
+        payload: { emailDomain: "usepuddle.com", organizationId: "org_1" },
       });
 
       expect(res.statusCode).toBe(200);
@@ -130,7 +130,7 @@ describe("Ashby backend routes", () => {
         method: "POST",
         url: "/integrations/ashby/company-state",
         headers: { "content-type": "application/json" },
-        payload: { emailDomain: "usepuddle.com", organizationId: null },
+        payload: { emailDomain: "usepuddle.com", organizationId: "org_1" },
       });
 
       expect(res.statusCode).toBe(200);
@@ -154,7 +154,7 @@ describe("Ashby backend routes", () => {
         method: "POST",
         url: "/integrations/ashby/company-state",
         headers: { "content-type": "application/json" },
-        payload: { emailDomain: "usepuddle.com", organizationId: null },
+        payload: { emailDomain: "usepuddle.com", organizationId: "org_1" },
       });
 
       expect(res.statusCode).toBe(200);
@@ -678,6 +678,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
+          organizationId: "org_1",
           applicationId: "app_1",
           jobId: "job_1",
           roleId: "job_1",
@@ -721,6 +722,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
+          organizationId: "org_1",
           applicationId: "app_1",
           jobId: "job_1",
           roleId: "job_1",
@@ -750,6 +752,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
+          organizationId: "org_1",
           applicationId: "app_1",
           jobId: "job_1",
           roleId: "role_1",
@@ -769,25 +772,10 @@ describe("Ashby backend routes", () => {
     }
   });
 
-  it("returns 409 when setup finds an identity conflict", async () => {
+  it("does not run legacy setup identity-conflict logic after the route is disabled", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const previousFetch = global.fetch;
-    global.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          success: true,
-          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    ) as unknown as typeof fetch;
-    clientQueryMock
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({
-        rows: [{ integration_id: null, identity_conflict: true }],
-        rowCount: 1,
-      })
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    global.fetch = vi.fn() as unknown as typeof fetch;
     const app = buildServer(FAKE_LK);
     try {
       const res = await app.inject({
@@ -802,16 +790,13 @@ describe("Ashby backend routes", () => {
         },
       });
 
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error).toContain("identity conflict");
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(410);
+      expect(res.json().error).toContain("self-serve onboarding");
+      expect(global.fetch).not.toHaveBeenCalled();
       expect(queryMock).not.toHaveBeenCalled();
-      expect(connectMock).toHaveBeenCalledTimes(1);
-      expect(clientQueryMock).toHaveBeenCalledTimes(3);
-      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
-      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("ashby_api_key_ciphertext");
-      expect(clientQueryMock.mock.calls[2]?.[0]).toBe("ROLLBACK");
-      expect(releaseMock).toHaveBeenCalledTimes(1);
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
     } finally {
       global.fetch = previousFetch;
       await app.close();
@@ -853,7 +838,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           ashbyApiKey: "ashby-secret",
         },
@@ -869,14 +854,21 @@ describe("Ashby backend routes", () => {
       expect(JSON.stringify(res.json())).not.toContain("ashby-secret");
       expect(connectMock).toHaveBeenCalledTimes(1);
       expect(queryMock).not.toHaveBeenCalled();
-      expect(clientQueryMock).toHaveBeenCalledTimes(5);
+      expect(clientQueryMock).toHaveBeenCalledTimes(6);
       expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
       expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("pg_advisory_xact_lock");
       expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("ashby_api_key_ciphertext");
       expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("UPDATE ashby_applications");
       expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("status = $2");
       expect(clientQueryMock.mock.calls[3]?.[1]).toEqual(["int_1", "Stale"]);
-      expect(clientQueryMock.mock.calls[4]?.[0]).toBe("COMMIT");
+      expect(String(clientQueryMock.mock.calls[4]?.[0])).toContain("ashby_integration_audit_events");
+      expect(clientQueryMock.mock.calls[4]?.[1]).toEqual([
+        "int_1",
+        "admin@usepuddle.com",
+        "api_key_replaced",
+        JSON.stringify({ selectedJobCount: 0 }),
+      ]);
+      expect(clientQueryMock.mock.calls[5]?.[0]).toBe("COMMIT");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
       global.fetch = previousFetch;
@@ -902,7 +894,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           ashbyApiKey: "ashby-secret",
         },
@@ -943,7 +935,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           ashbyApiKey: "ashby-secret",
         },
@@ -989,7 +981,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           ashbyApiKey: "ashby-secret",
         },
@@ -1061,7 +1053,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1"],
           publicBaseUrl: "https://app.usepuddle.com",
@@ -1093,12 +1085,19 @@ describe("Ashby backend routes", () => {
         authorization: `Basic ${Buffer.from(`${encryptedApiKey}:`).toString("base64")}`,
       });
       expect(connectMock).toHaveBeenCalledTimes(1);
-      expect(clientQueryMock).toHaveBeenCalledTimes(4);
+      expect(clientQueryMock).toHaveBeenCalledTimes(5);
       expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
       expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("selected_job_ids = $2");
       expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
       expect(clientQueryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
-      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("COMMIT");
+      expect(String(clientQueryMock.mock.calls[3]?.[0])).toContain("ashby_integration_audit_events");
+      expect(clientQueryMock.mock.calls[3]?.[1]).toEqual([
+        "int_1",
+        "admin@usepuddle.com",
+        "jobs_selected",
+        JSON.stringify({ selectedJobCount: 1 }),
+      ]);
+      expect(clientQueryMock.mock.calls[4]?.[0]).toBe("COMMIT");
       expect(releaseMock).toHaveBeenCalledTimes(1);
     } finally {
       global.fetch = previousFetch;
@@ -1141,7 +1140,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1"],
           publicBaseUrl: "https://app.usepuddle.com",
@@ -1198,7 +1197,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1", "job_closed"],
           publicBaseUrl: "https://app.usepuddle.com",
@@ -1265,7 +1264,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1"],
           publicBaseUrl: "https://app.usepuddle.com",
@@ -1288,26 +1287,10 @@ describe("Ashby backend routes", () => {
     }
   });
 
-  it("stores legacy setup values and marks stale active applications during reconfiguration", async () => {
+  it("rejects legacy Ashby setup before validating or storing secrets", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const previousFetch = global.fetch;
-    global.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          success: true,
-          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    ) as unknown as typeof fetch;
-    clientQueryMock
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({
-        rows: [{ integration_id: "int_1", identity_conflict: false }],
-        rowCount: 1,
-      })
-      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    global.fetch = vi.fn() as unknown as typeof fetch;
 
     const app = buildServer(FAKE_LK);
     try {
@@ -1323,160 +1306,9 @@ describe("Ashby backend routes", () => {
         },
       });
 
-      expect(res.statusCode).toBe(201);
-      expect(res.json()).toEqual({
-        integrationId: "int_1",
-        emailDomain: "usepuddle.com",
-        selectedJobIds: ["job_1"],
-      });
-      expect(global.fetch).toHaveBeenCalledTimes(1);
-      expect(queryMock).not.toHaveBeenCalled();
-      expect(connectMock).toHaveBeenCalledTimes(1);
-      expect(clientQueryMock).toHaveBeenCalledTimes(4);
-      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
-      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("ashby_api_key_ciphertext");
-      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
-      expect(clientQueryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
-      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("COMMIT");
-      expect(releaseMock).toHaveBeenCalledTimes(1);
-    } finally {
-      global.fetch = previousFetch;
-      await app.close();
-    }
-  });
-
-  it("rolls back legacy setup when staling active applications fails", async () => {
-    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
-    const previousFetch = global.fetch;
-    global.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          success: true,
-          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    ) as unknown as typeof fetch;
-    queryMock
-      .mockResolvedValueOnce({
-        rows: [{ integration_id: "int_1", identity_conflict: false }],
-        rowCount: 1,
-      })
-      .mockRejectedValueOnce(new Error("stale failed"));
-    clientQueryMock
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
-      .mockResolvedValueOnce({
-        rows: [{ integration_id: "int_1", identity_conflict: false }],
-        rowCount: 1,
-      })
-      .mockRejectedValueOnce(new Error("stale failed"))
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
-
-    const app = buildServer(FAKE_LK);
-    try {
-      const res = await app.inject({
-        method: "POST",
-        url: "/integrations/ashby/setup",
-        headers: { "content-type": "application/json" },
-        payload: {
-          organizationId: "org_123",
-          emailDomain: "usepuddle.com",
-          ashbyApiKey: "ashby-secret",
-          selectedJobIds: ["job_1"],
-        },
-      });
-
-      expect(res.statusCode).toBe(500);
-      expect(global.fetch).toHaveBeenCalledTimes(1);
-      expect(queryMock).not.toHaveBeenCalled();
-      expect(connectMock).toHaveBeenCalledTimes(1);
-      expect(clientQueryMock).toHaveBeenCalledTimes(4);
-      expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
-      expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("ashby_api_key_ciphertext");
-      expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
-      expect(clientQueryMock.mock.calls[2]?.[1]).toEqual(["int_1", "Stale"]);
-      expect(clientQueryMock.mock.calls[3]?.[0]).toBe("ROLLBACK");
-      expect(releaseMock).toHaveBeenCalledTimes(1);
-    } finally {
-      global.fetch = previousFetch;
-      await app.close();
-    }
-  });
-
-  it("does not persist legacy setup when selected job validation fails", async () => {
-    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
-    const previousFetch = global.fetch;
-    global.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          success: false,
-          errorInfo: { message: "secret tenant token ashby-upstream-detail" },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    ) as unknown as typeof fetch;
-
-    const app = buildServer(FAKE_LK);
-    try {
-      const res = await app.inject({
-        method: "POST",
-        url: "/integrations/ashby/setup",
-        headers: { "content-type": "application/json" },
-        payload: {
-          organizationId: "org_123",
-          emailDomain: "usepuddle.com",
-          ashbyApiKey: "ashby-secret",
-          selectedJobIds: ["job_1"],
-        },
-      });
-
-      expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({ error: "Unable to validate selected Ashby jobs." });
-      expect(JSON.stringify(res.json())).not.toContain("secret tenant token");
-      expect(JSON.stringify(res.json())).not.toContain("ashby-upstream-detail");
-      expect(global.fetch).toHaveBeenCalledTimes(1);
-      expect(queryMock).not.toHaveBeenCalled();
-      expect(connectMock).not.toHaveBeenCalled();
-      expect(clientQueryMock).not.toHaveBeenCalled();
-      expect(releaseMock).not.toHaveBeenCalled();
-    } finally {
-      global.fetch = previousFetch;
-      await app.close();
-    }
-  });
-
-  it("does not persist legacy setup when selected jobs are missing or closed", async () => {
-    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
-    const previousFetch = global.fetch;
-    global.fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          success: true,
-          results: [{ id: "job_1", name: "Founding Engineer", status: "Open" }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    ) as unknown as typeof fetch;
-
-    const app = buildServer(FAKE_LK);
-    try {
-      const res = await app.inject({
-        method: "POST",
-        url: "/integrations/ashby/setup",
-        headers: { "content-type": "application/json" },
-        payload: {
-          organizationId: "org_123",
-          emailDomain: "usepuddle.com",
-          ashbyApiKey: "ashby-secret",
-          selectedJobIds: ["job_1", "job_closed"],
-        },
-      });
-
-      expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({
-        error: "Selected Ashby jobs are not open or no longer exist",
-      });
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(410);
+      expect(res.json().error).toContain("self-serve onboarding");
+      expect(global.fetch).not.toHaveBeenCalled();
       expect(queryMock).not.toHaveBeenCalled();
       expect(connectMock).not.toHaveBeenCalled();
       expect(clientQueryMock).not.toHaveBeenCalled();
@@ -1493,7 +1325,7 @@ describe("Ashby backend routes", () => {
         name: "invalid emailDomain",
         payload: {
           emailDomain: "bad-domain",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1"],
           publicBaseUrl: "https://app.usepuddle.com",
@@ -1503,7 +1335,7 @@ describe("Ashby backend routes", () => {
         name: "missing publicBaseUrl",
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1"],
         },
@@ -1512,7 +1344,7 @@ describe("Ashby backend routes", () => {
         name: "invalid local protocol",
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1"],
           publicBaseUrl: "ftp://localhost",
@@ -1522,7 +1354,7 @@ describe("Ashby backend routes", () => {
         name: "missing selected jobs",
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: [],
           publicBaseUrl: "https://app.usepuddle.com",
@@ -1532,7 +1364,16 @@ describe("Ashby backend routes", () => {
         name: "missing reviewer",
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
+          selectedJobIds: ["job_1"],
+          publicBaseUrl: "https://app.usepuddle.com",
+        },
+      },
+      {
+        name: "missing organization",
+        payload: {
+          emailDomain: "usepuddle.com",
+          reviewerEmail: "admin@usepuddle.com",
           selectedJobIds: ["job_1"],
           publicBaseUrl: "https://app.usepuddle.com",
         },
@@ -1609,14 +1450,22 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
+          reviewerEmail: "admin@usepuddle.com",
         },
       });
 
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ ok: true, syncedCount: 0 });
-      expect(queryMock).toHaveBeenCalledTimes(3);
+      expect(queryMock).toHaveBeenCalledTimes(4);
       expect(String(queryMock.mock.calls[2]?.[0])).toContain("last_sync_at = now()");
+      expect(String(queryMock.mock.calls[3]?.[0])).toContain("ashby_integration_audit_events");
+      expect(queryMock.mock.calls[3]?.[1]).toEqual([
+        "int_1",
+        "admin@usepuddle.com",
+        "active_applications_synced",
+        JSON.stringify({ syncedCount: 0, selectedJobCount: 1 }),
+      ]);
     } finally {
       global.fetch = previousFetch;
       await app.close();
@@ -1642,7 +1491,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
         },
       });
 
@@ -1687,7 +1536,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
         },
       });
 
@@ -1726,7 +1575,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
           query: "maya",
         },
       });
@@ -1764,6 +1613,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
+          organizationId: "org_1",
           applicationId: "app_1",
           jobId: "role_1",
           roleId: "role_1",
@@ -1808,7 +1658,7 @@ describe("Ashby backend routes", () => {
         headers: { "content-type": "application/json" },
         payload: {
           emailDomain: "usepuddle.com",
-          organizationId: null,
+          organizationId: "org_1",
         },
       });
 
@@ -1848,9 +1698,7 @@ describe("Ashby backend routes", () => {
     }
   });
 
-  it("rejects ping webhooks when the integration cannot be resolved", async () => {
-    queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-
+  it("rejects ping webhooks that do not include an integration id", async () => {
     const app = buildServer(FAKE_LK);
     try {
       const res = await app.inject({
@@ -1858,7 +1706,6 @@ describe("Ashby backend routes", () => {
         url: "/integrations/ashby/webhook",
         headers: { "content-type": "application/json" },
         payload: {
-          companyDomain: "usepuddle.com",
           payload: {
             action: "ping",
             data: {},
@@ -1868,8 +1715,7 @@ describe("Ashby backend routes", () => {
 
       expect(res.statusCode).toBe(404);
       expect(res.json().error).toContain("not configured");
-      expect(queryMock).toHaveBeenCalledTimes(1);
-      expect(String(queryMock.mock.calls[0]?.[0])).toContain("ashby_company_integrations");
+      expect(queryMock).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

@@ -9,14 +9,13 @@ export async function POST(request: Request) {
   const signature = request.headers.get("ashby-signature");
   const url = new URL(request.url);
   const integrationId = url.searchParams.get("integrationId");
-  const companyDomain = url.searchParams.get("companyDomain");
 
   let backendResponse: Response;
   try {
     backendResponse = await fetch(`${backendBaseUrl()}/integrations/ashby/webhook`, {
       method: "POST",
       headers: backendHeaders(),
-      body: JSON.stringify({ integrationId, companyDomain, rawBody, signature }),
+      body: JSON.stringify({ integrationId, rawBody, signature }),
       cache: "no-store",
     });
   } catch {
