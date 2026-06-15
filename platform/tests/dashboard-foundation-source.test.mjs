@@ -12,6 +12,7 @@ const overviewSource = await source("../app/dashboard/page.tsx");
 const rolesSource = await source("../app/dashboard/roles/page.tsx");
 const candidatesSource = await source("../app/dashboard/candidates/page.tsx");
 const reviewQueueSource = await source("../app/dashboard/review-queue/page.tsx");
+const ashbyFirstSectionsSource = await source("../app/dashboard/AshbyFirstDashboardSections.tsx");
 const interviewDetailSource = await source("../app/dashboard/interviews/[sessionId]/page.tsx");
 const wizardSource = await source("../app/dashboard/AshbyOnboardingWizard.tsx");
 
@@ -58,7 +59,11 @@ test("top-level operational pages do not import demo dashboard data", () => {
     ["review queue", reviewQueueSource],
   ]) {
     assert.doesNotMatch(pageSource, /demo-data/, `${name} page should not import demo-data`);
-    assert.doesNotMatch(pageSource, /DashboardSections/, `${name} page should not import demo dashboard sections`);
+    assert.doesNotMatch(
+      pageSource,
+      /from\s+["']\.\.\/DashboardSections["']/,
+      `${name} page should not import demo dashboard sections`,
+    );
     assert.doesNotMatch(pageSource, /dashboardDemoFallbackEnabled/, `${name} page should not enable demo fallback`);
   }
 });
@@ -68,7 +73,7 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
   assert.match(rolesSource, /selectedAshbyJobCount/);
   assert.match(candidatesSource, /CandidateApplicationsFoundation/);
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);
-  assert.match(reviewQueueSource, /role picker/i);
+  assert.match(ashbyFirstSectionsSource, /role picker/i);
   assert.doesNotMatch(reviewQueueSource, /getRealInterviews/);
 });
 

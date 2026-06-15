@@ -54,6 +54,7 @@ const overviewSource = await source("../app/dashboard/page.tsx");
 const rolesSource = await source("../app/dashboard/roles/page.tsx");
 const candidatesSource = await source("../app/dashboard/candidates/page.tsx");
 const reviewQueueSource = await source("../app/dashboard/review-queue/page.tsx");
+const ashbyFirstSectionsSource = await source("../app/dashboard/AshbyFirstDashboardSections.tsx");
 const interviewDetailSource = await source("../app/dashboard/interviews/[sessionId]/page.tsx");
 const wizardSource = await source("../app/dashboard/AshbyOnboardingWizard.tsx");
 
@@ -100,7 +101,11 @@ test("top-level operational pages do not import demo dashboard data", () => {
     ["review queue", reviewQueueSource],
   ]) {
     assert.doesNotMatch(pageSource, /demo-data/, `${name} page should not import demo-data`);
-    assert.doesNotMatch(pageSource, /DashboardSections/, `${name} page should not import demo dashboard sections`);
+    assert.doesNotMatch(
+      pageSource,
+      /from\s+["']\.\.\/DashboardSections["']/,
+      `${name} page should not import demo dashboard sections`,
+    );
     assert.doesNotMatch(pageSource, /dashboardDemoFallbackEnabled/, `${name} page should not enable demo fallback`);
   }
 });
@@ -110,7 +115,7 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
   assert.match(rolesSource, /selectedAshbyJobCount/);
   assert.match(candidatesSource, /CandidateApplicationsFoundation/);
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);
-  assert.match(reviewQueueSource, /role picker/i);
+  assert.match(ashbyFirstSectionsSource, /role picker/i);
   assert.doesNotMatch(reviewQueueSource, /getRealInterviews/);
 });
 
@@ -335,11 +340,11 @@ Import the listed icons from `lucide-react`.
 
 - [ ] **Step 3: Add the candidate/application search affordance**
 
-In the chrome header, replace the active-role selector and create/invite buttons with a non-functional search affordance that makes the intended scope explicit:
+In the chrome header, replace the active-role selector and create/invite buttons with a non-interactive search affordance that makes the intended scope explicit without pretending search is implemented:
 
 ```tsx
-<button
-  type="button"
+<div
+  aria-label="Candidate and application search"
   className="flex min-h-9 w-full max-w-md items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
 >
   <span className="inline-flex min-w-0 items-center gap-2 truncate">
@@ -349,7 +354,7 @@ In the chrome header, replace the active-role selector and create/invite buttons
   <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
     Cmd+K
   </span>
-</button>
+</div>
 ```
 
 - [ ] **Step 4: Keep the account affordance human-readable**
