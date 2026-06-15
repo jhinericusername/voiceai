@@ -268,6 +268,17 @@ function selectedWeaveRow(transcriptId: string) {
   };
 }
 
+function selectedWeaveRowWithoutApplicationId(transcriptId: string) {
+  const row = selectedWeaveRow(transcriptId);
+  return {
+    ...row,
+    selected: {
+      ...row.selected,
+      ashby_application_id: null,
+    },
+  };
+}
+
 function commandNames(client: FakeS3Client): string[] {
   return client.commands.map((command) => command?.constructor?.name ?? typeof command);
 }
@@ -450,6 +461,25 @@ describe("Fireflies historical import executor", () => {
       [1, "app_01ASHBY"],
       [2, "app_alt_01ASHBY"],
     ]);
+  });
+
+  it("counts selected Weave matches even when Ashby application metadata is incomplete", async () => {
+    const result = await executeHistoricalFirefliesImport({
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client(recordingObjects("01NOAPP")),
+      targetS3: new FakeS3Client(),
+      weaveDb: new FakeWeaveDb({
+        "01NOAPP": selectedWeaveRowWithoutApplicationId("01NOAPP"),
+      }),
+    });
+
+    expect(result.selectedMatches).toBe(1);
+    expect(result.unindexedRecordings).toBe(0);
+    expect(result.plans[0]?.session.sourceMetadata.ashby.selected).toBeNull();
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.matchStatus).toBe("matched");
   });
 
   it("keeps ranked candidates from Weave when no selected recording row exists", async () => {
