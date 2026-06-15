@@ -51,8 +51,8 @@ function navIsActive(pathname: string, match: (typeof navItems)[number]["match"]
 
 function SearchAffordance() {
   return (
-    <button
-      type="button"
+    <div
+      aria-label="Candidate and application search"
       className="flex min-h-9 w-full max-w-md items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
     >
       <span className="inline-flex min-w-0 items-center gap-2 truncate">
@@ -62,7 +62,7 @@ function SearchAffordance() {
       <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
         Cmd+K
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -91,6 +91,7 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
                 <Link
                   key={item.label}
                   href={item.href}
+                  aria-current={active ? "page" : undefined}
                   className={cx(
                     "flex min-h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition",
                     active
@@ -151,6 +152,7 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
                   <Link
                     key={item.label}
                     href={item.href}
+                    aria-current={active ? "page" : undefined}
                     className={cx(
                       "inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm font-medium transition",
                       active
