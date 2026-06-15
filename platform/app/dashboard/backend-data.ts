@@ -26,6 +26,9 @@ export interface RealInterviewListItem {
   readonly scheduled_at: string | null;
   readonly started_at: string | null;
   readonly ended_at: string | null;
+  readonly external_source: string | null;
+  readonly external_id: string | null;
+  readonly source_metadata: unknown;
   readonly recording_status: string | null;
   readonly egress_id: string | null;
   readonly category_scores: unknown;

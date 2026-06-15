@@ -12,6 +12,9 @@ describe("dashboard interview read model", () => {
     expect(stmt.sql).toContain("FROM sessions s");
     expect(stmt.sql).toContain("LEFT JOIN recordings r");
     expect(stmt.sql).toContain("LEFT JOIN assessments a");
+    expect(stmt.sql).toContain("s.external_source");
+    expect(stmt.sql).toContain("s.external_id");
+    expect(stmt.sql).toContain("s.source_metadata");
     expect(stmt.sql).toContain("WHERE s.org_id = $2");
     expect(stmt.sql).toContain("LIMIT $1");
     expect(stmt.params).toEqual([25, "org1"]);
@@ -21,6 +24,9 @@ describe("dashboard interview read model", () => {
     const stmt = interviewDetailStatement("sess1", "org1");
 
     expect(stmt.sql).toContain("WHERE s.session_id = $1 AND s.org_id = $2");
+    expect(stmt.sql).toContain("s.external_source");
+    expect(stmt.sql).toContain("s.external_id");
+    expect(stmt.sql).toContain("s.source_metadata");
     expect(stmt.sql).toContain("json_agg");
     expect(stmt.sql).toContain("LEFT JOIN LATERAL");
     expect(stmt.sql).toContain("ORDER BY ordered.turn_index");

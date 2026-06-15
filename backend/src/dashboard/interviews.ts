@@ -8,6 +8,7 @@ export function interviewListStatement(input: {
     sql:
       "SELECT s.session_id, s.org_id, s.candidate_email, s.script_version, " +
       "s.status, s.room_name, s.scheduled_at, s.started_at, s.ended_at, " +
+      "s.external_source, s.external_id, s.source_metadata, " +
       "r.status AS recording_status, r.egress_id, " +
       "a.category_scores, a.meets_bare_minimum, a.integrity_flags, " +
       "a.reviewer_email, a.signed_off_at " +
@@ -26,6 +27,7 @@ export function interviewDetailStatement(sessionId: string, orgId: string): SqlS
     sql:
       "SELECT s.session_id, s.org_id, s.candidate_email, s.script_version, " +
       "s.status, s.room_name, s.scheduled_at, s.started_at, s.ended_at, " +
+      "s.external_source, s.external_id, s.source_metadata, " +
       "r.status AS recording_status, r.egress_id, r.error_message, " +
       "a.category_scores, a.meets_bare_minimum, a.integrity_flags, " +
       "a.reviewer_email, a.signed_off_at, " +
