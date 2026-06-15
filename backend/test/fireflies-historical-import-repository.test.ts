@@ -4,6 +4,8 @@ import {
   historicalImportRunInsertStatement,
   historicalRecordingArtifactUpsertStatement,
   historicalRecordingUpsertStatement,
+  historicalSessionLegacyIdentityReconcileStatement,
+  historicalSessionSourceLookupStatement,
   historicalSessionUpsertStatement,
   historicalTranscriptTurnUpsertStatement,
 } from "../src/weave/fireflies/historicalImportRepository.js";
@@ -192,6 +194,58 @@ describe("Fireflies historical import repository", () => {
     expect(updateClause).not.toContain("org_id = EXCLUDED.org_id");
     expect(sql).toContain("DO UPDATE SET");
     expect(sql).toContain("WHERE sessions.org_id = EXCLUDED.org_id RETURNING session_id");
+  });
+
+  it("looks up current and legacy Fireflies source identities before apply copies", () => {
+    const stmt = historicalSessionSourceLookupStatement({
+      externalSource: "fireflies",
+      occurrenceExternalId:
+        "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
+      legacyExternalId: "01ABC",
+    });
+
+    const sql = compactSql(stmt.sql);
+
+    expect(sql).toContain("SELECT session_id, org_id, external_id, source_metadata");
+    expect(sql).toContain("FROM sessions");
+    expect(sql).toContain("WHERE external_source = $1");
+    expect(sql).toContain("external_id = ANY($2::text[])");
+    expect(sql).toContain("ORDER BY CASE external_id WHEN $3 THEN 0 WHEN $4 THEN 1 ELSE 2 END");
+    expect(stmt.params).toEqual([
+      "fireflies",
+      ["0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095", "01ABC"],
+      "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
+      "01ABC",
+    ]);
+  });
+
+  it("reconciles same-org legacy transcript identity to the occurrence external id", () => {
+    const metadata = sourceMetadata();
+    const stmt = historicalSessionLegacyIdentityReconcileStatement({
+      externalSource: "fireflies",
+      legacyExternalId: "01ABC",
+      occurrenceExternalId:
+        "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
+      orgId: "org_123",
+      sourceMetadata: metadata,
+    });
+
+    const sql = compactSql(stmt.sql);
+
+    expect(sql).toContain("UPDATE sessions SET external_id = $3");
+    expect(sql).toContain("source_metadata = $4::jsonb");
+    expect(sql).toContain("WHERE external_source = $1 AND external_id = $2 AND org_id = $5");
+    expect(sql).toContain("NOT EXISTS");
+    expect(sql).toContain("existing.external_source = $1");
+    expect(sql).toContain("existing.external_id = $3");
+    expect(sql).toContain("RETURNING session_id, org_id, external_id");
+    expect(stmt.params).toEqual([
+      "fireflies",
+      "01ABC",
+      "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
+      JSON.stringify(metadata),
+      "org_123",
+    ]);
   });
 
   it("upserts historical recordings by session", () => {

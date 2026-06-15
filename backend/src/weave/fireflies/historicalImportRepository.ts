@@ -31,6 +31,20 @@ export interface HistoricalImportRunFinish {
   readonly summary: unknown;
 }
 
+export interface HistoricalSessionSourceLookupInput {
+  readonly externalSource: string;
+  readonly occurrenceExternalId: string;
+  readonly legacyExternalId: string;
+}
+
+export interface HistoricalSessionLegacyIdentityReconcileInput {
+  readonly externalSource: string;
+  readonly legacyExternalId: string;
+  readonly occurrenceExternalId: string;
+  readonly orgId: string;
+  readonly sourceMetadata: HistoricalSessionRow["sourceMetadata"];
+}
+
 export function historicalSessionUpsertStatement(input: HistoricalSessionRow): SqlStatement {
   return {
     sql:
@@ -68,6 +82,50 @@ export function historicalSessionUpsertStatement(input: HistoricalSessionRow): S
       input.externalSource,
       input.externalId,
       jsonbParam(input.sourceMetadata),
+    ],
+  };
+}
+
+export function historicalSessionSourceLookupStatement(
+  input: HistoricalSessionSourceLookupInput,
+): SqlStatement {
+  return {
+    sql:
+      "SELECT session_id, org_id, external_id, source_metadata " +
+      "FROM sessions " +
+      "WHERE external_source = $1 " +
+      "AND external_id = ANY($2::text[]) " +
+      "ORDER BY CASE external_id WHEN $3 THEN 0 WHEN $4 THEN 1 ELSE 2 END",
+    params: [
+      input.externalSource,
+      [input.occurrenceExternalId, input.legacyExternalId],
+      input.occurrenceExternalId,
+      input.legacyExternalId,
+    ],
+  };
+}
+
+export function historicalSessionLegacyIdentityReconcileStatement(
+  input: HistoricalSessionLegacyIdentityReconcileInput,
+): SqlStatement {
+  return {
+    sql:
+      "UPDATE sessions SET " +
+      "external_id = $3, " +
+      "source_metadata = $4::jsonb, " +
+      "updated_at = now() " +
+      "WHERE external_source = $1 AND external_id = $2 AND org_id = $5 " +
+      "AND NOT EXISTS (" +
+      "SELECT 1 FROM sessions existing " +
+      "WHERE existing.external_source = $1 AND existing.external_id = $3" +
+      ") " +
+      "RETURNING session_id, org_id, external_id",
+    params: [
+      input.externalSource,
+      input.legacyExternalId,
+      input.occurrenceExternalId,
+      jsonbParam(input.sourceMetadata),
+      input.orgId,
     ],
   };
 }

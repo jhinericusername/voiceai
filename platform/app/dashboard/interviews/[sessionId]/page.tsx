@@ -352,6 +352,7 @@ function RealInterviewSessionView({
 }) {
   const recommendation = realPacketRecommendation(realInterview);
   const isFirefliesImport = realInterview.external_source === "fireflies";
+  const firefliesTranscriptId = firefliesTranscriptIdFrom(realInterview.source_metadata);
   const transcriptTurns = [...realInterview.transcript_turns].sort(
     (first, second) => first.turnIndex - second.turnIndex,
   );
@@ -448,7 +449,8 @@ function RealInterviewSessionView({
               {isFirefliesImport ? (
                 <>
                   <PacketMetaRow label="Source" value="Fireflies historical import" />
-                  <PacketMetaRow label="Transcript ID" value={realInterview.external_id ?? "Unknown"} />
+                  <PacketMetaRow label="Transcript ID" value={firefliesTranscriptId ?? "Unknown"} />
+                  <PacketMetaRow label="Source occurrence" value={realInterview.external_id ?? "Unknown"} />
                 </>
               ) : null}
               {realInterview.error_message ? <PacketMetaRow label="Error" value={realInterview.error_message} /> : null}
@@ -497,6 +499,12 @@ function formatNullableDate(value: string | null): string {
   return value ? formatDateTime(value) : "Not set";
 }
 
+function firefliesTranscriptIdFrom(sourceMetadata: unknown): string | null {
+  const metadata = objectValue(sourceMetadata);
+  const fireflies = objectValue(metadata.fireflies);
+  return stringValue(fireflies.transcriptId);
+}
+
 function scoreValue(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
@@ -510,6 +518,16 @@ function scoreValue(value: unknown): string | null {
   }
 
   return null;
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function formatScoreLabel(value: string): string {

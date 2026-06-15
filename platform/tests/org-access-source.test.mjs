@@ -123,6 +123,7 @@ test("interview detail page displays Fireflies provenance without domain lookup 
   assert.match(interviewDetailPageSource, /Historical Fireflies import/);
   assert.match(interviewDetailPageSource, /Fireflies historical import/);
   assert.match(interviewDetailPageSource, /Transcript ID/);
+  assert.match(interviewDetailPageSource, /Source occurrence/);
   assert.match(interviewDetailPageSource, /external_source\s*===\s*"fireflies"/);
   assert.doesNotMatch(interviewDetailPageSource, /isAllowedAuthEmail/);
   assert.doesNotMatch(interviewDetailPageSource, /allowedAuthDomains/);

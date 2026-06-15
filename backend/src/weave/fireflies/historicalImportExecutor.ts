@@ -14,6 +14,8 @@ import {
   historicalImportRunInsertStatement,
   historicalRecordingArtifactUpsertStatement,
   historicalRecordingUpsertStatement,
+  historicalSessionLegacyIdentityReconcileStatement,
+  historicalSessionSourceLookupStatement,
   historicalSessionUpsertStatement,
   historicalTranscriptTurnUpsertStatement,
 } from "./historicalImportRepository.js";
@@ -81,6 +83,13 @@ interface MutableCounters {
   copyCount: number;
   skippedCopyCount: number;
   dbWriteCount: number;
+}
+
+interface ExistingHistoricalSessionSource {
+  readonly sessionId: string;
+  readonly orgId: string;
+  readonly externalId: string;
+  readonly sourceMetadata: unknown;
 }
 
 export async function executeHistoricalFirefliesImport(
@@ -194,6 +203,7 @@ async function applyPlans(
 
   for (const plan of plans) {
     try {
+      await preflightPlanSource(puddleDb, plan);
       await copyPlanObjects(input.targetS3, plan, sourceSizes, counters);
       copiedPlans.push(plan);
     } catch (error) {
@@ -242,6 +252,60 @@ async function applyPlans(
       summary: importSummary(counters, failures),
     }),
   );
+}
+
+async function preflightPlanSource(
+  puddleDb: PuddleDb,
+  plan: HistoricalImportPlan,
+): Promise<void> {
+  const legacyExternalId = plan.session.sourceMetadata.fireflies.transcriptId;
+  const lookup = await executeStatement(
+    puddleDb,
+    historicalSessionSourceLookupStatement({
+      externalSource: plan.session.externalSource,
+      occurrenceExternalId: plan.session.externalId,
+      legacyExternalId,
+    }),
+  );
+  const existingSources = lookup.rows.map(existingHistoricalSessionSource).filter(isNonNull);
+
+  for (const existing of existingSources) {
+    if (existing.orgId !== plan.session.orgId) {
+      throw new Error(
+        `Historical Fireflies source ${existing.externalId} already belongs to org ${existing.orgId}`,
+      );
+    }
+  }
+
+  const occurrence = existingSources.find(
+    (existing) => existing.externalId === plan.session.externalId,
+  );
+  if (occurrence) return;
+
+  const legacy = existingSources.find((existing) => existing.externalId === legacyExternalId);
+  if (!legacy) return;
+  if (!isCompatibleLegacySource(legacy.sourceMetadata, plan)) {
+    throw new Error(
+      `Historical Fireflies legacy source ${legacyExternalId} does not match the planned source location`,
+    );
+  }
+
+  const reconcile = await executeStatement(
+    puddleDb,
+    historicalSessionLegacyIdentityReconcileStatement({
+      externalSource: plan.session.externalSource,
+      legacyExternalId,
+      occurrenceExternalId: plan.session.externalId,
+      orgId: plan.session.orgId,
+      sourceMetadata: plan.session.sourceMetadata,
+    }),
+  );
+  const reconciledSessionId = stringValue(reconcile.rows[0]?.session_id);
+  if (!reconciledSessionId) {
+    throw new Error(
+      `Unable to reconcile historical Fireflies legacy source ${legacyExternalId} to occurrence ${plan.session.externalId}`,
+    );
+  }
 }
 
 async function writePlan(puddleDb: PuddleDb, plan: HistoricalImportPlan): Promise<number> {
@@ -456,6 +520,44 @@ async function executeStatement(
   statement: { readonly sql: string; readonly params?: readonly unknown[] },
 ): Promise<{ rows: Record<string, unknown>[] }> {
   return await queryable.query(statement.sql, statement.params);
+}
+
+function existingHistoricalSessionSource(
+  row: Record<string, unknown>,
+): ExistingHistoricalSessionSource | null {
+  const sessionId = stringValue(row.session_id);
+  const orgId = stringValue(row.org_id);
+  const externalId = stringValue(row.external_id);
+  if (!sessionId || !orgId || !externalId) return null;
+  return {
+    sessionId,
+    orgId,
+    externalId,
+    sourceMetadata: row.source_metadata,
+  };
+}
+
+function isCompatibleLegacySource(
+  sourceMetadata: unknown,
+  plan: HistoricalImportPlan,
+): boolean {
+  const metadata = asRecord(sourceMetadata);
+  const fireflies = asRecord(metadata.fireflies);
+  return (
+    stringValue(fireflies.transcriptId) === plan.session.sourceMetadata.fireflies.transcriptId &&
+    stringValue(fireflies.sourceBucket) === plan.session.sourceMetadata.fireflies.sourceBucket &&
+    stringValue(fireflies.sourcePrefix) === plan.session.sourceMetadata.fireflies.sourcePrefix
+  );
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function isNonNull<T>(value: T | null): value is T {
+  return value !== null;
 }
 
 function importSummary(

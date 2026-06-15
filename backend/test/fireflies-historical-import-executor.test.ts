@@ -11,6 +11,7 @@ import {
   type PuddleDbClient,
   type S3LikeClient,
 } from "../src/weave/fireflies/historicalImportExecutor.js";
+import { historicalFirefliesSourceOccurrenceId } from "../src/weave/fireflies/historicalImportPlan.js";
 import type { Queryable } from "../src/weave/fireflies/historicalWeaveMatches.js";
 
 const orgId = "org_01KV4FF7KX24B76H7Q57QVB5CT";
@@ -142,6 +143,8 @@ class FakePuddleDb implements PuddleDb {
     failOnTranscriptId: string | null = null,
     private readonly operationLog?: string[],
     sessionRows: Record<string, unknown>[] | null = null,
+    private readonly sourceRows: Record<string, unknown>[] = [],
+    private readonly reconcileRows: Record<string, unknown>[] = [],
   ) {
     this.client = new FakePuddleDbClient(failOnTranscriptId, operationLog, sessionRows);
   }
@@ -149,6 +152,12 @@ class FakePuddleDb implements PuddleDb {
   async query(sql: string, params?: readonly unknown[]) {
     this.queryLog.push({ sql, params });
     this.operationLog?.push(`db:${sql}`);
+    if (sql.startsWith("SELECT session_id, org_id, external_id, source_metadata")) {
+      return { rows: this.sourceRows };
+    }
+    if (sql.startsWith("UPDATE sessions SET external_id")) {
+      return { rows: this.reconcileRows };
+    }
     return { rows: [] };
   }
 
@@ -169,12 +178,7 @@ function recordingObjects(
   transcriptId: string,
   options: { video?: boolean; date?: string; sourcePrefix?: string } = {},
 ) {
-  const date = options.date ?? "2026-04-09";
-  const [year, month, day] = date.split("-");
-  const objectPrefix = options.sourcePrefix ?? sourcePrefix;
-  const prefix =
-    `${objectPrefix}owner=owner@example.com/year=${year}/month=${month}/day=${day}` +
-    `/transcript_id=${transcriptId}/`;
+  const prefix = recordingPrefix(transcriptId, options);
   const objects: StoredObject[] = [
     {
       key: `${prefix}audio.mp3`,
@@ -205,7 +209,7 @@ function recordingObjects(
       size: 202,
       body: {
         targetEmail: `${transcriptId.toLowerCase()}@example.com`,
-        meetingStartedAt: `${date}T15:30:00.000Z`,
+        meetingStartedAt: `${recordingDate(options)}T15:30:00.000Z`,
         durationSeconds: 1800,
       },
     },
@@ -230,6 +234,53 @@ function recordingObjects(
   }
 
   return objects;
+}
+
+function recordingPrefix(
+  transcriptId: string,
+  options: { date?: string; sourcePrefix?: string } = {},
+): string {
+  const date = recordingDate(options);
+  const [year, month, day] = date.split("-");
+  const objectPrefix = options.sourcePrefix ?? sourcePrefix;
+  return (
+    `${objectPrefix}owner=owner@example.com/year=${year}/month=${month}/day=${day}` +
+    `/transcript_id=${transcriptId}/`
+  );
+}
+
+function recordingDate(options: { date?: string } = {}): string {
+  const date = options.date ?? "2026-04-09";
+  return date;
+}
+
+function sourceOccurrenceIdFor(
+  transcriptId: string,
+  options: { date?: string; sourcePrefix?: string } = {},
+): string {
+  return historicalFirefliesSourceOccurrenceId(sourceBucket, recordingPrefix(transcriptId, options));
+}
+
+function existingSourceRow(input: {
+  readonly transcriptId: string;
+  readonly externalId: string;
+  readonly orgId: string;
+  readonly sessionId?: string;
+  readonly date?: string;
+  readonly sourcePrefix?: string;
+}) {
+  return {
+    session_id: input.sessionId ?? `hist_fireflies_${input.externalId}`,
+    org_id: input.orgId,
+    external_id: input.externalId,
+    source_metadata: {
+      fireflies: {
+        transcriptId: input.transcriptId,
+        sourceBucket,
+        sourcePrefix: recordingPrefix(input.transcriptId, input),
+      },
+    },
+  };
 }
 
 function selectedWeaveRow(transcriptId: string) {
@@ -383,7 +434,7 @@ describe("Fireflies historical import executor", () => {
     );
   });
 
-  it("apply mode copies source objects before writing database rows", async () => {
+  it("apply mode preflights source conflicts before copying source objects", async () => {
     const operationLog: string[] = [];
     const sourceS3 = new FakeS3Client(recordingObjects("01APPLY"));
     const targetS3 = new FakeS3Client([], new Map(), operationLog);
@@ -413,9 +464,138 @@ describe("Fireflies historical import executor", () => {
     const firstDbWriteIndex = operationLog.findIndex((entry) => entry.startsWith("db:"));
     expect(firstCopyIndex).toBeGreaterThanOrEqual(0);
     expect(firstDbWriteIndex).toBeGreaterThanOrEqual(0);
-    expect(firstDbWriteIndex).toBeGreaterThan(firstCopyIndex);
-    expect(puddleDb.queryLog[0]?.sql).toContain("INSERT INTO historical_interview_import_runs");
+    expect(firstDbWriteIndex).toBeLessThan(firstCopyIndex);
+    expect(puddleDb.queryLog[0]?.sql).toContain(
+      "SELECT session_id, org_id, external_id, source_metadata",
+    );
+    expect(
+      puddleDb.queryLog.some((statement) =>
+        statement.sql.includes("INSERT INTO historical_interview_import_runs"),
+      ),
+    ).toBe(true);
     expect(puddleDb.queryLog.at(-1)?.sql).toContain("UPDATE historical_interview_import_runs SET");
+  });
+
+  it("fails occurrence source conflicts from another org before target S3 copy checks", async () => {
+    const transcriptId = "01ORGCONFLICT";
+    const occurrenceId = sourceOccurrenceIdFor(transcriptId);
+    const targetS3 = new FakeS3Client();
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client(recordingObjects(transcriptId)),
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb: new FakePuddleDb(null, undefined, null, [
+        existingSourceRow({
+          transcriptId,
+          externalId: occurrenceId,
+          orgId: "org_other",
+        }),
+      ]),
+      importRunId: "run_occurrence_conflict",
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.failedCount).toBe(1);
+    expect(result.failures[0]?.message).toContain("belongs to org org_other");
+    expect(commandNames(targetS3)).not.toContain("HeadObjectCommand");
+    expect(commandNames(targetS3)).not.toContain("CopyObjectCommand");
+  });
+
+  it("reconciles a same-org legacy transcript external id before copying and writing children", async () => {
+    const transcriptId = "01LEGACY";
+    const occurrenceId = sourceOccurrenceIdFor(transcriptId);
+    const legacySessionId = `hist_fireflies_${transcriptId}`;
+    const operationLog: string[] = [];
+    const targetS3 = new FakeS3Client([], new Map(), operationLog);
+    const puddleDb = new FakePuddleDb(
+      null,
+      operationLog,
+      [{ session_id: legacySessionId }],
+      [
+        existingSourceRow({
+          transcriptId,
+          externalId: transcriptId,
+          orgId,
+          sessionId: legacySessionId,
+        }),
+      ],
+      [{ session_id: legacySessionId, org_id: orgId, external_id: occurrenceId }],
+    );
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client(recordingObjects(transcriptId)),
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb,
+      importRunId: "run_legacy_reconcile",
+    });
+
+    expect(result.importedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    expect(commandNames(targetS3).filter((name) => name === "CopyObjectCommand")).toHaveLength(6);
+
+    const reconcileStatement = puddleDb.queryLog.find((statement) =>
+      statement.sql.startsWith("UPDATE sessions SET external_id"),
+    );
+    expect(reconcileStatement?.params).toEqual([
+      "fireflies",
+      transcriptId,
+      occurrenceId,
+      expect.any(String),
+      orgId,
+    ]);
+    const firstReconcileIndex = operationLog.findIndex((entry) =>
+      entry.startsWith("db:UPDATE sessions SET external_id"),
+    );
+    const firstCopyIndex = operationLog.indexOf("s3:CopyObjectCommand");
+    expect(firstReconcileIndex).toBeGreaterThanOrEqual(0);
+    expect(firstCopyIndex).toBeGreaterThan(firstReconcileIndex);
+
+    const recordingInsert = puddleDb.client.statements.find((statement) =>
+      statement.sql.startsWith("INSERT INTO recordings"),
+    );
+    expect(recordingInsert?.params?.[0]).toBe(legacySessionId);
+  });
+
+  it("fails legacy transcript source conflicts from another org before target S3 copy checks", async () => {
+    const transcriptId = "01LEGACYOTHER";
+    const targetS3 = new FakeS3Client();
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client(recordingObjects(transcriptId)),
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb: new FakePuddleDb(null, undefined, null, [
+        existingSourceRow({
+          transcriptId,
+          externalId: transcriptId,
+          orgId: "org_other",
+        }),
+      ]),
+      importRunId: "run_legacy_conflict",
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.failedCount).toBe(1);
+    expect(result.failures[0]?.message).toContain("belongs to org org_other");
+    expect(commandNames(targetS3)).not.toContain("HeadObjectCommand");
+    expect(commandNames(targetS3)).not.toContain("CopyObjectCommand");
   });
 
   it("fails the database write when a guarded session upsert returns no row", async () => {
