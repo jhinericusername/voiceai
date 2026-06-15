@@ -54,7 +54,57 @@ function planInput(overrides: Partial<HistoricalImportPlanInput> = {}): Historic
       ashbyApplicationId: "app_123",
       ashbyJobId: "job_123",
       candidateEvaluationId: "eval_123",
+      decisionSource: "manual",
+      decisionReason: ["selected in reconciliation table"],
+      decidedAt: "2026-04-10T12:00:00.000Z",
     },
+    weaveMatchCandidates: [
+      {
+        rank: 2,
+        score: 96,
+        ashbyCandidateId: "cand_999",
+        ashbyApplicationId: "app_999",
+        ashbyJobId: "job_999",
+        candidateEvaluationId: null,
+        matchedEmail: "other@example.com",
+        dateDeltaDays: 2,
+        stageDeltaDays: 1,
+        stageTitles: ["Phone Screen"],
+        applicationActiveOnMeetingDate: true,
+        activeApplicationCount: 2,
+        reasons: ["secondary candidate"],
+      },
+      {
+        rank: 1,
+        score: 92,
+        ashbyCandidateId: "cand_low_score",
+        ashbyApplicationId: "app_low_score",
+        ashbyJobId: null,
+        candidateEvaluationId: null,
+        matchedEmail: "candidate@example.com",
+        dateDeltaDays: 0,
+        stageDeltaDays: null,
+        stageTitles: [],
+        applicationActiveOnMeetingDate: false,
+        activeApplicationCount: null,
+        reasons: ["lower score at same rank"],
+      },
+      {
+        rank: 1,
+        score: 96,
+        ashbyCandidateId: "cand_123",
+        ashbyApplicationId: "app_123",
+        ashbyJobId: "job_123",
+        candidateEvaluationId: "eval_123",
+        matchedEmail: "candidate@example.com",
+        dateDeltaDays: 0,
+        stageDeltaDays: 0,
+        stageTitles: ["Technical Interview", "Final"],
+        applicationActiveOnMeetingDate: true,
+        activeApplicationCount: 1,
+        reasons: ["email match", "meeting date aligned"],
+      },
+    ],
     ...overrides,
   };
 }
@@ -100,14 +150,84 @@ describe("Fireflies historical import plan", () => {
           "raw/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/ingestion-result.json",
       },
       ashby: {
-        candidateId: "cand_123",
-        applicationId: "app_123",
-        jobId: "job_123",
-        candidateEvaluationId: "eval_123",
+        selected: {
+          candidateId: "cand_123",
+          applicationId: "app_123",
+          jobId: "job_123",
+          candidateEvaluationId: "eval_123",
+          decisionSource: "manual",
+          decisionReason: ["selected in reconciliation table"],
+          decidedAt: "2026-04-10T12:00:00.000Z",
+        },
+        matchCandidates: [
+          {
+            rank: 1,
+            score: 96,
+            candidateId: "cand_123",
+            applicationId: "app_123",
+            jobId: "job_123",
+            candidateEvaluationId: "eval_123",
+            matchedEmail: "candidate@example.com",
+            dateDeltaDays: 0,
+            stageDeltaDays: 0,
+            stageTitles: ["Technical Interview", "Final"],
+            applicationActiveOnMeetingDate: true,
+            activeApplicationCount: 1,
+            reasons: ["email match", "meeting date aligned"],
+          },
+          {
+            rank: 1,
+            score: 92,
+            candidateId: "cand_low_score",
+            applicationId: "app_low_score",
+            jobId: null,
+            candidateEvaluationId: null,
+            matchedEmail: "candidate@example.com",
+            dateDeltaDays: 0,
+            stageDeltaDays: null,
+            stageTitles: [],
+            applicationActiveOnMeetingDate: false,
+            activeApplicationCount: null,
+            reasons: ["lower score at same rank"],
+          },
+          {
+            rank: 2,
+            score: 96,
+            candidateId: "cand_999",
+            applicationId: "app_999",
+            jobId: "job_999",
+            candidateEvaluationId: null,
+            matchedEmail: "other@example.com",
+            dateDeltaDays: 2,
+            stageDeltaDays: 1,
+            stageTitles: ["Phone Screen"],
+            applicationActiveOnMeetingDate: true,
+            activeApplicationCount: 2,
+            reasons: ["secondary candidate"],
+          },
+        ],
       },
       summary: { overview: "Useful interview." },
       ingestion: { status: "ok" },
     });
+    expect(plan.session.sourceMetadata.ashby.selected?.applicationId).toBe("app_123");
+    expect(plan.session.sourceMetadata.ashby.matchCandidates[0]).toMatchObject({
+      rank: 1,
+      score: 96,
+      applicationId: "app_123",
+      candidateId: "cand_123",
+    });
+    expect(
+      plan.session.sourceMetadata.ashby.matchCandidates.map((candidate) => [
+        candidate.rank,
+        candidate.score,
+        candidate.applicationId,
+      ]),
+    ).toEqual([
+      [1, 96, "app_123"],
+      [1, 92, "app_low_score"],
+      [2, 96, "app_999"],
+    ]);
 
     expect(plan.recording).toEqual({
       sessionId: "hist_fireflies_01ABC",
@@ -286,5 +406,37 @@ describe("Fireflies historical import plan", () => {
 
     expect(plan.session.candidateEmail).toBe("unknown-fireflies-candidate@example.invalid");
     expect(plan.session.candidateEmail).not.toBe("owner@example.com");
+  });
+
+  it("marks metadata as unindexed when Weave reconciliation is unavailable", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        weaveMatch: null,
+      }),
+    );
+
+    expect(plan.session.sourceMetadata.fireflies.matchStatus).toBe("unindexed");
+    expect(plan.session.sourceMetadata.ashby.selected).toBeNull();
+    expect(plan.session.sourceMetadata.ashby.matchCandidates).toEqual([]);
+  });
+
+  it("does not select Ashby metadata when the Weave match has no application id", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        weaveMatch: {
+          matchStatus: "candidate_only",
+          ashbyCandidateId: "cand_123",
+          ashbyApplicationId: null,
+          ashbyJobId: "job_123",
+          candidateEvaluationId: "eval_123",
+          decisionSource: "automatic",
+          decisionReason: ["candidate id exists without application"],
+          decidedAt: "2026-04-10T12:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(plan.session.sourceMetadata.fireflies.matchStatus).toBe("candidate_only");
+    expect(plan.session.sourceMetadata.ashby.selected).toBeNull();
   });
 });

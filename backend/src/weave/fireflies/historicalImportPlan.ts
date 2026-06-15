@@ -14,6 +14,7 @@ export interface HistoricalImportPlanInput {
   readonly summary: unknown;
   readonly ingestionResult: unknown;
   readonly weaveMatch: HistoricalWeaveMatch | null;
+  readonly weaveMatchCandidates: readonly HistoricalWeaveMatchCandidate[];
 }
 
 export interface HistoricalWeaveMatch {
@@ -22,6 +23,25 @@ export interface HistoricalWeaveMatch {
   readonly ashbyApplicationId: string | null;
   readonly ashbyJobId: string | null;
   readonly candidateEvaluationId: string | null;
+  readonly decisionSource: string | null;
+  readonly decisionReason: readonly string[];
+  readonly decidedAt: string | null;
+}
+
+export interface HistoricalWeaveMatchCandidate {
+  readonly rank: number;
+  readonly score: number;
+  readonly ashbyCandidateId: string;
+  readonly ashbyApplicationId: string;
+  readonly ashbyJobId: string | null;
+  readonly candidateEvaluationId: string | null;
+  readonly matchedEmail: string | null;
+  readonly dateDeltaDays: number | null;
+  readonly stageDeltaDays: number | null;
+  readonly stageTitles: readonly string[];
+  readonly applicationActiveOnMeetingDate: boolean;
+  readonly activeApplicationCount: number | null;
+  readonly reasons: readonly string[];
 }
 
 export interface HistoricalImportPlan {
@@ -102,13 +122,37 @@ export interface HistoricalImportSourceMetadata {
     readonly ingestionResultKey: string | null;
   };
   readonly ashby: {
-    readonly candidateId: string | null;
-    readonly applicationId: string | null;
-    readonly jobId: string | null;
-    readonly candidateEvaluationId: string | null;
+    readonly selected: HistoricalImportSelectedAshby | null;
+    readonly matchCandidates: readonly HistoricalImportAshbyMatchCandidate[];
   };
   readonly summary: unknown;
   readonly ingestion: unknown;
+}
+
+export interface HistoricalImportSelectedAshby {
+  readonly candidateId: string | null;
+  readonly applicationId: string;
+  readonly jobId: string | null;
+  readonly candidateEvaluationId: string | null;
+  readonly decisionSource: string | null;
+  readonly decisionReason: readonly string[];
+  readonly decidedAt: string | null;
+}
+
+export interface HistoricalImportAshbyMatchCandidate {
+  readonly rank: number;
+  readonly score: number;
+  readonly candidateId: string;
+  readonly applicationId: string;
+  readonly jobId: string | null;
+  readonly candidateEvaluationId: string | null;
+  readonly matchedEmail: string | null;
+  readonly dateDeltaDays: number | null;
+  readonly stageDeltaDays: number | null;
+  readonly stageTitles: readonly string[];
+  readonly applicationActiveOnMeetingDate: boolean;
+  readonly activeApplicationCount: number | null;
+  readonly reasons: readonly string[];
 }
 
 interface PlannedArtifactSource {
@@ -321,7 +365,7 @@ function sourceMetadata(input: HistoricalImportPlanInput): HistoricalImportSourc
       sourceBucket: input.sourceBucket,
       sourcePrefix: input.recording.prefix,
       targetBucket: input.targetBucket,
-      matchStatus: input.weaveMatch?.matchStatus ?? null,
+      matchStatus: input.weaveMatch ? input.weaveMatch.matchStatus : "unindexed",
       audioKey: input.recording.audioKey,
       videoKey: input.recording.videoKey,
       transcriptKey: input.recording.transcriptKey,
@@ -330,14 +374,47 @@ function sourceMetadata(input: HistoricalImportPlanInput): HistoricalImportSourc
       ingestionResultKey: input.recording.ingestionResultKey,
     },
     ashby: {
-      candidateId: input.weaveMatch?.ashbyCandidateId ?? null,
-      applicationId: input.weaveMatch?.ashbyApplicationId ?? null,
-      jobId: input.weaveMatch?.ashbyJobId ?? null,
-      candidateEvaluationId: input.weaveMatch?.candidateEvaluationId ?? null,
+      selected: selectedAshby(input.weaveMatch),
+      matchCandidates: input.weaveMatch ? ashbyMatchCandidates(input.weaveMatchCandidates) : [],
     },
     summary: input.summary,
     ingestion: input.ingestionResult,
   };
+}
+
+function selectedAshby(match: HistoricalWeaveMatch | null): HistoricalImportSelectedAshby | null {
+  if (!match?.ashbyApplicationId) return null;
+  return {
+    candidateId: match.ashbyCandidateId,
+    applicationId: match.ashbyApplicationId,
+    jobId: match.ashbyJobId,
+    candidateEvaluationId: match.candidateEvaluationId,
+    decisionSource: match.decisionSource,
+    decisionReason: match.decisionReason,
+    decidedAt: match.decidedAt,
+  };
+}
+
+function ashbyMatchCandidates(
+  candidates: readonly HistoricalWeaveMatchCandidate[],
+): HistoricalImportAshbyMatchCandidate[] {
+  return [...candidates]
+    .sort((left, right) => left.rank - right.rank || right.score - left.score)
+    .map((candidate) => ({
+      rank: candidate.rank,
+      score: candidate.score,
+      candidateId: candidate.ashbyCandidateId,
+      applicationId: candidate.ashbyApplicationId,
+      jobId: candidate.ashbyJobId,
+      candidateEvaluationId: candidate.candidateEvaluationId,
+      matchedEmail: candidate.matchedEmail,
+      dateDeltaDays: candidate.dateDeltaDays,
+      stageDeltaDays: candidate.stageDeltaDays,
+      stageTitles: candidate.stageTitles,
+      applicationActiveOnMeetingDate: candidate.applicationActiveOnMeetingDate,
+      activeApplicationCount: candidate.activeApplicationCount,
+      reasons: candidate.reasons,
+    }));
 }
 
 function firstString(record: JsonRecord, keys: readonly string[]): string | null {
