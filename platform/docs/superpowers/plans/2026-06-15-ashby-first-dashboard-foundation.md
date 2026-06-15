@@ -218,12 +218,23 @@ export function AshbySetupOnlyScreen({
           />
         </header>
 
-        <AshbyOnboardingWizard state={state} canManageSetup={canManageSetup} />
+        {canManageSetup ? (
+          <AshbyOnboardingWizard state={state} canManageSetup={canManageSetup} />
+        ) : (
+          <SectionPanel title="Ashby setup is required" eyebrow="Workspace admin needed">
+            <p className="text-sm leading-6 text-slate-600">
+              Ask a workspace admin or owner to finish Ashby setup before this workspace can review candidates,
+              send interviews, or open imported recordings.
+            </p>
+          </SectionPanel>
+        )}
       </div>
     </main>
   );
 }
 ```
+
+Also import `SectionPanel` from `./dashboard-ui`. This keeps full `AshbyCompanyState` server-side for non-admin users because the client wizard is mounted only for setup managers.
 
 - [ ] **Step 3: Replace the root dashboard layout gate**
 
