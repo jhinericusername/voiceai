@@ -94,7 +94,10 @@ export async function executeHistoricalFirefliesImport(
   const sourceObjects = await listSourceObjects(input.sourceS3, input.sourceBucket, input.sourcePrefix);
   const sourceSizes = new Map(sourceObjects.map((object) => [object.key, object.size]));
   const recordings = applyRecordingFilters(
-    buildHistoricalFirefliesInventory(sourceObjects.map((object) => object.key)),
+    buildHistoricalFirefliesInventory(
+      sourceObjects.map((object) => object.key),
+      input.sourcePrefix,
+    ),
     input,
   );
   const plans: HistoricalImportPlan[] = [];
@@ -133,9 +136,8 @@ export async function executeHistoricalFirefliesImport(
     copyCount: counters.copyCount,
     skippedCopyCount: counters.skippedCopyCount,
     dbWriteCount: counters.dbWriteCount,
-    selectedMatches: plans.filter(
-      (plan) => plan.session.sourceMetadata.fireflies.matchStatus !== "unindexed",
-    ).length,
+    selectedMatches: plans.filter((plan) => plan.session.sourceMetadata.ashby.selected !== null)
+      .length,
     rankedMatchCandidates: plans.reduce(
       (count, plan) => count + plan.session.sourceMetadata.ashby.matchCandidates.length,
       0,
@@ -196,7 +198,7 @@ async function applyPlans(
       copiedPlans.push(plan);
     } catch (error) {
       failures.push({
-        transcriptId: plan.session.externalId,
+        transcriptId: plan.session.sourceMetadata.fireflies.transcriptId,
         message: errorMessage(error),
       });
     }
@@ -224,7 +226,7 @@ async function applyPlans(
       counters.importedCount += 1;
     } catch (error) {
       failures.push({
-        transcriptId: plan.session.externalId,
+        transcriptId: plan.session.sourceMetadata.fireflies.transcriptId,
         message: errorMessage(error),
       });
     }
@@ -249,10 +251,14 @@ async function writePlan(puddleDb: PuddleDb, plan: HistoricalImportPlan): Promis
     await client.query("BEGIN");
     const sessionStatement = historicalSessionUpsertStatement(plan.session);
     const sessionResult = await executeStatement(client, sessionStatement);
-    writeCount += 1;
 
-    const canonicalSessionId =
-      stringValue(sessionResult.rows[0]?.session_id) ?? plan.session.sessionId;
+    const canonicalSessionId = stringValue(sessionResult.rows[0]?.session_id);
+    if (!canonicalSessionId) {
+      throw new Error(
+        `Historical Fireflies session upsert returned no row for org ${plan.session.orgId}; possible cross-org source conflict`,
+      );
+    }
+    writeCount += 1;
 
     await executeStatement(client, {
       ...historicalRecordingUpsertStatement({
@@ -381,7 +387,8 @@ function applyRecordingFilters(
     }
     return true;
   });
-  return typeof input.limit === "number" ? filtered.slice(0, input.limit) : filtered;
+  const limited = typeof input.limit === "number" ? filtered.slice(0, input.limit) : filtered;
+  return typeof input.batchSize === "number" ? limited.slice(0, input.batchSize) : limited;
 }
 
 async function readOptionalJsonObject(

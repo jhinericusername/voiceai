@@ -17,6 +17,12 @@ const orgId = "org_01KV4FF7KX24B76H7Q57QVB5CT";
 const sourceBucket = "weave-fireflies-raw";
 const targetBucket = "puddle-artifacts";
 const sourcePrefix = "raw/fireflies/";
+const skipSourceOccurrenceId =
+  "52bd01073fbe14dddefab27c918f0243cf173dd95d15ba8c5e6703e1e1c51711";
+const audioOnlySourceOccurrenceId =
+  "17356c729945e37975d971d6436978744ed6dfb73dc86b6f56de7ccfe3525091";
+const laterSourceOccurrenceId =
+  "c2f73bd29f1ed52afd5b07f960a32686d656f2669b29d1045dcad89595a080f0";
 
 interface StoredObject {
   readonly key: string;
@@ -100,6 +106,7 @@ class FakePuddleDbClient implements PuddleDbClient {
   constructor(
     private readonly failOnTranscriptId: string | null = null,
     private readonly operationLog?: string[],
+    private readonly sessionRows: Record<string, unknown>[] | null = null,
   ) {}
 
   async query(sql: string, params?: readonly unknown[]) {
@@ -116,6 +123,9 @@ class FakePuddleDbClient implements PuddleDbClient {
       throw new Error(`recording write failed for ${this.failOnTranscriptId}`);
     }
     if (sql.includes("RETURNING session_id")) {
+      if (this.sessionRows) {
+        return { rows: this.sessionRows };
+      }
       return { rows: [{ session_id: params?.[0] }] };
     }
     return { rows: [] };
@@ -131,8 +141,9 @@ class FakePuddleDb implements PuddleDb {
   constructor(
     failOnTranscriptId: string | null = null,
     private readonly operationLog?: string[],
+    sessionRows: Record<string, unknown>[] | null = null,
   ) {
-    this.client = new FakePuddleDbClient(failOnTranscriptId, operationLog);
+    this.client = new FakePuddleDbClient(failOnTranscriptId, operationLog, sessionRows);
   }
 
   async query(sql: string, params?: readonly unknown[]) {
@@ -154,11 +165,15 @@ function bodyFromJson(value: unknown) {
   };
 }
 
-function recordingObjects(transcriptId: string, options: { video?: boolean; date?: string } = {}) {
+function recordingObjects(
+  transcriptId: string,
+  options: { video?: boolean; date?: string; sourcePrefix?: string } = {},
+) {
   const date = options.date ?? "2026-04-09";
   const [year, month, day] = date.split("-");
+  const objectPrefix = options.sourcePrefix ?? sourcePrefix;
   const prefix =
-    `raw/fireflies/owner=owner@example.com/year=${year}/month=${month}/day=${day}` +
+    `${objectPrefix}owner=owner@example.com/year=${year}/month=${month}/day=${day}` +
     `/transcript_id=${transcriptId}/`;
   const objects: StoredObject[] = [
     {
@@ -322,6 +337,52 @@ describe("Fireflies historical import executor", () => {
     expect(puddleDb.client.statements).toEqual([]);
   });
 
+  it("bounds planned recordings by batch size after inventory and date filters", async () => {
+    const result = await executeHistoricalFirefliesImport({
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client([
+        ...recordingObjects("01BATCH", { date: "2026-04-09" }),
+        ...recordingObjects("02BATCH", { date: "2026-04-10" }),
+        ...recordingObjects("03BATCH", { date: "2026-04-11" }),
+      ]),
+      targetS3: new FakeS3Client(),
+      weaveDb: new FakeWeaveDb({}),
+      sinceDate: "2026-04-10",
+      batchSize: 1,
+    });
+
+    expect(result.plannedCount).toBe(1);
+    expect(result.plans.map((plan) => plan.session.sourceMetadata.fireflies.transcriptId)).toEqual([
+      "02BATCH",
+    ]);
+  });
+
+  it("builds inventory from the configured source prefix", async () => {
+    const customSourcePrefix = "archive/fireflies/";
+
+    const result = await executeHistoricalFirefliesImport({
+      orgId,
+      sourceBucket,
+      sourcePrefix: customSourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client([
+        ...recordingObjects("01ARCHIVE", { sourcePrefix: customSourcePrefix }),
+        ...recordingObjects("02RAW"),
+      ]),
+      targetS3: new FakeS3Client(),
+      weaveDb: new FakeWeaveDb({}),
+    });
+
+    expect(result.plannedCount).toBe(1);
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.transcriptId).toBe("01ARCHIVE");
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.sourcePrefix).toBe(
+      "archive/fireflies/owner=owner@example.com/year=2026/month=04/day=09/transcript_id=01ARCHIVE/",
+    );
+  });
+
   it("apply mode copies source objects before writing database rows", async () => {
     const operationLog: string[] = [];
     const sourceS3 = new FakeS3Client(recordingObjects("01APPLY"));
@@ -357,10 +418,37 @@ describe("Fireflies historical import executor", () => {
     expect(puddleDb.queryLog.at(-1)?.sql).toContain("UPDATE historical_interview_import_runs SET");
   });
 
+  it("fails the database write when a guarded session upsert returns no row", async () => {
+    const targetS3 = new FakeS3Client();
+    const puddleDb = new FakePuddleDb(null, undefined, []);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client(recordingObjects("01ORGCONFLICT")),
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb,
+      importRunId: "run_org_conflict",
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.failedCount).toBe(1);
+    expect(result.failures[0]?.message).toContain("org");
+    expect(
+      puddleDb.client.statements.some((statement) =>
+        statement.sql.startsWith("INSERT INTO recordings"),
+      ),
+    ).toBe(false);
+    expect(puddleDb.client.transactionLog).toContain("ROLLBACK");
+  });
+
   it("skips copying an existing destination object when the target size matches the source size", async () => {
     const objects = recordingObjects("01SKIP");
-    const targetKey =
-      "org_01KV4FF7KX24B76H7Q57QVB5CT/interviews/hist_fireflies_01SKIP/media/candidate_audio.mp3";
+    const targetKey = `${orgId}/interviews/hist_fireflies_${skipSourceOccurrenceId}/media/candidate_audio.mp3`;
     const targetS3 = new FakeS3Client([], new Map([[targetKey, 101]]));
 
     const result = await executeHistoricalFirefliesImport({
@@ -398,8 +486,8 @@ describe("Fireflies historical import executor", () => {
       "transcript",
     ]);
     expect(result.plans[0]?.copies.map((copy) => copy.artifactId)).toEqual([
-      "hist_fireflies_01AUDIO_candidate_audio",
-      "hist_fireflies_01AUDIO_transcript",
+      `hist_fireflies_${audioOnlySourceOccurrenceId}_candidate_audio`,
+      `hist_fireflies_${audioOnlySourceOccurrenceId}_transcript`,
       null,
       null,
       null,
@@ -428,7 +516,8 @@ describe("Fireflies historical import executor", () => {
     expect(result.failedCount).toBe(1);
     expect(result.failures[0]?.transcriptId).toBe("01BROKEN");
     expect(result.failures[0]?.message).toContain("transcript");
-    expect(result.plans[0]?.session.externalId).toBe("02LATER");
+    expect(result.plans[0]?.session.externalId).toBe(laterSourceOccurrenceId);
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.transcriptId).toBe("02LATER");
   });
 
   it("keeps the selected Ashby application and ranked candidates from Weave in plan source metadata", async () => {
@@ -463,7 +552,7 @@ describe("Fireflies historical import executor", () => {
     ]);
   });
 
-  it("counts selected Weave matches even when Ashby application metadata is incomplete", async () => {
+  it("does not count selected Weave matches when Ashby application metadata is incomplete", async () => {
     const result = await executeHistoricalFirefliesImport({
       orgId,
       sourceBucket,
@@ -476,7 +565,7 @@ describe("Fireflies historical import executor", () => {
       }),
     });
 
-    expect(result.selectedMatches).toBe(1);
+    expect(result.selectedMatches).toBe(0);
     expect(result.unindexedRecordings).toBe(0);
     expect(result.plans[0]?.session.sourceMetadata.ashby.selected).toBeNull();
     expect(result.plans[0]?.session.sourceMetadata.fireflies.matchStatus).toBe("matched");

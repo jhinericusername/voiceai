@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { HistoricalFirefliesRecording } from "./historicalInventory.js";
 import { historicalTranscriptTurns } from "./historicalTranscript.js";
 import type { HistoricalTranscriptTurn } from "./historicalTranscript.js";
@@ -94,6 +95,7 @@ export interface HistoricalImportArtifactRow {
 
 export interface HistoricalImportTranscriptTurnRow extends HistoricalTranscriptTurn {
   readonly sessionId: string;
+  readonly occurredAt: string | null;
   readonly source: "fireflies";
 }
 
@@ -108,6 +110,7 @@ export interface HistoricalImportCopy {
 export interface HistoricalImportSourceMetadata {
   readonly fireflies: {
     readonly transcriptId: string;
+    readonly sourceOccurrenceId: string;
     readonly ownerEmail: string | null;
     readonly meetingDate: string | null;
     readonly sourceBucket: string;
@@ -171,7 +174,11 @@ interface PlannedSourceJsonCopy {
 export function buildHistoricalImportPlan(
   input: HistoricalImportPlanInput,
 ): HistoricalImportPlan {
-  const sessionId = `hist_fireflies_${input.recording.transcriptId}`;
+  const sourceOccurrenceId = historicalFirefliesSourceOccurrenceId(
+    input.sourceBucket,
+    input.recording.prefix,
+  );
+  const sessionId = `hist_fireflies_${sourceOccurrenceId}`;
   const root = `/${input.orgId}/interviews/${sessionId}/`;
   const metadata = asRecord(input.metadata);
   const transcript = asRecord(input.transcript);
@@ -194,19 +201,19 @@ export function buildHistoricalImportPlan(
       endedAt,
       roomName: `fireflies-${input.recording.transcriptId}`,
       externalSource: "fireflies",
-      externalId: input.recording.transcriptId,
+      externalId: sourceOccurrenceId,
       sourceMetadata: sourceMetadata(input),
     },
     recording: {
       sessionId,
-      egressId: `fireflies:${input.recording.transcriptId}`,
+      egressId: `fireflies:${sourceOccurrenceId}`,
       status: "complete",
       startedAt: meetingStartedAt,
       endedAt,
       errorMessage: null,
     },
     artifacts: artifacts.map((artifact) => ({
-      artifactId: artifactId(input.recording.transcriptId, artifact.kind),
+      artifactId: artifactId(sourceOccurrenceId, artifact.kind),
       sessionId,
       kind: artifact.kind,
       storagePath: artifact.storagePath,
@@ -218,6 +225,7 @@ export function buildHistoricalImportPlan(
     transcriptTurns: historicalTranscriptTurns(input.transcript).map((turn) => ({
       sessionId,
       ...turn,
+      occurredAt: occurredAtFromOffset(meetingStartedAt, turn.offsetMs),
       source: "fireflies",
     })),
     copies: [
@@ -226,7 +234,7 @@ export function buildHistoricalImportPlan(
         sourceKey: artifact.sourceKey,
         targetBucket: input.targetBucket,
         targetKey: storagePathToTargetKey(artifact.storagePath),
-        artifactId: artifactId(input.recording.transcriptId, artifact.kind),
+        artifactId: artifactId(sourceOccurrenceId, artifact.kind),
       })),
       ...sourceJsonCopies.map((copy): HistoricalImportCopy => ({
         sourceBucket: input.sourceBucket,
@@ -237,6 +245,13 @@ export function buildHistoricalImportPlan(
       })),
     ],
   };
+}
+
+export function historicalFirefliesSourceOccurrenceId(
+  sourceBucket: string,
+  recordingPrefix: string,
+): string {
+  return createHash("sha256").update(`${sourceBucket}/${recordingPrefix}`).digest("hex");
 }
 
 function plannedArtifactSources(
@@ -356,10 +371,22 @@ function endedAtFromDuration(startedAt: string | null, durationSeconds: number |
   return new Date(startMs + durationSeconds * 1000).toISOString();
 }
 
+function occurredAtFromOffset(startedAt: string | null, offsetMs: number | null): string | null {
+  if (!startedAt || offsetMs === null) return null;
+  const start = new Date(startedAt);
+  const startMs = start.getTime();
+  if (!Number.isFinite(startMs)) return null;
+  return new Date(startMs + offsetMs).toISOString();
+}
+
 function sourceMetadata(input: HistoricalImportPlanInput): HistoricalImportSourceMetadata {
   return {
     fireflies: {
       transcriptId: input.recording.transcriptId,
+      sourceOccurrenceId: historicalFirefliesSourceOccurrenceId(
+        input.sourceBucket,
+        input.recording.prefix,
+      ),
       ownerEmail: input.recording.ownerEmail,
       meetingDate: input.recording.meetingDate,
       sourceBucket: input.sourceBucket,

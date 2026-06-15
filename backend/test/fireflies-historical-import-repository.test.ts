@@ -16,6 +16,8 @@ function sourceMetadata() {
   return {
     fireflies: {
       transcriptId: "01ABC",
+      sourceOccurrenceId:
+        "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
       ownerEmail: "owner@example.com",
       meetingDate: "2026-04-09",
       sourceBucket: "weave-fireflies-raw",
@@ -136,6 +138,9 @@ describe("Fireflies historical import repository", () => {
     expect(parsed.ashby.matchCandidates[0].applicationId).toBe("app_123");
     expect(parsed.fireflies.sourceBucket).toBe("weave-fireflies-raw");
     expect(parsed.fireflies.sourcePrefix).toBe("raw/fireflies/transcript_id=01ABC/");
+    expect(parsed.fireflies.sourceOccurrenceId).toBe(
+      "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
+    );
   });
 
   it("upserts sessions by external source and id instead of email", () => {
@@ -160,6 +165,33 @@ describe("Fireflies historical import repository", () => {
     expect(sql).toContain("WHERE external_source IS NOT NULL AND external_id IS NOT NULL");
     expect(sql).not.toContain("ON CONFLICT (candidate_email)");
     expect(sql).not.toContain("ON CONFLICT (org_id, candidate_email)");
+  });
+
+  it("guards session conflict updates to the same org without updating org_id", () => {
+    const stmt = historicalSessionUpsertStatement({
+      sessionId: "hist_fireflies_01ABC",
+      orgId: "org_123",
+      candidateEmail: "candidate@example.com",
+      scriptVersion: "fireflies-historical-v1",
+      status: "review_ready",
+      scheduledAt: null,
+      roomName: "fireflies-01ABC",
+      startedAt: null,
+      endedAt: null,
+      externalSource: "fireflies",
+      externalId: "01ABC",
+      sourceMetadata: sourceMetadata(),
+    });
+
+    const sql = compactSql(stmt.sql);
+    const updateClause = sql.slice(
+      sql.indexOf("DO UPDATE SET"),
+      sql.indexOf(" WHERE sessions.org_id"),
+    );
+
+    expect(updateClause).not.toContain("org_id = EXCLUDED.org_id");
+    expect(sql).toContain("DO UPDATE SET");
+    expect(sql).toContain("WHERE sessions.org_id = EXCLUDED.org_id RETURNING session_id");
   });
 
   it("upserts historical recordings by session", () => {
@@ -228,6 +260,7 @@ describe("Fireflies historical import repository", () => {
       speaker: "candidate",
       questionId: null,
       text: "I build developer tools.",
+      occurredAt: "2026-04-09T15:30:08.250Z",
       offsetMs: 8250,
       source: "fireflies",
     });
@@ -246,7 +279,7 @@ describe("Fireflies historical import repository", () => {
       "candidate",
       null,
       "I build developer tools.",
-      null,
+      "2026-04-09T15:30:08.250Z",
       8250,
       "fireflies",
     ]);

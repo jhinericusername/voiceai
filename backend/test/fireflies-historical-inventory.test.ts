@@ -48,6 +48,29 @@ describe("Fireflies historical S3 inventory", () => {
     expect(inventory[0]?.transcriptKey).toContain("transcript.json");
   });
 
+  it("uses a configured source prefix when grouping Fireflies recording folders", () => {
+    const inventory = buildHistoricalFirefliesInventory(
+      [
+        "archive/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/audio.mp3",
+        "archive/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/transcript.json",
+        "raw/fireflies/owner=other@workweave.ai/year=2026/month=04/day=09/transcript_id=02DEF/audio.mp3",
+      ],
+      "archive/fireflies/",
+    );
+
+    expect(inventory).toHaveLength(1);
+    expect(inventory[0]).toMatchObject({
+      transcriptId: "01ABC",
+      prefix:
+        "archive/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/",
+      audioKey:
+        "archive/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/audio.mp3",
+      transcriptKey:
+        "archive/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/transcript.json",
+      objectCount: 2,
+    });
+  });
+
   it("detects recording folders that are missing video", () => {
     const inventory = buildHistoricalFirefliesInventory([
       "raw/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/audio.mp3",

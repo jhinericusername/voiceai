@@ -12,7 +12,7 @@ export interface HistoricalFirefliesRecording {
   readonly objectCount: number;
 }
 
-const historicalFirefliesKeyPattern = /^(raw\/fireflies\/(?:[^/]+\/)*transcript_id=([^/]+)\/)(.+)$/;
+const defaultHistoricalFirefliesSourcePrefix = "raw/fireflies/";
 
 function parseHistoricalFirefliesKeyParts(key: string): {
   readonly ownerEmail: string | null;
@@ -21,7 +21,20 @@ function parseHistoricalFirefliesKeyParts(key: string): {
   readonly fileName: string | null;
   readonly prefix: string | null;
 } {
-  const keyMatch = key.match(historicalFirefliesKeyPattern);
+  return parseHistoricalFirefliesKeyPartsForPrefix(key, defaultHistoricalFirefliesSourcePrefix);
+}
+
+function parseHistoricalFirefliesKeyPartsForPrefix(
+  key: string,
+  sourcePrefix: string,
+): {
+  readonly ownerEmail: string | null;
+  readonly meetingDate: string | null;
+  readonly transcriptId: string | null;
+  readonly fileName: string | null;
+  readonly prefix: string | null;
+} {
+  const keyMatch = key.match(historicalFirefliesKeyPattern(sourcePrefix));
   const prefix = keyMatch?.[1];
   const transcriptId = keyMatch?.[2];
   const relativePath = keyMatch?.[3];
@@ -68,11 +81,12 @@ export function parseHistoricalFirefliesKey(key: string): {
 
 export function buildHistoricalFirefliesInventory(
   keys: readonly string[],
+  sourcePrefix = defaultHistoricalFirefliesSourcePrefix,
 ): HistoricalFirefliesRecording[] {
   const byPrefix = new Map<string, HistoricalFirefliesRecording>();
 
   for (const key of keys) {
-    const parsed = parseHistoricalFirefliesKeyParts(key);
+    const parsed = parseHistoricalFirefliesKeyPartsForPrefix(key, sourcePrefix);
     if (!parsed.transcriptId || !parsed.prefix) continue;
     const prefix = parsed.prefix;
     const existing = byPrefix.get(prefix) ?? {
@@ -103,4 +117,17 @@ export function buildHistoricalFirefliesInventory(
       left.transcriptId.localeCompare(right.transcriptId) ||
       left.prefix.localeCompare(right.prefix),
   );
+}
+
+function historicalFirefliesKeyPattern(sourcePrefix: string): RegExp {
+  const prefix = normalizeSourcePrefix(sourcePrefix);
+  return new RegExp(`^(${escapeRegExp(prefix)}(?:[^/]+/)*transcript_id=([^/]+)/)(.+)$`);
+}
+
+function normalizeSourcePrefix(sourcePrefix: string): string {
+  return sourcePrefix.endsWith("/") ? sourcePrefix : `${sourcePrefix}/`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
