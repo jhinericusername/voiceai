@@ -133,7 +133,9 @@ export async function executeHistoricalFirefliesImport(
     copyCount: counters.copyCount,
     skippedCopyCount: counters.skippedCopyCount,
     dbWriteCount: counters.dbWriteCount,
-    selectedMatches: plans.filter((plan) => plan.session.sourceMetadata.ashby.selected !== null).length,
+    selectedMatches: plans.filter(
+      (plan) => plan.session.sourceMetadata.fireflies.matchStatus !== "unindexed",
+    ).length,
     rankedMatchCandidates: plans.reduce(
       (count, plan) => count + plan.session.sourceMetadata.ashby.matchCandidates.length,
       0,
