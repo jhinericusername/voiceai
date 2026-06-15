@@ -375,7 +375,7 @@ function sourceMetadata(input: HistoricalImportPlanInput): HistoricalImportSourc
     },
     ashby: {
       selected: selectedAshby(input.weaveMatch),
-      matchCandidates: input.weaveMatch ? ashbyMatchCandidates(input.weaveMatchCandidates) : [],
+      matchCandidates: ashbyMatchCandidates(input.weaveMatchCandidates),
     },
     summary: input.summary,
     ingestion: input.ingestionResult,

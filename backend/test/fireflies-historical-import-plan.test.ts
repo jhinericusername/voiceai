@@ -412,12 +412,48 @@ describe("Fireflies historical import plan", () => {
     const plan = buildHistoricalImportPlan(
       planInput({
         weaveMatch: null,
+        weaveMatchCandidates: [],
       }),
     );
 
     expect(plan.session.sourceMetadata.fireflies.matchStatus).toBe("unindexed");
     expect(plan.session.sourceMetadata.ashby.selected).toBeNull();
     expect(plan.session.sourceMetadata.ashby.matchCandidates).toEqual([]);
+  });
+
+  it("preserves ranked Ashby candidates when there is no selected Weave match", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        weaveMatch: null,
+      }),
+    );
+
+    expect(plan.session.sourceMetadata.fireflies.matchStatus).toBe("unindexed");
+    expect(plan.session.sourceMetadata.ashby.selected).toBeNull();
+    expect(
+      plan.session.sourceMetadata.ashby.matchCandidates.map((candidate) => [
+        candidate.rank,
+        candidate.score,
+        candidate.applicationId,
+      ]),
+    ).toEqual([
+      [1, 96, "app_123"],
+      [1, 92, "app_low_score"],
+      [2, 96, "app_999"],
+    ]);
+    expect(plan.session.sourceMetadata.ashby.matchCandidates[0]).toMatchObject({
+      rank: 1,
+      score: 96,
+      candidateId: "cand_123",
+      applicationId: "app_123",
+      jobId: "job_123",
+      candidateEvaluationId: "eval_123",
+      matchedEmail: "candidate@example.com",
+      stageTitles: ["Technical Interview", "Final"],
+      applicationActiveOnMeetingDate: true,
+      activeApplicationCount: 1,
+      reasons: ["email match", "meeting date aligned"],
+    });
   });
 
   it("does not select Ashby metadata when the Weave match has no application id", () => {
