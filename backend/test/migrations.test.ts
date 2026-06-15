@@ -105,6 +105,22 @@ describe("database migrations", () => {
     expect(migration).not.toContain("CREATE UNIQUE INDEX");
   });
 
+  it("adds source metadata for historical interview imports after Ashby org tenanting", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const orgTenantingIndex = files.indexOf("010_ashby_org_tenanting.sql");
+    const historicalSourcesIndex = files.indexOf("011_historical_interview_sources.sql");
+
+    expect(orgTenantingIndex).toBeGreaterThanOrEqual(0);
+    expect(historicalSourcesIndex).toBeGreaterThan(orgTenantingIndex);
+
+    const migration = readFileSync(join(migrationsDir, "011_historical_interview_sources.sql"), "utf-8");
+    expect(migration).toContain("ALTER TABLE sessions");
+    expect(migration).toContain("external_source");
+    expect(migration).toContain("external_id");
+    expect(migration).toContain("sessions_external_source_id_idx");
+    expect(migration).toContain("historical_interview_import_runs");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 
