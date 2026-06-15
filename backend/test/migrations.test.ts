@@ -121,6 +121,25 @@ describe("database migrations", () => {
     expect(migration).toContain("historical_interview_import_runs");
   });
 
+  it("adds company grading tables after historical interview source tracking", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const historicalIndex = files.indexOf("011_historical_interview_sources.sql");
+    const gradingIndex = files.indexOf("012_company_grading.sql");
+
+    expect(historicalIndex).toBeGreaterThanOrEqual(0);
+    expect(gradingIndex).toBeGreaterThan(historicalIndex);
+
+    const migration = readFileSync(join(migrationsDir, "012_company_grading.sql"), "utf-8");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS role_grading_profiles");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS role_rubric_versions");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS interview_recommendations");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS reviewer_feedback");
+    expect(migration).toContain("UNIQUE (organization_id, ashby_job_id)");
+    expect(migration).toContain("UNIQUE (session_id, rubric_version_id)");
+    expect(migration).toContain("recommendation IN ('advance', 'hold', 'pass')");
+    expect(migration).toContain("reviewer_decision IN ('advance', 'hold', 'pass', 'needs_more_review')");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 
