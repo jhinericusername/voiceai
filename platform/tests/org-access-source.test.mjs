@@ -4,6 +4,7 @@ import test from "node:test";
 
 const orgAccess = await import(new URL("../lib/auth/org-access.mjs", import.meta.url));
 const dashboardAuthSource = await readFile(new URL("../app/dashboard/auth.ts", import.meta.url), "utf8");
+const dashboardLayoutSource = await readFile(new URL("../app/dashboard/layout.tsx", import.meta.url), "utf8");
 const notAuthorizedSource = await readFile(new URL("../app/not-authorized/page.tsx", import.meta.url), "utf8");
 const ashbyAdminSource = await readFile(
   new URL("../lib/auth/ashby-onboarding-admin.ts", import.meta.url),
@@ -98,6 +99,14 @@ test("dashboard auth is org-based, not allowed-domain based", () => {
 
   assert.match(notAuthorizedSource, /You need an invitation/);
   assert.match(notAuthorizedSource, /searchParams/);
+});
+
+test("dashboard layout does not block interview detail routes behind Ashby onboarding", () => {
+  assert.match(dashboardLayoutSource, /requireDashboardUser/);
+  assert.match(dashboardLayoutSource, /DashboardChrome/);
+  assert.doesNotMatch(dashboardLayoutSource, /AshbyOnboardingWizard/);
+  assert.doesNotMatch(dashboardLayoutSource, /getAshbyCompanyState/);
+  assert.doesNotMatch(dashboardLayoutSource, /if\s*\(!onboardingComplete\)/);
 });
 
 test("backend tenant identity requires WorkOS organizationId", () => {

@@ -376,26 +376,19 @@ test("Ashby webhook proxy sanitizes rejected backend responses", () => {
   assert.doesNotMatch(webhookRoute, /details/);
 });
 
-test("dashboard layout gates the entire dashboard subtree until Ashby onboarding is complete", () => {
-  assert.match(dashboardLayoutSource, /companyIdentityFromUser/);
-  assert.match(dashboardLayoutSource, /getAshbyCompanyState/);
-  assert.match(dashboardLayoutSource, /state\.setupStatus === "connected" && state\.connected && Boolean\(state\.lastSyncAt\)/);
-  assert.match(dashboardLayoutSource, /canManageAshbyOnboarding/);
-  assert.match(dashboardLayoutSource, /AshbyOnboardingWizard/);
-  assert.match(dashboardLayoutSource, /if \(!onboardingComplete\)/);
-  assert.match(dashboardLayoutSource, /canManageSetup=\{canManageSetup\}/);
+test("dashboard layout does not gate the entire dashboard subtree behind Ashby onboarding", () => {
+  assert.match(dashboardLayoutSource, /requireDashboardUser/);
+  assert.match(dashboardLayoutSource, /DashboardChrome/);
+  assert.doesNotMatch(dashboardLayoutSource, /companyIdentityFromUser/);
+  assert.doesNotMatch(dashboardLayoutSource, /getAshbyCompanyState/);
+  assert.doesNotMatch(dashboardLayoutSource, /AshbyOnboardingWizard/);
+  assert.doesNotMatch(dashboardLayoutSource, /if \(!onboardingComplete\)/);
 
-  const incompleteGateIndex = dashboardLayoutSource.indexOf("if (!onboardingComplete)");
-  const wizardIndex = dashboardLayoutSource.indexOf("<AshbyOnboardingWizard");
   const dashboardChromeIndex = dashboardLayoutSource.indexOf("<DashboardChrome");
   const childRenderIndex = dashboardLayoutSource.indexOf("{children}", dashboardChromeIndex);
 
-  assert.notEqual(incompleteGateIndex, -1);
-  assert.notEqual(wizardIndex, -1);
   assert.notEqual(dashboardChromeIndex, -1);
   assert.notEqual(childRenderIndex, -1);
-  assert.ok(incompleteGateIndex < wizardIndex);
-  assert.ok(wizardIndex < dashboardChromeIndex);
   assert.ok(dashboardChromeIndex < childRenderIndex);
 });
 
