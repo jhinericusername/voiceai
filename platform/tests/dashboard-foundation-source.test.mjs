@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function source(relativePath) {
   return readFile(new URL(relativePath, import.meta.url), "utf8");
+}
+
+async function pathExists(relativePath) {
+  try {
+    await access(new URL(relativePath, import.meta.url));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const layoutSource = await source("../app/dashboard/layout.tsx");
@@ -73,6 +82,11 @@ test("top-level operational pages do not import demo dashboard data", () => {
     );
     assert.doesNotMatch(pageSource, /dashboardDemoFallbackEnabled/, `${name} page should not enable demo fallback`);
   }
+});
+
+test("legacy dashboard demo data files are removed", async () => {
+  assert.equal(await pathExists("../app/dashboard/demo-data.ts"), false);
+  assert.equal(await pathExists("../app/dashboard/DashboardSections.tsx"), false);
 });
 
 test("nested role workspace routes do not expose demo dashboard data", () => {
