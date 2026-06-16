@@ -24,17 +24,18 @@ describe("grading scoring", () => {
     const prompt = buildScoringPrompt({ rubric, transcriptTurns });
 
     expect(prompt).toContain("Return strict JSON only");
+    expect(prompt).toContain("Do not infer job fit, ability, or score from protected characteristics");
+    expect(prompt).toContain("Do not score protected-class evidence or proxies");
     expect(prompt).toContain("Problem Solving");
     expect(prompt).toContain("CANDIDATE: I built a migration");
   });
 
-  it("parses valid scorer output", () => {
+  it("parses valid scorer output without confidence", () => {
     const parsed = parseScoringOutput(JSON.stringify({
       category_scores: [
         {
           category: "problem_solving",
           score: 4,
-          confidence: 0.91,
           evidence_quotes: ["cut runtime by 90%"],
           rationale: "Specific high-impact migration.",
         },
@@ -47,10 +48,12 @@ describe("grading scoring", () => {
   });
 
   it("scores a transcript through an injected model", async () => {
-    const result = await scoreTranscript({
-      rubric,
-      transcriptTurns,
-      model: {
+    const result = await scoreTranscript(
+      {
+        rubric,
+        transcriptTurns,
+      },
+      {
         complete: async () => JSON.stringify({
           category_scores: [
             {
@@ -64,7 +67,7 @@ describe("grading scoring", () => {
           warnings: [],
         }),
       },
-    });
+    );
 
     expect(result.categoryScores).toHaveLength(1);
     expect(result.warnings).toEqual([]);

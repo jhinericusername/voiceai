@@ -11,13 +11,12 @@ export interface TranscriptTurnLike {
 export interface ScoringInput {
   readonly rubric: unknown;
   readonly transcriptTurns: readonly TranscriptTurnLike[];
-  readonly model: GradingModel;
 }
 
 export interface ParsedCategoryScore {
   readonly category: string;
   readonly score: number;
-  readonly confidence: number;
+  readonly confidence?: number;
   readonly evidenceQuotes: readonly string[];
   readonly rationale: string;
 }
@@ -27,14 +26,12 @@ export interface ParsedScoringOutput {
   readonly warnings: readonly string[];
 }
 
-export function buildScoringPrompt(input: {
-  readonly rubric: unknown;
-  readonly transcriptTurns: readonly TranscriptTurnLike[];
-}): string {
+export function buildScoringPrompt(input: ScoringInput): string {
   return [
     "You are Puddle's rubric scorer for a structured hiring interview.",
     "Score only job-related answer content against the provided rubric.",
-    "Do not score appearance, voice quality, accent, emotion, facial expression, age, race, gender, disability, or protected-class proxies.",
+    "Do not infer job fit, ability, or score from protected characteristics.",
+    "Do not score protected-class evidence or proxies, including appearance, voice quality, accent, emotion, facial expression, age, race, gender, or disability.",
     "Return strict JSON only with keys category_scores and warnings.",
     "",
     "RUBRIC_JSON:",
@@ -65,13 +62,13 @@ export function parseScoringOutput(text: string): ParsedScoringOutput {
       ? score.evidence_quotes.filter((quote): quote is string => typeof quote === "string")
       : [];
     const rationale = stringValue(score.rationale) ?? "";
-    if (!category || numericScore === null || confidence === null) {
-      throw new Error("Each category score must include category, score, and confidence.");
+    if (!category || numericScore === null) {
+      throw new Error("Each category score must include category and score.");
     }
     return {
       category,
       score: numericScore,
-      confidence,
+      ...(confidence === null ? {} : { confidence }),
       evidenceQuotes,
       rationale,
     };
@@ -85,9 +82,9 @@ export function parseScoringOutput(text: string): ParsedScoringOutput {
   };
 }
 
-export async function scoreTranscript(input: ScoringInput): Promise<ParsedScoringOutput> {
+export async function scoreTranscript(input: ScoringInput, model: GradingModel): Promise<ParsedScoringOutput> {
   const prompt = buildScoringPrompt(input);
-  return parseScoringOutput(await input.model.complete(prompt));
+  return parseScoringOutput(await model.complete(prompt));
 }
 
 function extractJson(text: string): string {
