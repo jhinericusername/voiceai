@@ -2,15 +2,15 @@
 
 import type { ReactNode } from "react";
 import {
-  BarChart3,
-  Briefcase,
-  ClipboardCheck,
-  Search,
-  Settings,
-  Users,
-  Video,
-  type LucideIcon,
-} from "lucide-react";
+  BarChartIcon,
+  BriefcaseIcon,
+  ClipboardCheckIcon,
+  SearchIcon,
+  SettingsIcon,
+  UsersIcon,
+  VideoIcon,
+  type DashboardIcon,
+} from "./dashboard-icons";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -25,15 +25,15 @@ interface DashboardChromeProps {
 const navItems: ReadonlyArray<{
   readonly href: string;
   readonly label: string;
-  readonly icon: LucideIcon;
+  readonly icon: DashboardIcon;
   readonly match: "roles" | "candidates" | "review" | "recordings" | "analytics" | "settings";
 }> = [
-  { href: "/dashboard/roles", label: "Roles", icon: Briefcase, match: "roles" },
-  { href: "/dashboard/candidates", label: "Candidates", icon: Users, match: "candidates" },
-  { href: "/dashboard/review-queue", label: "Review Queue", icon: ClipboardCheck, match: "review" },
-  { href: "/dashboard/recordings", label: "Recordings", icon: Video, match: "recordings" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, match: "analytics" },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings, match: "settings" },
+  { href: "/dashboard/roles", label: "Roles", icon: BriefcaseIcon, match: "roles" },
+  { href: "/dashboard/candidates", label: "Candidates", icon: UsersIcon, match: "candidates" },
+  { href: "/dashboard/review-queue", label: "Review Queue", icon: ClipboardCheckIcon, match: "review" },
+  { href: "/dashboard/recordings", label: "Recordings", icon: VideoIcon, match: "recordings" },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChartIcon, match: "analytics" },
+  { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon, match: "settings" },
 ] as const;
 
 function navIsActive(pathname: string, match: (typeof navItems)[number]["match"]): boolean {
@@ -56,7 +56,7 @@ function SearchAffordance() {
       className="flex min-h-9 w-full max-w-md items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
     >
       <span className="inline-flex min-w-0 items-center gap-2 truncate">
-        <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <SearchIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="truncate">Search candidates or applications</span>
       </span>
       <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ClipboardCheck, Send, Users, Video } from "lucide-react";
+import { ArrowRightIcon, ClipboardCheckIcon, SendIcon, UsersIcon, VideoIcon } from "./dashboard-icons";
 import { EmptyState, formatDateTime, SectionPanel, StatusPill, secondaryButtonClass } from "./dashboard-ui";
 
 export function SetupProgressSummary({
@@ -45,18 +45,18 @@ export function RolesPipelineFoundation({
   const states = [
     {
       title: "Send interviews",
-      icon: Send,
+      icon: SendIcon,
       detail: "Applications from configured Ashby stages will appear here for bulk or single-candidate sending.",
     },
     {
       title: "Scheduled",
-      icon: Video,
+      icon: VideoIcon,
       detail:
         "Puddle marks interviews as sent or scheduled immediately. Calendar booking support should replace immediate scheduling when Cal integration ships.",
     },
     {
       title: "Needs review",
-      icon: ClipboardCheck,
+      icon: ClipboardCheckIcon,
       detail: "Completed interviews are reviewed inside the role they belong to so the rubric stays job-specific.",
     },
   ] as const;
@@ -115,7 +115,7 @@ export function CandidateApplicationsFoundation({
         </div>
         <Link href="/dashboard/roles" className={secondaryButtonClass}>
           View roles
-          <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+          <ArrowRightIcon className="ml-2 h-4 w-4" aria-hidden="true" />
         </Link>
       </div>
     </SectionPanel>
@@ -163,7 +163,7 @@ export function OperationalPlaceholderPage({
   return (
     <SectionPanel title={title} eyebrow="Puddle">
       <div className="flex min-w-0 items-start gap-3">
-        <Users className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" aria-hidden="true" />
+        <UsersIcon className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" aria-hidden="true" />
         <p className="text-sm leading-6 text-slate-600">{detail}</p>
       </div>
     </SectionPanel>
