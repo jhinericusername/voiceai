@@ -263,6 +263,44 @@ describe("Fireflies live ingestion worker", () => {
     expect(message).not.toContain("secret answer");
   });
 
+  it("does not delete SQS messages when the import executor returns failures", async () => {
+    const sqs = new FakeSqsClient();
+    let failureMessage = "";
+
+    try {
+      await processFirefliesLiveIngestionMessage({
+        message: message([`${recordingPrefix}transcript.json`]),
+        queueUrl,
+        sourceBucket,
+        sourceRootPrefix,
+        targetBucket,
+        orgId,
+        sourceS3: new FakeS3Client(completeObjects()),
+        targetS3: new FakeS3Client([]),
+        sqs,
+        weaveDb: new FakeWeaveDb(),
+        puddleDb: new FakePuddleDb(),
+        execute: async (input) => ({
+          ...minimalResult(input),
+          importedCount: 0,
+          failedCount: 1,
+          failures: [
+            {
+              transcriptId: "01LIVE",
+              message: "copy failed after transcript text: secret answer",
+            },
+          ],
+        }),
+      });
+    } catch (error) {
+      failureMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(failureMessage).toContain("copy failed after transcript text");
+    expect(failureMessage).not.toContain("secret answer");
+    expect(commandNames(sqs)).not.toContain("DeleteMessageCommand");
+  });
+
   async function processFirefliesLiveInestionMessageWithSensitiveFailure() {
     return processFirefliesLiveIngestionMessage({
         message: message([`${recordingPrefix}transcript.json`]),
