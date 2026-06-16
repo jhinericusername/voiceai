@@ -94,7 +94,9 @@ export function recommendationUpsertStatement(input: RecommendationInput): SqlSt
       "evidence = EXCLUDED.evidence, " +
       "warnings = EXCLUDED.warnings, " +
       "model_metadata = EXCLUDED.model_metadata, " +
-      "created_at = now() " +
+      "updated_at = now() " +
+      "WHERE interview_recommendations.organization_id = EXCLUDED.organization_id " +
+      "AND interview_recommendations.ashby_job_id = EXCLUDED.ashby_job_id " +
       "RETURNING *",
     params: [
       input.recommendationId,

@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS interview_recommendations (
   warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
   model_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (session_id, rubric_version_id),
   UNIQUE (recommendation_id, session_id, organization_id),
   FOREIGN KEY (session_id, organization_id)

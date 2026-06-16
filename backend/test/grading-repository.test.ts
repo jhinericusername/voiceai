@@ -86,7 +86,12 @@ describe("grading repository", () => {
 
     expect(stmt.sql).toContain("INSERT INTO interview_recommendations");
     expect(stmt.sql).toContain("ON CONFLICT (session_id, rubric_version_id) DO UPDATE");
-    expect(stmt.sql).toContain("created_at = now()");
+    expect(stmt.sql).toContain("updated_at = now()");
+    expect(stmt.sql).toContain(
+      "WHERE interview_recommendations.organization_id = EXCLUDED.organization_id " +
+        "AND interview_recommendations.ashby_job_id = EXCLUDED.ashby_job_id",
+    );
+    expect(stmt.sql).not.toContain("created_at = now()");
     expect(stmt.params[7]).toBe(0.86);
   });
 

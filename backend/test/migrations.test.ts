@@ -150,6 +150,9 @@ describe("database migrations", () => {
     expect(migration).toContain("UNIQUE (session_id, rubric_version_id)");
     expect(migration).toContain("UNIQUE (recommendation_id, session_id, organization_id)");
     expect(migration).toContain("FOREIGN KEY (recommendation_id, session_id, organization_id)");
+    expect(migration).toMatch(
+      /CREATE TABLE IF NOT EXISTS interview_recommendations \([\s\S]*created_at TIMESTAMPTZ NOT NULL DEFAULT now\(\),[\s\S]*updated_at TIMESTAMPTZ NOT NULL DEFAULT now\(\),[\s\S]*UNIQUE \(session_id, rubric_version_id\)/,
+    );
     expect(migration).toContain("recommendation IN ('advance', 'hold', 'pass')");
     expect(migration).toContain("reviewer_decision IN ('advance', 'hold', 'pass', 'needs_more_review')");
   });
