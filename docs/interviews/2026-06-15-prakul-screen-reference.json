@@ -1,0 +1,102 @@
+{
+  "source": {
+    "recording": "Weave 15min Screen Q&A (8.2min).m4a",
+    "captured": "2026-06-15",
+    "duration_seconds": 498.07,
+    "channels": 1,
+    "speakers_detected": 1,
+    "note": "One-sided recording: interviewer (Prakul) audio only. No candidate voice or PII is present — the candidate's answers occur in the silent gaps. Transcribed with Deepgram nova-3 + diarization (raw output kept locally in gitignored artifacts/transcripts/). Includes a few re-takes and both the current and a newer/alternate question phrasing.",
+    "interviewer": "Prakul (Deepgram ASR also rendered the name as 'Rakul'), engineer at Weave"
+  },
+  "script_sections": [
+    {
+      "section": "greeting",
+      "t_start": 2.56,
+      "lines": [
+        "Hey. How are you?",
+        "Where are you calling in from today?",
+        "How's the weather over there?"
+      ]
+    },
+    {
+      "section": "intro",
+      "t_start": 24.41,
+      "lines": [
+        "Well, pleasure to meet you. My name is Prakul. I'm an engineer here at Weave, and I guess the purpose of this is to learn more about you, your technical background, stuff you do outside of work. And I guess with that being said, can you tell me a bit about yourself?"
+      ]
+    },
+    {
+      "section": "warmup",
+      "t_start": 42.41,
+      "lines": [
+        "And before we dive in, I have an intermediary question. What do you do for fun outside of work?"
+      ]
+    },
+    {
+      "section": "q_technical",
+      "t_start": 55.71,
+      "ask": "Well, I guess my first question is, can you tell me about the time you solved a technical problem with a clever, novel, or elegant solution?",
+      "probe": "Say I was a junior developer joining your team for the first time, and you have to explain the problem, the obvious solution — meaning the industry standard solution — and the clever, novel, or elegant way that you came up with the solution. How would you explain those three things?",
+      "acknowledgments": ["Awesome. Awesome.", "Okay. Cool.", "Got it. Got it. Got it."]
+    },
+    {
+      "section": "q_yc_hacking",
+      "t_start": 104.42,
+      "gate": "Have you ever applied to YC before as a founder?",
+      "framing": "I mean, the reason why I ask is because there is a question on the YC application that we like a lot, which is the same question I'd like to ask you, which is, can you tell me about the time you hacked a non-computer system to your advantage?",
+      "scaffolding_offer": "If you need an example, happy to share some.",
+      "examples": [
+        "Someone I met recently forged a signature on her visa application in order to get an extension.",
+        "Another person wanted to market their app to concert goers, so they rented a car, drove to every single concert venue in a 50 mile radius, snuck into the parking lots and put flyers on every single car. They broke rules, exploited loopholes, and essentially hacked their way into getting what they wanted."
+      ],
+      "reask": "So I ask you again, can you tell me about the time you hacked a non-computer system to your advantage?"
+    },
+    {
+      "section": "q_competitiveness",
+      "t_start": 179.50,
+      "ask": "Shifting gears a bit, can you tell me about an area of your life outside of work where you are extremely competitive?",
+      "probe": "Can you tell me about the most extreme instance of you competing? Like, what is the most extreme thing that you have done to win?",
+      "scaffolding": "It could be sports, video games — does not need to be work related. Could be in the past. Could be what you're currently doing. Anything works."
+    },
+    {
+      "section": "q_niche_expertise",
+      "t_start": 256.40,
+      "ask": "Can you tell me about a niche or obscure non-technical topic that nobody knows about, nobody cares about, but you are an expert in — meaning you're in the top 1% of knowledge about this space?"
+    },
+    {
+      "section": "logistics",
+      "t_start": 294.12,
+      "lead_in": "Awesome. Well, I have two logistical questions to wrap things up.",
+      "questions": [
+        "Number one, this role is five days a week in person in San Francisco. Is that okay?",
+        "And last question, would you require any sponsorship in order to work at Weave?"
+      ]
+    },
+    {
+      "section": "candidate_qa",
+      "t_start": 322.21,
+      "lines": ["Okay. Cool. Well, do you have any questions for me?"]
+    },
+    {
+      "section": "closer",
+      "t_start": 354.02,
+      "lines": [
+        "Well, after this, I'm going to go and chat with Adam and Andrew, the CEO and CTO. We'll get back to you by tomorrow morning.",
+        "Thank you so much. It was a pleasure getting to know you. Have a great day. Bye bye."
+      ]
+    },
+    {
+      "section": "weave_pitch",
+      "t_start": 410.16,
+      "lines": [
+        "Weave uses AI to understand and quantify the work software engineers do. We help engineering teams understand how much work they're getting done, how good it is, and how well they're using AI."
+      ]
+    }
+  ],
+  "alternate_phrasings": {
+    "note": "A later block (425–468s) delivers tighter, probe-forward variants of the same questions. Candidate for updating the rubric verbatims.",
+    "q_technical": "Can you tell me about a genuinely hard problem you worked on where the final solution was not obvious? Why was the problem hard? What was the obvious approach and why wasn't it good enough? How did you come up with that?",
+    "q_competitiveness": "Can you tell me about an area of your life where your competitiveness became so intense that it cost you something? What motivated you to be this competitive?",
+    "q_niche_expertise": "What's one topic that you are unusually knowledgeable about? Why did you learn so much about this? What did you do with this knowledge?"
+  }
+}
