@@ -91,6 +91,51 @@ Keep evaluation deterministic; use realtime only for *delivery/conversation*.
 - Interleave with the latency work already shipped — S2S would make most of it
   moot for its parts, but the scoring-off-the-path pattern still applies.
 
+## Converged design (2026-06-16): app-orchestrated realtime
+
+Target: a realtime/S2S model runs the spoken Q&A loop; a separate reasoning
+model scores from the transcript off-loop. Hard part = control + a set script
+for the realtime model. Resolution: **the model does not own the script — the
+app does.** This is exactly today's split (`InterviewStateMachine` + rubric =
+brain; voice layer = mouth/ears). We swap the cascaded voice I/O for a realtime
+model and keep the controller in charge of *what* gets asked.
+
+Control mechanisms (all standard on OpenAI Realtime / Gemini Live — verify
+exact behavior in the build session):
+
+1. **App-driven turns, not model memory.** Don't trust the model to remember a
+   6-question script across 15 min. Drive each turn from code: on candidate
+   end-of-turn, the controller issues the next response with per-turn
+   instructions ("You are on Q3 of 6. Ask exactly: '…'. Do not invent
+   questions."). The script lives in the rubric/state machine, re-grounded every
+   turn.
+2. **Tool calling as the control bus.** Give the model tools
+   (`advance_question`, `request_probe(category)`, `flag_off_script`). The model
+   signals intent; the app decides the actual next verbatim. Keeps the existing
+   probe/advance decision logic authoritative.
+3. **Input transcription → off-loop scorer.** Enable candidate-side
+   transcription so the rubric scorer reads turns asynchronously, never on the
+   speech path (the pattern we already shipped). Confirm the plugin surfaces
+   both input (candidate) and output (agent) transcripts.
+4. **Tier autonomy by stakes.** Graded questions: app-driven, verbatim,
+   re-grounded. Conversational glue (greeting, small talk, acks, "take your
+   time", barge-in handling): let the model run free within guardrails.
+5. **Verbatim-fidelity fork.** For legally-graded questions, "inject text +
+   trust the model to read it" risks minor paraphrase. Bulletproof alternative:
+   speak graded questions through a deterministic TTS (our Cartesia/Prakul
+   clone) and use the realtime model only for listening + conversational glue.
+   Pick per-question-class.
+6. **Guardrail monitor.** A cheap watcher on the output transcript for
+   off-script / protected-topic / commitment drift, able to interrupt/correct.
+
+Main risk: an app-driven turn loop reintroduces a control round-trip
+(end-of-turn → decide → respond), clawing back some latency we just removed —
+but far less than the cascade, since speech is native. The tiering dial
+(deterministic where it must be, model-driven where it's safe) is how you trade
+control vs naturalness. This preserves almost all current investment: rubric,
+state machine, scorer, probe logic, event-log artifacts all stay; only
+`LiveKitSessionVoiceAgent` (the I/O layer) is rewritten.
+
 ## Pointers
 
 - Current controller: `agent/src/agent/controller/interview.py`
