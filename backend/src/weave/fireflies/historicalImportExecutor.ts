@@ -44,6 +44,7 @@ export interface ExecuteHistoricalFirefliesImportInput {
   readonly orgId: string;
   readonly sourceBucket: string;
   readonly sourcePrefix: string;
+  readonly sourceRootPrefix?: string;
   readonly targetBucket: string;
   readonly sourceS3: S3LikeClient | S3Client;
   readonly targetS3: S3LikeClient | S3Client;
@@ -105,7 +106,7 @@ export async function executeHistoricalFirefliesImport(
   const recordings = applyRecordingFilters(
     buildHistoricalFirefliesInventory(
       sourceObjects.map((object) => object.key),
-      input.sourcePrefix,
+      input.sourceRootPrefix ?? input.sourcePrefix,
     ),
     input,
   );
