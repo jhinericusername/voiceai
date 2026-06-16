@@ -87,6 +87,9 @@ test("top-level operational pages do not import demo dashboard data", () => {
 test("legacy dashboard demo data files are removed", async () => {
   assert.equal(await pathExists("../app/dashboard/demo-data.ts"), false);
   assert.equal(await pathExists("../app/dashboard/DashboardSections.tsx"), false);
+  assert.equal(await pathExists("../app/dashboard/CreateInterviewCard.tsx"), false);
+  assert.equal(await pathExists("../app/dashboard/CreateTeamInvitationCard.tsx"), false);
+  assert.doesNotMatch(backendDataSource, /dashboardDemoFallbackEnabled/);
 });
 
 test("nested role workspace routes do not expose demo dashboard data", () => {
