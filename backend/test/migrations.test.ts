@@ -135,9 +135,11 @@ describe("database migrations", () => {
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS interview_recommendations");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS reviewer_feedback");
     expect(migration).toContain("UNIQUE (organization_id, ashby_job_id)");
+    expect(migration).toContain("UNIQUE (profile_id, organization_id, ashby_job_id)");
     expect(migration).toContain("role_grading_profiles_org_integration_idx");
     expect(migration).toContain("UNIQUE (rubric_version_id, profile_id)");
     expect(migration).toContain("UNIQUE (rubric_version_id, organization_id, ashby_job_id)");
+    expect(migration).toContain("FOREIGN KEY (profile_id, organization_id, ashby_job_id)");
     expect(migration).toContain("FOREIGN KEY (active_rubric_version_id, profile_id)");
     expect(migration).toContain("FOREIGN KEY (draft_rubric_version_id, profile_id)");
     expect(migration).toContain("FOREIGN KEY (rubric_version_id, organization_id, ashby_job_id)");

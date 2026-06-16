@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS role_grading_profiles (
   updated_by_email TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, ashby_job_id)
+  UNIQUE (organization_id, ashby_job_id),
+  UNIQUE (profile_id, organization_id, ashby_job_id)
 );
 
 CREATE INDEX IF NOT EXISTS role_grading_profiles_org_integration_idx
@@ -22,7 +23,7 @@ CREATE INDEX IF NOT EXISTS role_grading_profiles_org_integration_idx
 
 CREATE TABLE IF NOT EXISTS role_rubric_versions (
   rubric_version_id TEXT PRIMARY KEY,
-  profile_id TEXT NOT NULL REFERENCES role_grading_profiles(profile_id) ON DELETE CASCADE,
+  profile_id TEXT NOT NULL,
   organization_id TEXT NOT NULL,
   ashby_job_id TEXT NOT NULL,
   version INTEGER NOT NULL CHECK (version >= 1),
@@ -34,7 +35,10 @@ CREATE TABLE IF NOT EXISTS role_rubric_versions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (profile_id, version),
   UNIQUE (rubric_version_id, profile_id),
-  UNIQUE (rubric_version_id, organization_id, ashby_job_id)
+  UNIQUE (rubric_version_id, organization_id, ashby_job_id),
+  FOREIGN KEY (profile_id, organization_id, ashby_job_id)
+    REFERENCES role_grading_profiles(profile_id, organization_id, ashby_job_id)
+    ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS role_rubric_versions_profile_status_idx
