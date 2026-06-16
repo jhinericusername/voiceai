@@ -390,7 +390,7 @@ async function copyPlanObjects(
       );
     } catch (error) {
       if (!isCrossRegionVpcEndpointCopyError(error)) throw error;
-      await streamCopyObject(sourceS3, targetS3, copy);
+      await streamCopyObject(sourceS3, targetS3, copy, sourceSize);
     }
     counters.copyCount += 1;
   }
@@ -400,6 +400,7 @@ async function streamCopyObject(
   sourceS3: S3LikeClient | S3Client,
   targetS3: S3LikeClient | S3Client,
   copy: HistoricalImportPlan["copies"][number],
+  sourceSize: number | null,
 ): Promise<void> {
   const source = (await sourceS3.send(
     new GetObjectCommand({
@@ -415,6 +416,7 @@ async function streamCopyObject(
       Bucket: copy.targetBucket,
       Key: copy.targetKey,
       Body: source.Body as PutObjectCommandInput["Body"],
+      ...(sourceSize !== null ? { ContentLength: sourceSize } : {}),
     }),
   );
 }

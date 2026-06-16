@@ -533,6 +533,17 @@ describe("Fireflies historical import executor", () => {
     expect(result.copyCount).toBe(6);
     expect(commandNames(targetS3).filter((name) => name === "CopyObjectCommand")).toHaveLength(6);
     expect(commandNames(targetS3).filter((name) => name === "PutObjectCommand")).toHaveLength(6);
+    const putCommands = targetS3.commands.filter(
+      (command): command is PutObjectCommand => command instanceof PutObjectCommand,
+    );
+    expect(putCommands.map((command) => command.input.ContentLength)).toEqual([
+      404,
+      101,
+      303,
+      202,
+      57,
+      58,
+    ]);
     expect(commandNames(sourceS3).filter((name) => name === "GetObjectCommand").length).toBeGreaterThan(
       4,
     );
