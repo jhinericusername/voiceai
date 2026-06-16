@@ -275,6 +275,115 @@ describe("grading session recommendations", () => {
     }
   });
 
+  it("rejects missing organization id before querying session recommendations", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: {},
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "organizationId is required" });
+      expect(sqlCalls).toEqual([]);
+      expect(scoreTranscriptMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 404 when no session row exists", async () => {
+    routeState.sessionRows = [];
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: "session not found" });
+      expect(sqlCalls.some((sql) => sql.includes("FROM sessions s WHERE s.session_id"))).toBe(true);
+      expect(sqlCalls.some((sql) => sql.includes("FROM transcript_turns"))).toBe(false);
+      expect(scoreTranscriptMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 409 when an existing session is missing Ashby job id", async () => {
+    routeState.sessionRows = [
+      {
+        session_id: "sess_1",
+        org_id: "org_1",
+        external_source: "puddle_live",
+        source_metadata: {},
+        ashby_job_id: " ",
+      },
+    ];
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ error: "session is missing ashbyJobId" });
+      expect(sqlCalls.some((sql) => sql.includes("FROM transcript_turns"))).toBe(false);
+      expect(scoreTranscriptMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 409 when no active rubric exists", async () => {
+    routeState.rubricRows = [];
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ error: "active rubric is required" });
+      expect(sqlCalls.some((sql) => sql.includes("role_grading_profiles"))).toBe(true);
+      expect(sqlCalls.some((sql) => sql.includes("INSERT INTO interview_recommendations"))).toBe(false);
+      expect(scoreTranscriptMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 409 when recommendation upsert returns no row", async () => {
+    routeState.upsertRowCount = 0;
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ error: "recommendation could not be stored" });
+      expect(scoreTranscriptMock).toHaveBeenCalledOnce();
+      expect(sqlCalls.some((sql) => sql.includes("INSERT INTO interview_recommendations"))).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("selects historical Fireflies source when the session came from Fireflies", async () => {
     routeState.sessionRows = [
       {
@@ -339,6 +448,78 @@ describe("grading session recommendations", () => {
           rationale: "Specific high-impact migration.",
         },
       ]));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("backfill route defaults to limit 10 when omitted", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/backfill-historical",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1", ashbyJobId: "job_1" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const backfillCall = queryCalls.find((call) => call.sql.includes("SELECT s.session_id FROM sessions s"));
+      expect(backfillCall?.params).toEqual(["org_1", "job_1", 10]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("backfill route rejects negative limits", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/backfill-historical",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1", ashbyJobId: "job_1", limit: -1 },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "limit must be a finite non-negative integer" });
+      expect(sqlCalls).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("backfill route rejects non-integer limits", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/backfill-historical",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1", ashbyJobId: "job_1", limit: 1.5 },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "limit must be a finite non-negative integer" });
+      expect(sqlCalls).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("backfill route accepts zero limit", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/backfill-historical",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1", ashbyJobId: "job_1", limit: 0 },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const backfillCall = queryCalls.find((call) => call.sql.includes("SELECT s.session_id FROM sessions s"));
+      expect(backfillCall?.params).toEqual(["org_1", "job_1", 0]);
     } finally {
       await app.close();
     }

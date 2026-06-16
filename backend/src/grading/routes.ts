@@ -229,9 +229,12 @@ export function registerGradingRoutes(app: FastifyInstance): void {
     const sessionStmt = sessionForRecommendationStatement(request.params.sessionId, organizationId);
     const sessionResult = await getPool().query(sessionStmt.sql, [...sessionStmt.params]);
     const session = sessionResult.rows[0] as Record<string, unknown> | undefined;
-    const ashbyJobId = stringValue(session?.ashby_job_id);
-    if (!session || !ashbyJobId) {
+    if (!session) {
       return reply.code(404).send({ error: "session not found" });
+    }
+    const ashbyJobId = stringValue(session.ashby_job_id);
+    if (!ashbyJobId) {
+      return reply.code(409).send({ error: "session is missing ashbyJobId" });
     }
 
     const transcriptStmt = transcriptTurnsForSessionStatement(request.params.sessionId);

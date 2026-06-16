@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeRubricForJobStatement,
   gradingProfileActivateStatement,
   gradingProfileByIdForUpdateStatement,
   gradingProfileUpsertStatement,
   gradingProfilesForIntegrationStatement,
+  historicalBackfillSessionsStatement,
   nextRubricVersionStatement,
   recommendationUpsertStatement,
   reviewerFeedbackInsertStatement,
   rubricVersionApproveStatement,
   rubricVersionInsertStatement,
+  sessionForRecommendationStatement,
+  transcriptTurnsForSessionStatement,
 } from "../src/grading/repository.js";
 
 describe("grading repository", () => {
@@ -139,6 +143,46 @@ describe("grading repository", () => {
     );
     expect(stmt.sql).not.toContain("created_at = now()");
     expect(stmt.params[7]).toBe(0.86);
+  });
+
+  it("loads a scoped session for recommendation with Ashby job fallback metadata", () => {
+    const stmt = sessionForRecommendationStatement("sess_1", "org_1");
+
+    expect(stmt.sql).toContain("SELECT s.session_id, s.org_id, s.external_source, s.source_metadata");
+    expect(stmt.sql).toContain("COALESCE(s.source_metadata #>> '{ashby,selected,jobId}'");
+    expect(stmt.sql).toContain("s.source_metadata #>> '{ashby,selected,ashbyJobId}'");
+    expect(stmt.sql).toContain("FROM sessions s WHERE s.session_id = $1 AND s.org_id = $2 LIMIT 1");
+    expect(stmt.params).toEqual(["sess_1", "org_1"]);
+  });
+
+  it("loads ordered transcript turns for a session", () => {
+    const stmt = transcriptTurnsForSessionStatement("sess_1");
+
+    expect(stmt.sql).toContain("FROM transcript_turns");
+    expect(stmt.sql).toContain("WHERE session_id = $1");
+    expect(stmt.sql).toContain("ORDER BY turn_index ASC");
+    expect(stmt.params).toEqual(["sess_1"]);
+  });
+
+  it("loads active rubric for a scoped Ashby job", () => {
+    const stmt = activeRubricForJobStatement("org_1", "job_1");
+
+    expect(stmt.sql).toContain("FROM role_grading_profiles p");
+    expect(stmt.sql).toContain("JOIN role_rubric_versions r ON r.rubric_version_id = p.active_rubric_version_id");
+    expect(stmt.sql).toContain("p.organization_id = $1 AND p.ashby_job_id = $2");
+    expect(stmt.sql).toContain("p.status = 'recommendations_active'");
+    expect(stmt.params).toEqual(["org_1", "job_1"]);
+  });
+
+  it("selects historical Fireflies sessions missing recommendations", () => {
+    const stmt = historicalBackfillSessionsStatement("org_1", "job_1", 10);
+
+    expect(stmt.sql).toContain("SELECT s.session_id FROM sessions s");
+    expect(stmt.sql).toContain("LEFT JOIN interview_recommendations rec ON rec.session_id = s.session_id");
+    expect(stmt.sql).toContain("s.external_source = 'fireflies'");
+    expect(stmt.sql).toContain("rec.recommendation_id IS NULL");
+    expect(stmt.sql).toContain("ORDER BY s.started_at DESC NULLS LAST LIMIT $3");
+    expect(stmt.params).toEqual(["org_1", "job_1", 10]);
   });
 
   it("inserts reviewer feedback", () => {
