@@ -39,6 +39,15 @@ describe("grading evaluation CLI argument parsing", () => {
     });
   });
 
+  it("accepts a leading pnpm argument separator", () => {
+    expect(
+      parseEvaluationCliArgs(["--", "--organization-id", organizationId, "--dry-run"], {}),
+    ).toMatchObject({
+      organizationId,
+      dryRun: true,
+    });
+  });
+
   it("validates limit bounds", () => {
     expect(parseEvaluationCliArgs(["--organization-id", organizationId, "--limit", "1"], {})).toMatchObject({
       limit: 1,

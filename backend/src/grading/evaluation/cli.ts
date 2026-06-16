@@ -427,15 +427,16 @@ function parseFlags(argv: readonly string[]) {
   ]);
   const booleanFlags = new Set(["dry-run", "include-transcript-output"]);
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
+  const args = argv[0] === "--" ? argv.slice(1) : argv;
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
     if (!token?.startsWith("--")) {
       throw new Error(`Unexpected argument: ${token ?? ""}`);
     }
 
     const name = token.slice(2);
     if (valueFlags.has(name)) {
-      const value = argv[index + 1];
+      const value = args[index + 1];
       if (!value || value.startsWith("--")) {
         throw new Error(`${token} requires a value`);
       }
