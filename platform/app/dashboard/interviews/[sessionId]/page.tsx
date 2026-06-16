@@ -105,7 +105,7 @@ function RealInterviewDetailView({
         />
       </section>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
         <main className="grid min-w-0 gap-5">
           <SectionPanel
             title="Video and audio review"
@@ -119,43 +119,21 @@ function RealInterviewDetailView({
           >
             {realInterview.compositeVideoUrl ? (
               <video className="aspect-video w-full rounded-md bg-slate-950" controls src={realInterview.compositeVideoUrl} />
+            ) : realInterview.candidateAudioUrl ? (
+              <div className="grid min-h-56 place-items-center rounded-md bg-slate-950 px-4 py-8">
+                <div className="w-full max-w-xl">
+                  <div className="mb-4 text-center text-sm font-semibold text-white">Audio recording</div>
+                  <audio className="w-full" controls src={realInterview.candidateAudioUrl} />
+                </div>
+              </div>
             ) : (
               <EmptyState title="Playable media unavailable" detail="The interview packet has no available playback URL yet." />
             )}
           </SectionPanel>
 
-          <SectionPanel title="Transcript" eyebrow="Evidence">
-            {transcriptTurns.length ? (
-              <div className="grid gap-3">
-                {transcriptTurns.map((turn) => (
-                  <article
-                    key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`}
-                    className={cx(
-                      "rounded-md border px-3 py-3",
-                      turn.speaker === "candidate" ? "border-cyan-200 bg-cyan-50/40" : "border-slate-200 bg-slate-50",
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-slate-500">
-                        {formatOffset(turn.offsetMs) ?? formatDateTime(turn.occurredAt)}
-                      </span>
-                      <StatusPill status={formatSpeaker(turn.speaker)} />
-                    </div>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{turn.text}</p>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <EmptyState title="Transcript unavailable" detail="Transcript turns appear here after recording finalization and post-processing complete." />
-            )}
-          </SectionPanel>
-        </main>
-
-        <aside className="grid min-w-0 gap-5 xl:content-start">
           <SectionPanel title="Review packet" eyebrow="Summary">
-            <dl className="grid gap-3">
+            <dl className="grid gap-3 sm:grid-cols-2">
               <PacketMetaRow label="Candidate" value={candidateLabel} />
-              <PacketMetaRow label="Room" value={realInterview.room_name ?? "No room attached"} />
               <PacketMetaRow label="Reviewer" value={realInterview.reviewer_email ?? "Unassigned"} />
               <PacketMetaRow label="Integrity" value={formatUnknownCollection(realInterview.integrity_flags, "flags")} />
               {isHistoricalFireflies ? <PacketMetaRow label="Source" value="Fireflies historical import" /> : null}
@@ -182,6 +160,34 @@ function RealInterviewDetailView({
               </div>
             ) : (
               <EmptyState title="Artifacts not created yet" detail="Recording and transcript artifacts appear here as the session moves through the lifecycle." />
+            )}
+          </SectionPanel>
+        </main>
+
+        <aside aria-label="Transcript" className="grid min-w-0 gap-5 xl:content-start">
+          <SectionPanel title="Transcript" eyebrow="Evidence">
+            {transcriptTurns.length ? (
+              <div className="grid gap-3 xl:max-h-[calc(100svh-12rem)] xl:overflow-y-auto xl:pr-1">
+                {transcriptTurns.map((turn) => (
+                  <article
+                    key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`}
+                    className={cx(
+                      "rounded-md border px-3 py-3",
+                      turn.speaker === "candidate" ? "border-cyan-200 bg-cyan-50/40" : "border-slate-200 bg-slate-50",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-semibold text-slate-500">
+                        {formatOffset(turn.offsetMs) ?? formatDateTime(turn.occurredAt)}
+                      </span>
+                      <StatusPill status={formatSpeaker(turn.speaker)} />
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{turn.text}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Transcript unavailable" detail="Transcript turns appear here after recording finalization and post-processing complete." />
             )}
           </SectionPanel>
         </aside>

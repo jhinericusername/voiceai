@@ -57,6 +57,7 @@ export interface RealInterviewDetail extends RealInterviewListItem {
     readonly offsetMs: number | null;
   }[];
   readonly compositeVideoUrl: string | null;
+  readonly candidateAudioUrl: string | null;
 }
 
 export async function getRealInterviews(input: {

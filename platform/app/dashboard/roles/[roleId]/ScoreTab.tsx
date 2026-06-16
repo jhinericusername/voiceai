@@ -305,7 +305,7 @@ export function ScoreTab({
             <option value="">Select Ashby job</option>
             {availableAshbyJobIds.map((ashbyJobId, index) => (
               <option key={ashbyJobId} value={ashbyJobId}>
-                {`Job ${index + 1}: ${ashbyJobId}`}
+                {`Ashby job ${index + 1}`}
               </option>
             ))}
           </select>

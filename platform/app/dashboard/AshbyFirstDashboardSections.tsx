@@ -127,6 +127,8 @@ export function ReviewRolePickerFoundation({
 }: {
   readonly selectedJobCount: number;
 }) {
+  const roleOptions = Array.from({ length: selectedJobCount }, (_, index) => `Selected role ${index + 1}`);
+
   return (
     <SectionPanel
       title="Review Queue"
@@ -138,16 +140,27 @@ export function ReviewRolePickerFoundation({
           Choose a role before reviewing interviews. FDE, MLE, and GTM Engineer reviews stay separate because each
           role uses its own rubric and decision criteria.
         </p>
-        {selectedJobCount > 0 ? (
-          <button type="button" disabled className={secondaryButtonClass}>
-            Role picker appears after role names sync
-          </button>
-        ) : (
+        <label className="grid max-w-md gap-1.5 text-sm font-semibold text-slate-700">
+          Role
+          <select
+            defaultValue=""
+            disabled={selectedJobCount === 0}
+            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+          >
+            <option value="">{selectedJobCount > 0 ? "Choose a role" : "No selected roles yet"}</option>
+            {roleOptions.map((roleLabel, index) => (
+              <option key={roleLabel} value={`selected-role-${index + 1}`}>
+                {roleLabel}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedJobCount === 0 ? (
           <EmptyState
             title="No selected Ashby roles yet"
             detail="Finish Ashby job selection before review queues are available."
           />
-        )}
+        ) : null}
       </div>
     </SectionPanel>
   );
