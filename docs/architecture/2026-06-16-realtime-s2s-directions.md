@@ -93,22 +93,31 @@ Keep evaluation deterministic; use realtime only for *delivery/conversation*.
 
 ## Converged design (2026-06-16): app-orchestrated realtime
 
-Target: a realtime/S2S model runs the spoken Q&A loop; a separate reasoning
-model scores from the transcript off-loop. Hard part = control + a set script
-for the realtime model. Resolution: **the model does not own the script — the
-app does.** This is exactly today's split (`InterviewStateMachine` + rubric =
-brain; voice layer = mouth/ears). We swap the cascaded voice I/O for a realtime
-model and keep the controller in charge of *what* gets asked.
+Target: a realtime/S2S model runs the spoken Q&A loop **autonomously** from a
+full plan; a separate reasoning model scores from the transcript off-loop. Hard
+part = control + a set script for the realtime model.
+
+Resolution: **the model owns the conversational flow; the app owns the plan and
+the safety net, applied out-of-band — NOT per-turn gating.** Gating every turn
+from code reintroduces the latency we just removed and defeats the point of
+realtime. The script is given to the model up front (all questions, order,
+guardrails, persona); the model decides the moment-to-moment flow.
 
 Control mechanisms (all standard on OpenAI Realtime / Gemini Live — verify
 exact behavior in the build session):
 
-1. **App-driven turns, not model memory.** Don't trust the model to remember a
-   6-question script across 15 min. Drive each turn from code: on candidate
-   end-of-turn, the controller issues the next response with per-turn
-   instructions ("You are on Q3 of 6. Ask exactly: '…'. Do not invent
-   questions."). The script lives in the rubric/state machine, re-grounded every
-   turn.
+1. **Full plan up front + async steering by exception.** Put the whole
+   interview in the session instructions: the verbatim questions, order, "don't
+   go off-topic / no commitments / no comp or legal talk," persona. Let the
+   model run the conversation itself. Do NOT intercept turns. If a watcher (the
+   grader or a cheap monitor reading the transcript) sees a *failure* — a
+   skipped question, drift, running long — it injects a one-off steering message
+   out-of-band ("you haven't covered competitiveness; wrap the current topic and
+   move on"). Event-driven, off the speech path, so it adds no per-turn latency.
+   Start without the watcher (instructions + grader only); add it only for the
+   drift/skip modes that testing actually surfaces. A coverage backstop before
+   the model closes (all required questions covered?) guarantees completeness
+   without gating.
 2. **Tool calling as the control bus.** Give the model tools
    (`advance_question`, `request_probe(category)`, `flag_off_script`). The model
    signals intent; the app decides the actual next verbatim. Keeps the existing
