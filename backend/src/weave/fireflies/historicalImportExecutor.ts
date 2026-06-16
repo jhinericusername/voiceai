@@ -7,6 +7,7 @@ import {
   S3Client,
   type PutObjectCommandInput,
 } from "@aws-sdk/client-s3";
+import { Readable } from "node:stream";
 import { buildHistoricalFirefliesInventory } from "./historicalInventory.js";
 import { buildHistoricalImportPlan } from "./historicalImportPlan.js";
 import type { HistoricalFirefliesRecording } from "./historicalInventory.js";
@@ -94,6 +95,8 @@ interface ExistingHistoricalSessionSource {
   readonly externalId: string;
   readonly sourceMetadata: unknown;
 }
+
+const fallbackUploadChunkSize = 64 * 1024;
 
 export async function executeHistoricalFirefliesImport(
   input: ExecuteHistoricalFirefliesImportInput,
@@ -415,10 +418,52 @@ async function streamCopyObject(
     new PutObjectCommand({
       Bucket: copy.targetBucket,
       Key: copy.targetKey,
-      Body: source.Body as PutObjectCommandInput["Body"],
+      Body: fallbackUploadBody(source.Body),
       ...(sourceSize !== null ? { ContentLength: sourceSize } : {}),
     }),
   );
+}
+
+function fallbackUploadBody(body: unknown): PutObjectCommandInput["Body"] {
+  if (!isAsyncIterableBody(body)) {
+    return body as PutObjectCommandInput["Body"];
+  }
+  return Readable.from(bufferedUploadChunks(body, fallbackUploadChunkSize));
+}
+
+async function* bufferedUploadChunks(
+  body: AsyncIterable<Buffer | Uint8Array | string>,
+  targetChunkSize: number,
+): AsyncIterable<Buffer> {
+  let pending: Buffer[] = [];
+  let pendingBytes = 0;
+
+  for await (const chunk of body) {
+    pending.push(bufferChunk(chunk));
+    pendingBytes += pending[pending.length - 1]?.length ?? 0;
+
+    if (pendingBytes >= targetChunkSize) {
+      yield Buffer.concat(pending, pendingBytes);
+      pending = [];
+      pendingBytes = 0;
+    }
+  }
+
+  if (pendingBytes > 0) {
+    yield Buffer.concat(pending, pendingBytes);
+  }
+}
+
+function isAsyncIterableBody(
+  body: unknown,
+): body is AsyncIterable<Buffer | Uint8Array | string> {
+  return Boolean(body && typeof body === "object" && Symbol.asyncIterator in body);
+}
+
+function bufferChunk(chunk: Buffer | Uint8Array | string): Buffer {
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (typeof chunk === "string") return Buffer.from(chunk);
+  return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
 }
 
 async function targetHasSameSize(

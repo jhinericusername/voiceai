@@ -65,7 +65,7 @@ class FakeS3Client implements S3LikeClient {
         error.name = "NoSuchKey";
         throw error;
       }
-      return { Body: bodyFromJson(object.body ?? {}) };
+      return { Body: bodyFromStoredObject(object.body ?? {}) };
     }
     if (command instanceof HeadObjectCommand) {
       const size = this.existingTargetSizes.get(String(command.input.Key));
@@ -180,6 +180,30 @@ function bodyFromJson(value: unknown) {
       return JSON.stringify(value);
     },
   };
+}
+
+function bodyFromStoredObject(value: unknown) {
+  if (isAsyncIterable(value)) return value;
+  return bodyFromJson(value);
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<Uint8Array> {
+  return Boolean(value && typeof value === "object" && Symbol.asyncIterator in value);
+}
+
+async function* chunkedBody(chunkSizes: readonly number[]): AsyncIterable<Uint8Array> {
+  for (const size of chunkSizes) {
+    yield Buffer.alloc(size, "x");
+  }
+}
+
+async function collectChunkSizes(body: unknown): Promise<number[]> {
+  const chunks: number[] = [];
+  if (!isAsyncIterable(body)) return chunks;
+  for await (const chunk of body) {
+    chunks.push(chunk.length);
+  }
+  return chunks;
 }
 
 function recordingObjects(
@@ -547,6 +571,44 @@ describe("Fireflies historical import executor", () => {
     expect(commandNames(sourceS3).filter((name) => name === "GetObjectCommand").length).toBeGreaterThan(
       4,
     );
+  });
+
+  it("buffers streamed fallback upload chunks so intermediate chunks satisfy AWS SDK constraints", async () => {
+    const copyError = new Error("VPC endpoints do not support cross-region requests");
+    const objects = recordingObjects("01BUFFERED").map((object) =>
+      object.key.endsWith("/video.mp4")
+        ? {
+            ...object,
+            size: 200_000,
+            body: chunkedBody(Array.from({ length: 200 }, () => 1_000)),
+          }
+        : object,
+    );
+    const sourceS3 = new FakeS3Client(objects);
+    const targetS3 = new FakeS3Client([], new Map(), undefined, copyError);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3,
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb: new FakePuddleDb(),
+      importRunId: "run_buffered_stream_fallback",
+    });
+
+    expect(result.importedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    const firstPut = targetS3.commands.find(
+      (command): command is PutObjectCommand => command instanceof PutObjectCommand,
+    );
+    const chunkSizes = await collectChunkSizes(firstPut?.input.Body);
+    expect(chunkSizes.length).toBeGreaterThan(1);
+    expect(chunkSizes.slice(0, -1).every((size) => size >= 8_192)).toBe(true);
+    expect(chunkSizes.reduce((sum, size) => sum + size, 0)).toBe(200_000);
   });
 
   it("fails occurrence source conflicts from another org before target S3 copy checks", async () => {
