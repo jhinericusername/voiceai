@@ -1,9 +1,15 @@
 -- 012_company_grading.sql - role grading profiles, rubric versions, recommendations, and reviewer feedback.
 
+CREATE UNIQUE INDEX IF NOT EXISTS ashby_company_integrations_integration_org_idx
+  ON ashby_company_integrations(integration_id, organization_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sessions_session_org_idx
+  ON sessions(session_id, org_id);
+
 CREATE TABLE IF NOT EXISTS role_grading_profiles (
   profile_id TEXT PRIMARY KEY,
   organization_id TEXT NOT NULL,
-  ashby_integration_id TEXT NOT NULL REFERENCES ashby_company_integrations(integration_id) ON DELETE CASCADE,
+  ashby_integration_id TEXT NOT NULL,
   ashby_job_id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (
     status IN ('draft_needed', 'draft_ready', 'approval_required', 'recommendations_active', 'paused')
@@ -15,7 +21,10 @@ CREATE TABLE IF NOT EXISTS role_grading_profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (organization_id, ashby_job_id),
-  UNIQUE (profile_id, organization_id, ashby_job_id)
+  UNIQUE (profile_id, organization_id, ashby_job_id),
+  FOREIGN KEY (ashby_integration_id, organization_id)
+    REFERENCES ashby_company_integrations(integration_id, organization_id)
+    ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS role_grading_profiles_org_integration_idx
@@ -60,7 +69,7 @@ ALTER TABLE role_grading_profiles
 
 CREATE TABLE IF NOT EXISTS interview_recommendations (
   recommendation_id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
   organization_id TEXT NOT NULL,
   ashby_job_id TEXT NOT NULL,
   rubric_version_id TEXT NOT NULL,
@@ -74,6 +83,9 @@ CREATE TABLE IF NOT EXISTS interview_recommendations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (session_id, rubric_version_id),
   UNIQUE (recommendation_id, session_id, organization_id),
+  FOREIGN KEY (session_id, organization_id)
+    REFERENCES sessions(session_id, org_id)
+    ON DELETE CASCADE,
   FOREIGN KEY (rubric_version_id, organization_id, ashby_job_id)
     REFERENCES role_rubric_versions(rubric_version_id, organization_id, ashby_job_id)
     ON DELETE RESTRICT

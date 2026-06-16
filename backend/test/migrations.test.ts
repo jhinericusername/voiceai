@@ -134,14 +134,18 @@ describe("database migrations", () => {
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS role_rubric_versions");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS interview_recommendations");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS reviewer_feedback");
+    expect(migration).toContain("ashby_company_integrations_integration_org_idx");
+    expect(migration).toContain("sessions_session_org_idx");
     expect(migration).toContain("UNIQUE (organization_id, ashby_job_id)");
     expect(migration).toContain("UNIQUE (profile_id, organization_id, ashby_job_id)");
     expect(migration).toContain("role_grading_profiles_org_integration_idx");
     expect(migration).toContain("UNIQUE (rubric_version_id, profile_id)");
     expect(migration).toContain("UNIQUE (rubric_version_id, organization_id, ashby_job_id)");
+    expect(migration).toContain("FOREIGN KEY (ashby_integration_id, organization_id)");
     expect(migration).toContain("FOREIGN KEY (profile_id, organization_id, ashby_job_id)");
     expect(migration).toContain("FOREIGN KEY (active_rubric_version_id, profile_id)");
     expect(migration).toContain("FOREIGN KEY (draft_rubric_version_id, profile_id)");
+    expect(migration).toContain("FOREIGN KEY (session_id, organization_id)");
     expect(migration).toContain("FOREIGN KEY (rubric_version_id, organization_id, ashby_job_id)");
     expect(migration).toContain("UNIQUE (session_id, rubric_version_id)");
     expect(migration).toContain("UNIQUE (recommendation_id, session_id, organization_id)");
