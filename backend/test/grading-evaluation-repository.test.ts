@@ -63,13 +63,13 @@ describe("grading evaluation repository", () => {
 
     expect(sql).toContain("FROM sessions s");
     expect(sql).toContain("WHERE s.org_id = $1 AND s.external_source = 'fireflies'");
+    expect(sql).toContain("source_metadata #> '{ashby,selected}' IS NOT NULL");
     expect(sql).toContain("source_metadata #>> '{ashby,selected,candidateEvaluationId}'");
     expect(sql).toContain("source_metadata #>> '{ashby,selected,candidate_evaluation_id}'");
     expect(sql).toContain("source_metadata #>> '{candidate_evaluation_id}'");
-    expect(sql).toContain("jsonb_path_query_first");
-    expect(sql).toContain("matched_candidate ->> 'applicationId'");
-    expect(sql).toContain("matched_candidate ->> 'jobId'");
-    expect(sql).toContain("matched_candidate ->> 'candidateEvaluationId'");
+    expect(sql).not.toContain("jsonb_path_query_first");
+    expect(sql).not.toContain("matchCandidates");
+    expect(sql).not.toContain("matched_candidate");
     expect(sql).toContain("candidate_evaluation_id IS NOT NULL");
     expect(sql).not.toContain("ashby_job_id = $2");
     expect(sql).toContain("LIMIT $2");
