@@ -186,6 +186,54 @@ export function recommendationUpsertStatement(input: RecommendationInput): SqlSt
   };
 }
 
+export function sessionForRecommendationStatement(sessionId: string, organizationId: string): SqlStatement {
+  return {
+    sql:
+      "SELECT s.session_id, s.org_id, s.external_source, s.source_metadata, " +
+      "COALESCE(s.source_metadata #>> '{ashby,selected,jobId}', s.source_metadata #>> '{ashby,selected,ashbyJobId}') AS ashby_job_id " +
+      "FROM sessions s WHERE s.session_id = $1 AND s.org_id = $2 LIMIT 1",
+    params: [sessionId, organizationId],
+  };
+}
+
+export function transcriptTurnsForSessionStatement(sessionId: string): SqlStatement {
+  return {
+    sql:
+      "SELECT turn_index AS \"turnIndex\", speaker, text " +
+      "FROM transcript_turns WHERE session_id = $1 ORDER BY turn_index ASC",
+    params: [sessionId],
+  };
+}
+
+export function activeRubricForJobStatement(organizationId: string, ashbyJobId: string): SqlStatement {
+  return {
+    sql:
+      "SELECT p.profile_id, p.active_rubric_version_id, r.rubric " +
+      "FROM role_grading_profiles p " +
+      "JOIN role_rubric_versions r ON r.rubric_version_id = p.active_rubric_version_id " +
+      "WHERE p.organization_id = $1 AND p.ashby_job_id = $2 AND p.status = 'recommendations_active' " +
+      "LIMIT 1",
+    params: [organizationId, ashbyJobId],
+  };
+}
+
+export function historicalBackfillSessionsStatement(
+  organizationId: string,
+  ashbyJobId: string,
+  limit: number,
+): SqlStatement {
+  return {
+    sql:
+      "SELECT s.session_id FROM sessions s " +
+      "LEFT JOIN interview_recommendations rec ON rec.session_id = s.session_id " +
+      "WHERE s.org_id = $1 AND s.external_source = 'fireflies' " +
+      "AND COALESCE(s.source_metadata #>> '{ashby,selected,jobId}', s.source_metadata #>> '{ashby,selected,ashbyJobId}') = $2 " +
+      "AND rec.recommendation_id IS NULL " +
+      "ORDER BY s.started_at DESC NULLS LAST LIMIT $3",
+    params: [organizationId, ashbyJobId, limit],
+  };
+}
+
 export function reviewerFeedbackInsertStatement(input: ReviewerFeedbackInput): SqlStatement {
   return {
     sql:

@@ -1,16 +1,24 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { getPool } from "../db/pool.js";
+import { BedrockGradingModel } from "./bedrock.js";
+import { recommendInterview } from "./recommendation.js";
 import { buildDraftRubric, validateRoleRubric } from "./rubric.js";
+import { scoreTranscript } from "./scoring.js";
 import {
+  activeRubricForJobStatement,
   gradingProfileActivateStatement,
   gradingProfileByIdForUpdateStatement,
   gradingProfileDraftUpdateStatement,
   gradingProfilesForOrganizationStatement,
+  historicalBackfillSessionsStatement,
   nextRubricVersionStatement,
+  recommendationUpsertStatement,
   reviewerFeedbackInsertStatement,
   rubricVersionApproveStatement,
   rubricVersionInsertStatement,
+  sessionForRecommendationStatement,
+  transcriptTurnsForSessionStatement,
 } from "./repository.js";
 
 function stringValue(value: unknown): string | null {
@@ -38,6 +46,31 @@ function validReviewerDecision(value: string): value is "advance" | "hold" | "pa
 
 function hasUpdatedRow(result: { readonly rows?: readonly unknown[]; readonly rowCount?: number | null }): boolean {
   return Boolean(result.rows?.[0]) && result.rowCount !== 0;
+}
+
+function finiteNumberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function recommendationPolicyFromRubric(rubric: unknown): {
+  readonly bareMinimumRule: string;
+  readonly minimumConfidence: number;
+} {
+  const rubricObject = objectValue(rubric);
+  const recommendationPolicy = objectValue(rubricObject.recommendation_policy);
+  const recommendationThresholds = objectValue(rubricObject.recommendation_thresholds);
+  return {
+    bareMinimumRule: stringValue(rubricObject.bare_minimum_rule) ?? "at_least_one_4_and_problem_solving_ge_3",
+    minimumConfidence:
+      finiteNumberValue(recommendationPolicy.minimum_confidence) ??
+      finiteNumberValue(rubricObject.minimum_confidence) ??
+      finiteNumberValue(recommendationThresholds.minimum_confidence) ??
+      0.75,
+  };
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return Array.from(new Set(values));
 }
 
 export function registerGradingRoutes(app: FastifyInstance): void {
@@ -184,6 +217,104 @@ export function registerGradingRoutes(app: FastifyInstance): void {
     } finally {
       client.release();
     }
+  });
+
+  app.post<{ Params: { sessionId: string } }>("/grading/recommendations/session/:sessionId", async (request, reply) => {
+    const body = objectValue(request.body);
+    const organizationId = stringValue(body.organizationId);
+    if (!organizationId) {
+      return reply.code(400).send({ error: "organizationId is required" });
+    }
+
+    const sessionStmt = sessionForRecommendationStatement(request.params.sessionId, organizationId);
+    const sessionResult = await getPool().query(sessionStmt.sql, [...sessionStmt.params]);
+    const session = sessionResult.rows[0] as Record<string, unknown> | undefined;
+    const ashbyJobId = stringValue(session?.ashby_job_id);
+    if (!session || !ashbyJobId) {
+      return reply.code(404).send({ error: "session not found" });
+    }
+
+    const transcriptStmt = transcriptTurnsForSessionStatement(request.params.sessionId);
+    const transcriptResult = await getPool().query(transcriptStmt.sql, [...transcriptStmt.params]);
+    if (transcriptResult.rows.length === 0) {
+      return reply.code(409).send({ error: "session transcript is not ready" });
+    }
+
+    const rubricStmt = activeRubricForJobStatement(organizationId, ashbyJobId);
+    const rubricResult = await getPool().query(rubricStmt.sql, [...rubricStmt.params]);
+    const activeRubric = rubricResult.rows[0] as Record<string, unknown> | undefined;
+    const activeRubricVersionId = stringValue(activeRubric?.active_rubric_version_id);
+    if (!activeRubric || !activeRubricVersionId) {
+      return reply.code(409).send({ error: "active rubric is required" });
+    }
+
+    const parsed = await scoreTranscript(
+      {
+        rubric: activeRubric.rubric,
+        transcriptTurns: transcriptResult.rows,
+      },
+      new BedrockGradingModel(),
+    );
+    const categoryScoresForRecommendation = parsed.categoryScores.map((categoryScore) => ({
+      category: categoryScore.category,
+      score: categoryScore.score,
+      confidence: categoryScore.confidence ?? 0,
+      evidenceQuotes: categoryScore.evidenceQuotes,
+    }));
+    const policy = recommendationPolicyFromRubric(activeRubric.rubric);
+    const deterministicRecommendation = recommendInterview({
+      categoryScores: categoryScoresForRecommendation,
+      bareMinimumRule: policy.bareMinimumRule,
+      minimumConfidence: policy.minimumConfidence,
+      severeWarnings: parsed.warnings,
+    });
+    const warnings = uniqueStrings([...deterministicRecommendation.warnings, ...parsed.warnings]);
+    const upsert = recommendationUpsertStatement({
+      recommendationId: randomUUID(),
+      sessionId: request.params.sessionId,
+      organizationId,
+      ashbyJobId,
+      rubricVersionId: activeRubricVersionId,
+      source: session.external_source === "fireflies" ? "historical_fireflies" : "puddle_live",
+      recommendation: deterministicRecommendation.recommendation,
+      confidence: deterministicRecommendation.confidence,
+      categoryScores: parsed.categoryScores,
+      evidence: {
+        categoryScores: parsed.categoryScores.map((categoryScore) => ({
+          category: categoryScore.category,
+          evidenceQuotes: categoryScore.evidenceQuotes,
+          rationale: categoryScore.rationale,
+        })),
+      },
+      warnings,
+      modelMetadata: { provider: "bedrock", parser: "grading-scoring-v1" },
+    });
+    const saved = await getPool().query(upsert.sql, [...upsert.params]);
+    if (!hasUpdatedRow(saved)) {
+      return reply.code(409).send({ error: "recommendation could not be stored" });
+    }
+    return reply.code(201).send({ recommendation: saved.rows[0] });
+  });
+
+  app.post("/grading/recommendations/backfill-historical", async (request, reply) => {
+    const body = objectValue(request.body);
+    const organizationId = stringValue(body.organizationId);
+    const ashbyJobId = stringValue(body.ashbyJobId);
+    if (!organizationId || !ashbyJobId) {
+      return reply.code(400).send({ error: "organizationId and ashbyJobId are required" });
+    }
+    let limit = 10;
+    if (body.limit !== undefined) {
+      const parsedLimit = countValue(body.limit, "limit");
+      if (!parsedLimit.ok) {
+        return reply.code(400).send({ error: parsedLimit.error });
+      }
+      limit = Math.min(parsedLimit.value, 25);
+    }
+
+    const stmt = historicalBackfillSessionsStatement(organizationId, ashbyJobId, limit);
+    const result = await getPool().query(stmt.sql, [...stmt.params]);
+    return reply.send({ queued: result.rows.map((row: { readonly session_id: string }) => row.session_id) });
   });
 
   app.post<{ Params: { recommendationId: string } }>("/grading/recommendations/:recommendationId/feedback", async (request, reply) => {
