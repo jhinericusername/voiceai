@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "node --env-file=../.env.local --import tsx src/server.ts",
+    "grading:evaluate": "node --env-file=../.env.local --import tsx src/grading/evaluation/cli.ts",
     "historical-fireflies": "node --env-file=../.env.local --import tsx src/weave/fireflies/historical-import.ts",
     "historical-fireflies:prod": "node dist/weave/fireflies/historical-import.js",
     "interview-flow:aggregate": "node --import tsx src/weave/fireflies/interview-flow.ts aggregate",
