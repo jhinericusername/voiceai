@@ -157,6 +157,23 @@ describe("database migrations", () => {
     expect(migration).toContain("reviewer_decision IN ('advance', 'hold', 'pass', 'needs_more_review')");
   });
 
+  it("adds recommendation updated-at migration after company grading", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const gradingIndex = files.indexOf("012_company_grading.sql");
+    const updatedAtIndex = files.indexOf("013_interview_recommendations_updated_at.sql");
+
+    expect(gradingIndex).toBeGreaterThanOrEqual(0);
+    expect(updatedAtIndex).toBeGreaterThan(gradingIndex);
+
+    const migration = readFileSync(
+      join(migrationsDir, "013_interview_recommendations_updated_at.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("ALTER TABLE interview_recommendations");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS updated_at");
+    expect(migration).toContain("updated_at TIMESTAMPTZ NOT NULL DEFAULT now()");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 
