@@ -21,6 +21,25 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function countValue(value: unknown, fieldName: string): { ok: true; value: number } | { ok: false; error: string } {
+  if (value === undefined) {
+    return { ok: true, value: 0 };
+  }
+  const parsed = typeof value === "string" && value.trim() ? Number(value) : value;
+  if (typeof parsed !== "number" || !Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+    return { ok: false, error: `${fieldName} must be a finite non-negative integer` };
+  }
+  return { ok: true, value: parsed };
+}
+
+function validReviewerDecision(value: string): value is "advance" | "hold" | "pass" | "needs_more_review" {
+  return ["advance", "hold", "pass", "needs_more_review"].includes(value);
+}
+
+function hasUpdatedRow(result: { readonly rows?: readonly unknown[]; readonly rowCount?: number | null }): boolean {
+  return Boolean(result.rows?.[0]) && result.rowCount !== 0;
+}
+
 export function registerGradingRoutes(app: FastifyInstance): void {
   app.post("/grading/company-state", async (request, reply) => {
     const body = objectValue(request.body);
@@ -42,6 +61,14 @@ export function registerGradingRoutes(app: FastifyInstance): void {
     if (!organizationId || !actorEmail) {
       return reply.code(400).send({ error: "organizationId and actorEmail are required" });
     }
+    const historicalSessionCount = countValue(body.historicalSessionCount, "historicalSessionCount");
+    if (!historicalSessionCount.ok) {
+      return reply.code(400).send({ error: historicalSessionCount.error });
+    }
+    const matchedApplicationCount = countValue(body.matchedApplicationCount, "matchedApplicationCount");
+    if (!matchedApplicationCount.ok) {
+      return reply.code(400).send({ error: matchedApplicationCount.error });
+    }
 
     const client = await getPool().connect();
     try {
@@ -62,8 +89,8 @@ export function registerGradingRoutes(app: FastifyInstance): void {
         organizationId,
         ashbyJobId,
         jobName,
-        historicalSessionCount: Number(body.historicalSessionCount ?? 0),
-        matchedApplicationCount: Number(body.matchedApplicationCount ?? 0),
+        historicalSessionCount: historicalSessionCount.value,
+        matchedApplicationCount: matchedApplicationCount.value,
       });
       const rubricVersionId = randomUUID();
       const insert = rubricVersionInsertStatement({
@@ -76,8 +103,8 @@ export function registerGradingRoutes(app: FastifyInstance): void {
         rubric,
         generationInputs: {
           source: "weave_seeded_pilot",
-          historicalSessionCount: body.historicalSessionCount ?? 0,
-          matchedApplicationCount: body.matchedApplicationCount ?? 0,
+          historicalSessionCount: historicalSessionCount.value,
+          matchedApplicationCount: matchedApplicationCount.value,
         },
       });
       await client.query(insert.sql, [...insert.params]);
@@ -114,14 +141,41 @@ export function registerGradingRoutes(app: FastifyInstance): void {
     const client = await getPool().connect();
     try {
       await client.query("BEGIN");
-      const approve = rubricVersionApproveStatement({ rubricVersionId, approvedByEmail: actorEmail });
-      await client.query(approve.sql, [...approve.params]);
+      const profileStmt = gradingProfileByIdForUpdateStatement(request.params.profileId, organizationId);
+      const profileResult = await client.query(profileStmt.sql, [...profileStmt.params]);
+      const profile = profileResult.rows[0] as Record<string, unknown> | undefined;
+      if (!profile) {
+        await client.query("ROLLBACK");
+        return reply.code(404).send({ error: "grading profile not found" });
+      }
+      if (stringValue(profile.draft_rubric_version_id) !== rubricVersionId) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "rubric version is not the current draft" });
+      }
+
+      const approve = rubricVersionApproveStatement({
+        rubricVersionId,
+        profileId: request.params.profileId,
+        organizationId,
+        rubric,
+        approvedByEmail: actorEmail,
+      });
+      const approved = await client.query(approve.sql, [...approve.params]);
+      if (!hasUpdatedRow(approved)) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "rubric version is not the current draft" });
+      }
       const activate = gradingProfileActivateStatement({
         profileId: request.params.profileId,
+        organizationId,
         activeRubricVersionId: rubricVersionId,
         actorEmail,
       });
       const activated = await client.query(activate.sql, [...activate.params]);
+      if (!hasUpdatedRow(activated)) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "grading profile activation failed" });
+      }
       await client.query("COMMIT");
       return reply.send({ profile: activated.rows[0] });
     } catch (error) {
@@ -134,15 +188,32 @@ export function registerGradingRoutes(app: FastifyInstance): void {
 
   app.post<{ Params: { recommendationId: string } }>("/grading/recommendations/:recommendationId/feedback", async (request, reply) => {
     const body = objectValue(request.body);
+    const sessionId = stringValue(body.sessionId);
+    const organizationId = stringValue(body.organizationId);
+    const reviewerEmail = stringValue(body.reviewerEmail);
+    const reviewerDecision = stringValue(body.reviewerDecision);
+    if (!sessionId || !organizationId || !reviewerEmail || !reviewerDecision) {
+      return reply.code(400).send({
+        error: "sessionId, organizationId, reviewerEmail, and reviewerDecision are required",
+      });
+    }
+    if (!validReviewerDecision(reviewerDecision)) {
+      return reply.code(400).send({ error: "reviewerDecision is invalid" });
+    }
+    const dimensionFeedback = body.dimensionFeedback === undefined ? {} : body.dimensionFeedback;
+    if (!dimensionFeedback || typeof dimensionFeedback !== "object" || Array.isArray(dimensionFeedback)) {
+      return reply.code(400).send({ error: "dimensionFeedback must be an object" });
+    }
+
     const stmt = reviewerFeedbackInsertStatement({
       feedbackId: randomUUID(),
       recommendationId: request.params.recommendationId,
-      sessionId: stringValue(body.sessionId) ?? "",
-      organizationId: stringValue(body.organizationId) ?? "",
-      reviewerEmail: stringValue(body.reviewerEmail) ?? "",
-      reviewerDecision: stringValue(body.reviewerDecision) as "advance" | "hold" | "pass" | "needs_more_review",
+      sessionId,
+      organizationId,
+      reviewerEmail,
+      reviewerDecision,
       overrideReason: stringValue(body.overrideReason),
-      dimensionFeedback: body.dimensionFeedback ?? {},
+      dimensionFeedback,
     });
     const result = await getPool().query(stmt.sql, [...stmt.params]);
     return reply.code(201).send({ feedback: result.rows[0] });

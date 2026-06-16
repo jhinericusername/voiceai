@@ -115,27 +115,38 @@ export function rubricVersionInsertStatement(input: RubricVersionInput): SqlStat
 
 export function rubricVersionApproveStatement(input: {
   readonly rubricVersionId: string;
+  readonly profileId: string;
+  readonly organizationId: string;
+  readonly rubric: unknown;
   readonly approvedByEmail: string;
 }): SqlStatement {
   return {
     sql:
-      "UPDATE role_rubric_versions SET status = 'approved', approved_by_email = $2, approved_at = now() " +
-      "WHERE rubric_version_id = $1 RETURNING *",
-    params: [input.rubricVersionId, input.approvedByEmail],
+      "UPDATE role_rubric_versions SET status = 'approved', rubric = $4::jsonb, " +
+      "approved_by_email = $5, approved_at = now() " +
+      "WHERE rubric_version_id = $1 AND profile_id = $2 AND organization_id = $3 AND status = 'draft' RETURNING *",
+    params: [
+      input.rubricVersionId,
+      input.profileId,
+      input.organizationId,
+      jsonParam(input.rubric),
+      input.approvedByEmail,
+    ],
   };
 }
 
 export function gradingProfileActivateStatement(input: {
   readonly profileId: string;
+  readonly organizationId: string;
   readonly activeRubricVersionId: string;
   readonly actorEmail: string;
 }): SqlStatement {
   return {
     sql:
-      "UPDATE role_grading_profiles SET status = 'recommendations_active', active_rubric_version_id = $2, " +
-      "draft_rubric_version_id = NULL, updated_by_email = $3, updated_at = now() " +
-      "WHERE profile_id = $1 RETURNING *",
-    params: [input.profileId, input.activeRubricVersionId, input.actorEmail],
+      "UPDATE role_grading_profiles SET status = 'recommendations_active', active_rubric_version_id = $3, " +
+      "draft_rubric_version_id = NULL, updated_by_email = $4, updated_at = now() " +
+      "WHERE profile_id = $1 AND organization_id = $2 RETURNING *",
+    params: [input.profileId, input.organizationId, input.activeRubricVersionId, input.actorEmail],
   };
 }
 

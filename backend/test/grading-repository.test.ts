@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  gradingProfileActivateStatement,
+  gradingProfileByIdForUpdateStatement,
   gradingProfileUpsertStatement,
   gradingProfilesForIntegrationStatement,
   nextRubricVersionStatement,
   recommendationUpsertStatement,
   reviewerFeedbackInsertStatement,
+  rubricVersionApproveStatement,
   rubricVersionInsertStatement,
 } from "../src/grading/repository.js";
 
@@ -48,6 +51,14 @@ describe("grading repository", () => {
     expect(stmt.params).toEqual(["profile_1"]);
   });
 
+  it("locks a grading profile by id and organization", () => {
+    const stmt = gradingProfileByIdForUpdateStatement("profile_1", "org_1");
+
+    expect(stmt.sql).toContain("FROM role_grading_profiles");
+    expect(stmt.sql).toContain("WHERE profile_id = $1 AND organization_id = $2 FOR UPDATE");
+    expect(stmt.params).toEqual(["profile_1", "org_1"]);
+  });
+
   it("inserts rubric versions as JSONB", () => {
     const stmt = rubricVersionInsertStatement({
       rubricVersionId: "rv_1",
@@ -66,6 +77,41 @@ describe("grading repository", () => {
     expect(stmt.sql).toContain("$10::timestamptz");
     expect(stmt.params[7]).toBe(JSON.stringify({ script_version: "job_1-v1" }));
     expect(stmt.params[8]).toBe(JSON.stringify({ source: "weave" }));
+  });
+
+  it("approves draft rubric versions with profile and organization scope while preserving edits", () => {
+    const stmt = rubricVersionApproveStatement({
+      rubricVersionId: "rv_1",
+      profileId: "profile_1",
+      organizationId: "org_1",
+      rubric: { edited: true },
+      approvedByEmail: "reviewer@example.com",
+    });
+
+    expect(stmt.sql).toContain("UPDATE role_rubric_versions");
+    expect(stmt.sql).toContain("rubric = $4::jsonb");
+    expect(stmt.sql).toContain("WHERE rubric_version_id = $1 AND profile_id = $2 AND organization_id = $3 AND status = 'draft'");
+    expect(stmt.params).toEqual([
+      "rv_1",
+      "profile_1",
+      "org_1",
+      JSON.stringify({ edited: true }),
+      "reviewer@example.com",
+    ]);
+  });
+
+  it("activates grading profiles with organization scope", () => {
+    const stmt = gradingProfileActivateStatement({
+      profileId: "profile_1",
+      organizationId: "org_1",
+      activeRubricVersionId: "rv_1",
+      actorEmail: "reviewer@example.com",
+    });
+
+    expect(stmt.sql).toContain("UPDATE role_grading_profiles");
+    expect(stmt.sql).toContain("active_rubric_version_id = $3");
+    expect(stmt.sql).toContain("WHERE profile_id = $1 AND organization_id = $2 RETURNING *");
+    expect(stmt.params).toEqual(["profile_1", "org_1", "rv_1", "reviewer@example.com"]);
   });
 
   it("upserts recommendations by session and rubric version", () => {
