@@ -194,6 +194,9 @@ export async function processFirefliesLiveIngestionMessage(
           puddleDb: input.puddleDb,
         }),
       );
+      if (result.failedCount > 0) {
+        throw new Error(importFailureMessage(result));
+      }
       importedCount += result.importedCount;
     } catch (error) {
       throw new Error(safeErrorMessage(error));
@@ -437,6 +440,12 @@ function normalizedPrefix(prefix: string): string {
 function safeErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.split("\n", 1)[0]?.replace(/:\s+.+$/, "").slice(0, 300) ?? "unknown error";
+}
+
+function importFailureMessage(result: ExecuteHistoricalFirefliesImportResult): string {
+  const firstFailure = result.failures[0]?.message;
+  if (firstFailure) return safeErrorMessage(firstFailure);
+  return `historical Fireflies import failed for ${result.failedCount} recording(s)`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
