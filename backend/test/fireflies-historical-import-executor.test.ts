@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { describe, expect, it } from "vitest";
 import {
@@ -35,11 +36,13 @@ class FakeS3Client implements S3LikeClient {
   readonly commands: unknown[] = [];
   readonly copiedSources: string[] = [];
   readonly copiedKeys: string[] = [];
+  readonly putKeys: string[] = [];
 
   constructor(
     private readonly objects: readonly StoredObject[] = [],
     private readonly existingTargetSizes = new Map<string, number>(),
     private readonly operationLog?: string[],
+    private readonly copyError: Error | null = null,
   ) {}
 
   async send(command: unknown): Promise<unknown> {
@@ -75,8 +78,13 @@ class FakeS3Client implements S3LikeClient {
       return { ContentLength: size };
     }
     if (command instanceof CopyObjectCommand) {
+      if (this.copyError) throw this.copyError;
       this.copiedSources.push(String(command.input.CopySource));
       this.copiedKeys.push(String(command.input.Key));
+      return {};
+    }
+    if (command instanceof PutObjectCommand) {
+      this.putKeys.push(String(command.input.Key));
       return {};
     }
     throw new Error(`Unexpected command: ${command?.constructor?.name ?? typeof command}`);
@@ -500,6 +508,34 @@ describe("Fireflies historical import executor", () => {
       ),
     ).toBe(true);
     expect(puddleDb.queryLog.at(-1)?.sql).toContain("UPDATE historical_interview_import_runs SET");
+  });
+
+  it("streams objects through the worker when S3 copy rejects cross-region VPC endpoint requests", async () => {
+    const copyError = new Error("VPC endpoints do not support cross-region requests");
+    const sourceS3 = new FakeS3Client(recordingObjects("01VPCENDPOINT"));
+    const targetS3 = new FakeS3Client([], new Map(), undefined, copyError);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3,
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb: new FakePuddleDb(),
+      importRunId: "run_vpc_endpoint_fallback",
+    });
+
+    expect(result.importedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    expect(result.copyCount).toBe(6);
+    expect(commandNames(targetS3).filter((name) => name === "CopyObjectCommand")).toHaveLength(6);
+    expect(commandNames(targetS3).filter((name) => name === "PutObjectCommand")).toHaveLength(6);
+    expect(commandNames(sourceS3).filter((name) => name === "GetObjectCommand").length).toBeGreaterThan(
+      4,
+    );
   });
 
   it("fails occurrence source conflicts from another org before target S3 copy checks", async () => {
