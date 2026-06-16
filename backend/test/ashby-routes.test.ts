@@ -1085,7 +1085,7 @@ describe("Ashby backend routes", () => {
         authorization: `Basic ${Buffer.from(`${encryptedApiKey}:`).toString("base64")}`,
       });
       expect(connectMock).toHaveBeenCalledTimes(1);
-      expect(clientQueryMock).toHaveBeenCalledTimes(5);
+      expect(clientQueryMock).toHaveBeenCalledTimes(6);
       expect(clientQueryMock.mock.calls[0]?.[0]).toBe("BEGIN");
       expect(String(clientQueryMock.mock.calls[1]?.[0])).toContain("selected_job_ids = $2");
       expect(String(clientQueryMock.mock.calls[2]?.[0])).toContain("UPDATE ashby_applications");
@@ -1097,8 +1097,84 @@ describe("Ashby backend routes", () => {
         "jobs_selected",
         JSON.stringify({ selectedJobCount: 1 }),
       ]);
-      expect(clientQueryMock.mock.calls[4]?.[0]).toBe("COMMIT");
+      expect(String(clientQueryMock.mock.calls[4]?.[0])).toContain("INSERT INTO role_grading_profiles");
+      expect(clientQueryMock.mock.calls[4]?.[1]?.[1]).toBe("org_1");
+      expect(clientQueryMock.mock.calls[4]?.[1]?.[2]).toBe("int_1");
+      expect(clientQueryMock.mock.calls[4]?.[1]?.[3]).toBe("job_1");
+      expect(clientQueryMock.mock.calls[4]?.[1]?.[5]).toBe("admin@usepuddle.com");
+      expect(clientQueryMock.mock.calls[5]?.[0]).toBe("COMMIT");
       expect(releaseMock).toHaveBeenCalledTimes(1);
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("creates one grading profile for each selected Ashby job", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const encryptedApiKey = encryptIntegrationSecret("ashby-key", "test-secret");
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [
+            { id: "job_1", name: "Founding Engineer", status: "Open" },
+            { id: "job_2", name: "Founding Designer", status: "Open" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          email_domain: "usepuddle.com",
+          ashby_api_key_ciphertext: encryptedApiKey,
+          ashby_webhook_secret_ciphertext: "encrypted-webhook",
+        },
+      ],
+      rowCount: 1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            email_domain: "usepuddle.com",
+            ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+              "webhook-secret",
+              "test-secret",
+            ),
+            selected_job_ids: ["job_1", "job_2"],
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/onboarding/jobs",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          reviewerEmail: "admin@usepuddle.com",
+          selectedJobIds: ["job_1", "job_2"],
+          publicBaseUrl: "https://app.usepuddle.com",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const sqlCalls = clientQueryMock.mock.calls.map((call) => String(call[0]));
+      expect(sqlCalls.some((sql) => sql.includes("INSERT INTO role_grading_profiles"))).toBe(true);
+      expect(sqlCalls.filter((sql) => sql.includes("INSERT INTO role_grading_profiles"))).toHaveLength(2);
     } finally {
       global.fetch = previousFetch;
       await app.close();

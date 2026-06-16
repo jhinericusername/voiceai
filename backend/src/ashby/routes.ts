@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { getPool } from "../db/pool.js";
+import { gradingProfileUpsertStatement } from "../grading/repository.js";
 import { safeErrorLogFields } from "../logging/redaction.js";
 import {
   encryptIntegrationSecret,
@@ -414,6 +416,16 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
             metadata: { selectedJobCount: jobs.length },
           });
           await client.query(audit.sql, [...audit.params]);
+          for (const jobId of jobs) {
+            const profile = gradingProfileUpsertStatement({
+              profileId: randomUUID(),
+              organizationId: identity.organizationId,
+              ashbyIntegrationId: integrationId,
+              ashbyJobId: jobId,
+              actorEmail: reviewerEmail,
+            });
+            await client.query(profile.sql, [...profile.params]);
+          }
         }
         await client.query("COMMIT");
         committed = true;
