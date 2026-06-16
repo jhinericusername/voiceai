@@ -11,7 +11,7 @@ import { InfraStack } from '../lib/infra-stack';
 const app = new cdk.App();
 const config = configFromApp(app);
 
-new InfraStack(app, config.stackName, {
+const infraStack = new InfraStack(app, config.stackName, {
   env: {
     account: config.account,
     region: config.region,
@@ -20,11 +20,16 @@ new InfraStack(app, config.stackName, {
 });
 
 if (config.backend.deployService) {
-  new FirefliesIngestionSourceStack(app, `${config.stackName}-FirefliesSource`, {
-    env: {
-      account: WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
-      region: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+  const firefliesSourceStack = new FirefliesIngestionSourceStack(
+    app,
+    `${config.stackName}-FirefliesSource`,
+    {
+      env: {
+        account: WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
+        region: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+      },
+      config,
     },
-    config,
-  });
+  );
+  infraStack.addDependency(firefliesSourceStack);
 }
