@@ -3,7 +3,9 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
+  type PutObjectCommandInput,
 } from "@aws-sdk/client-s3";
 import { buildHistoricalFirefliesInventory } from "./historicalInventory.js";
 import { buildHistoricalImportPlan } from "./historicalImportPlan.js";
@@ -205,7 +207,7 @@ async function applyPlans(
   for (const plan of plans) {
     try {
       await preflightPlanSource(puddleDb, plan);
-      await copyPlanObjects(input.targetS3, plan, sourceSizes, counters);
+      await copyPlanObjects(input.sourceS3, input.targetS3, plan, sourceSizes, counters);
       copiedPlans.push(plan);
     } catch (error) {
       failures.push({
@@ -366,6 +368,7 @@ async function writePlan(puddleDb: PuddleDb, plan: HistoricalImportPlan): Promis
 }
 
 async function copyPlanObjects(
+  sourceS3: S3LikeClient | S3Client,
   targetS3: S3LikeClient | S3Client,
   plan: HistoricalImportPlan,
   sourceSizes: ReadonlyMap<string, number | null>,
@@ -377,15 +380,43 @@ async function copyPlanObjects(
       counters.skippedCopyCount += 1;
       continue;
     }
-    await targetS3.send(
-      new CopyObjectCommand({
-        Bucket: copy.targetBucket,
-        Key: copy.targetKey,
-        CopySource: `${copy.sourceBucket}/${encodeURIComponent(copy.sourceKey).replace(/%2F/g, "/")}`,
-      }),
-    );
+    try {
+      await targetS3.send(
+        new CopyObjectCommand({
+          Bucket: copy.targetBucket,
+          Key: copy.targetKey,
+          CopySource: `${copy.sourceBucket}/${encodeURIComponent(copy.sourceKey).replace(/%2F/g, "/")}`,
+        }),
+      );
+    } catch (error) {
+      if (!isCrossRegionVpcEndpointCopyError(error)) throw error;
+      await streamCopyObject(sourceS3, targetS3, copy);
+    }
     counters.copyCount += 1;
   }
+}
+
+async function streamCopyObject(
+  sourceS3: S3LikeClient | S3Client,
+  targetS3: S3LikeClient | S3Client,
+  copy: HistoricalImportPlan["copies"][number],
+): Promise<void> {
+  const source = (await sourceS3.send(
+    new GetObjectCommand({
+      Bucket: copy.sourceBucket,
+      Key: copy.sourceKey,
+    }),
+  )) as { Body?: unknown };
+  if (!source.Body) {
+    throw new Error(`Source object ${copy.sourceKey} has no body`);
+  }
+  await targetS3.send(
+    new PutObjectCommand({
+      Bucket: copy.targetBucket,
+      Key: copy.targetKey,
+      Body: source.Body as PutObjectCommandInput["Body"],
+    }),
+  );
 }
 
 async function targetHasSameSize(
@@ -587,6 +618,10 @@ function isNotFoundError(error: unknown): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isCrossRegionVpcEndpointCopyError(error: unknown): boolean {
+  return /VPC endpoints do not support cross-region requests/i.test(errorMessage(error));
 }
 
 function stringValue(value: unknown): string | null {
