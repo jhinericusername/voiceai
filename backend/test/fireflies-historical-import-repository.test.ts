@@ -162,6 +162,29 @@ describe("Fireflies historical import repository", () => {
     expect(sql).not.toContain("ON CONFLICT (org_id, candidate_email)");
   });
 
+  it("refuses to update an existing imported session owned by a different org", () => {
+    const stmt = historicalSessionUpsertStatement({
+      sessionId: "hist_fireflies_01ABC",
+      orgId: "org_123",
+      candidateEmail: "candidate@example.com",
+      scriptVersion: "fireflies-historical-v1",
+      status: "review_ready",
+      scheduledAt: null,
+      roomName: "fireflies-01ABC",
+      startedAt: null,
+      endedAt: null,
+      externalSource: "fireflies",
+      externalId: "01ABC",
+      sourceMetadata: sourceMetadata(),
+    });
+
+    const sql = compactSql(stmt.sql);
+
+    expect(sql).toContain("ON CONFLICT (external_source, external_id)");
+    expect(sql).toContain("WHERE sessions.org_id = EXCLUDED.org_id RETURNING session_id");
+    expect(sql).not.toContain("org_id = EXCLUDED.org_id, candidate_email");
+  });
+
   it("upserts historical recordings by session", () => {
     const stmt = historicalRecordingUpsertStatement({
       sessionId: "hist_fireflies_01ABC",

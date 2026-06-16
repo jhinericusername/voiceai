@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
-import { canViewDashboard, sessionOrganizationId } from "@/lib/auth/org-access.mjs";
+import { requireAshbyReadyDashboardApiAccess } from "@/lib/ashby/dashboard-api-readiness.mjs";
+import { dashboardApiReadinessContext } from "@/lib/ashby/dashboard-api-readiness-context";
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 import { publicBaseUrl } from "@/lib/site-url";
 
@@ -27,23 +27,13 @@ function candidateEmailFromBody(body: unknown, fallback: string): string {
 }
 
 export async function POST(request: Request) {
-  const authSession = await withAuth();
-  const { user } = authSession;
-  if (!user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
-
-  if (!canViewDashboard(authSession)) {
-    return NextResponse.json({ error: "You need an invitation to access this workspace." }, { status: 403 });
-  }
+  const access = await requireAshbyReadyDashboardApiAccess(dashboardApiReadinessContext());
+  if (access.response) return access.response;
 
   const body = await request.json().catch(() => ({}));
-  const candidateEmail = candidateEmailFromBody(body, user.email);
+  const candidateEmail = candidateEmailFromBody(body, access.user.email);
   const scriptVersion = process.env.PUDDLE_DEFAULT_SCRIPT_VERSION ?? "pilot-v1";
-  const orgId = sessionOrganizationId(authSession);
-  if (!orgId) {
-    return NextResponse.json({ error: "You need an invitation to access this workspace." }, { status: 403 });
-  }
+  const orgId = access.organizationId;
 
   let backendResponse: Response;
   try {

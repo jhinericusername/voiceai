@@ -100,6 +100,7 @@ class FakePuddleDbClient implements PuddleDbClient {
   constructor(
     private readonly failOnTranscriptId: string | null = null,
     private readonly operationLog?: string[],
+    private readonly emptySessionUpsert = false,
   ) {}
 
   async query(sql: string, params?: readonly unknown[]) {
@@ -116,6 +117,9 @@ class FakePuddleDbClient implements PuddleDbClient {
       throw new Error(`recording write failed for ${this.failOnTranscriptId}`);
     }
     if (sql.includes("RETURNING session_id")) {
+      if (this.emptySessionUpsert) {
+        return { rows: [] };
+      }
       return { rows: [{ session_id: params?.[0] }] };
     }
     return { rows: [] };
@@ -131,8 +135,9 @@ class FakePuddleDb implements PuddleDb {
   constructor(
     failOnTranscriptId: string | null = null,
     private readonly operationLog?: string[],
+    emptySessionUpsert = false,
   ) {
-    this.client = new FakePuddleDbClient(failOnTranscriptId, operationLog);
+    this.client = new FakePuddleDbClient(failOnTranscriptId, operationLog, emptySessionUpsert);
   }
 
   async query(sql: string, params?: readonly unknown[]) {
@@ -429,6 +434,32 @@ describe("Fireflies historical import executor", () => {
     expect(result.failures[0]?.transcriptId).toBe("01BROKEN");
     expect(result.failures[0]?.message).toContain("transcript");
     expect(result.plans[0]?.session.externalId).toBe("02LATER");
+  });
+
+  it("fails the recording without child writes when the session upsert returns no row", async () => {
+    const puddleDb = new FakePuddleDb(null, undefined, true);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client(recordingObjects("01ORGCONFLICT")),
+      targetS3: new FakeS3Client(),
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb,
+      importRunId: "run_org_conflict",
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.failedCount).toBe(1);
+    expect(result.failures[0]?.transcriptId).toBe("01ORGCONFLICT");
+    expect(result.failures[0]?.message).toContain("different WorkOS organization");
+    expect(puddleDb.client.statements.some((statement) => statement.sql.startsWith("INSERT INTO recordings"))).toBe(
+      false,
+    );
+    expect(puddleDb.client.transactionLog).toContain("ROLLBACK");
   });
 
   it("keeps the selected Ashby application and ranked candidates from Weave in plan source metadata", async () => {

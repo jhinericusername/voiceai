@@ -41,7 +41,6 @@ export function historicalSessionUpsertStatement(input: HistoricalSessionRow): S
       "ON CONFLICT (external_source, external_id) " +
       "WHERE external_source IS NOT NULL AND external_id IS NOT NULL " +
       "DO UPDATE SET " +
-      "org_id = EXCLUDED.org_id, " +
       "candidate_email = EXCLUDED.candidate_email, " +
       "status = CASE " +
       "WHEN sessions.status IN ('scheduled', 'in_progress', 'recording_finalizing', 'review_ready') " +
@@ -54,6 +53,7 @@ export function historicalSessionUpsertStatement(input: HistoricalSessionRow): S
       "ended_at = EXCLUDED.ended_at, " +
       "source_metadata = EXCLUDED.source_metadata, " +
       "updated_at = now() " +
+      "WHERE sessions.org_id = EXCLUDED.org_id " +
       "RETURNING session_id",
     params: [
       input.sessionId,

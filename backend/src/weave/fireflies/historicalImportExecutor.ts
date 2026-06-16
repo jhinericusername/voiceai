@@ -251,8 +251,12 @@ async function writePlan(puddleDb: PuddleDb, plan: HistoricalImportPlan): Promis
     const sessionResult = await executeStatement(client, sessionStatement);
     writeCount += 1;
 
-    const canonicalSessionId =
-      stringValue(sessionResult.rows[0]?.session_id) ?? plan.session.sessionId;
+    const canonicalSessionId = stringValue(sessionResult.rows[0]?.session_id);
+    if (!canonicalSessionId) {
+      throw new Error(
+        "Historical Fireflies session conflict belongs to a different WorkOS organization",
+      );
+    }
 
     await executeStatement(client, {
       ...historicalRecordingUpsertStatement({

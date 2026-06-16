@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
-import { companyIdentityFromUser } from "@/lib/ashby/server";
-import { canViewDashboard, sessionOrganizationId } from "@/lib/auth/org-access.mjs";
+import { requireAshbyReadyDashboardApiAccess } from "@/lib/ashby/dashboard-api-readiness.mjs";
+import { dashboardApiReadinessContext } from "@/lib/ashby/dashboard-api-readiness-context";
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
 export const dynamic = "force-dynamic";
@@ -11,19 +10,10 @@ function objectBody(value: unknown): Record<string, unknown> {
 }
 
 export async function POST(request: Request) {
-  const session = await withAuth();
-  const { user } = session;
-  if (!user) {
-    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
-  }
-
-  if (!canViewDashboard(session)) {
-    return NextResponse.json({ error: "You need an invitation to access this workspace." }, { status: 403 });
-  }
+  const access = await requireAshbyReadyDashboardApiAccess(dashboardApiReadinessContext());
+  if (access.response) return access.response;
 
   const body = objectBody(await request.json().catch(() => ({})));
-  const organizationId = sessionOrganizationId(session);
-  const identity = companyIdentityFromUser({ email: user.email, organizationId });
 
   let response: Response;
   try {
@@ -32,8 +22,8 @@ export async function POST(request: Request) {
       headers: backendHeaders(),
       body: JSON.stringify({
         ...body,
-        ...identity,
-        reviewerEmail: user.email,
+        ...access.identity,
+        reviewerEmail: access.user.email,
       }),
       cache: "no-store",
     });
