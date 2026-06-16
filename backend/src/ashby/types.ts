@@ -1,5 +1,5 @@
 export interface CompanyIdentity {
-  readonly organizationId?: string | null;
+  readonly organizationId: string;
   readonly emailDomain: string;
 }
 
@@ -31,7 +31,6 @@ export interface AshbyJob {
 
 export interface AshbyWebhookEnvelope {
   readonly integrationId?: string | null;
-  readonly companyDomain?: string | null;
   readonly rawBody?: string | null;
   readonly signature?: string | null;
   readonly payload?: unknown;

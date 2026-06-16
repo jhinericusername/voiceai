@@ -13,6 +13,8 @@ COPY platform/package.json platform/package.json
 RUN corepack pnpm@9.12.0 install --filter @puddle/platform... --frozen-lockfile
 
 FROM deps AS build
+ARG PUDDLE_PUBLIC_BASE_URL=https://app.usepuddle.com
+ENV PUDDLE_PUBLIC_BASE_URL=${PUDDLE_PUBLIC_BASE_URL}
 COPY platform platform
 RUN corepack pnpm@9.12.0 --filter @puddle/platform build
 

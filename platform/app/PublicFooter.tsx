@@ -45,7 +45,7 @@ export function PublicFooter({
 
   return (
     <footer
-      className={`mx-auto flex w-full max-w-7xl flex-col gap-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between ${paddingClassName} ${className}`}
+      className={`mx-auto flex w-full max-w-6xl flex-col gap-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between ${paddingClassName} ${className}`}
     >
       <span>{new Date().getFullYear()} Puddle. Technical hiring infrastructure.</span>
       <nav aria-label="Footer" className="flex flex-wrap gap-x-4 gap-y-2">

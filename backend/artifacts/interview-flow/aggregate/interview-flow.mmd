@@ -1,0 +1,27 @@
+flowchart TD
+    CQ001["Where calling from? (68%)"] --> CQ002["Weather small talk (41%)"]
+    CQ001 --> CQ003["Tell me about yourself (68%)"]
+    CQ002 --> CQ003
+    CQ003 --> CQ004["Hobbies / fun (27%)"]
+    CQ003 --> CQ005["What do you know about Weave? (18%)"]
+    CQ003 --> CQ006["Why a startup? (20%)"]
+    CQ004 --> CQ007["Hardest thing built (86%)"]
+    CQ006 --> CQ007
+    CQ005 --> CQ007
+    CQ007 -->|abstract answer| CQ008["Hardest part / moment (41%)"]
+    CQ007 -->|uses 'we'| CQ009["Your specific role? (16%)"]
+    CQ007 -->|clever solution| CQ010["How/why this solution? (23%)"]
+    CQ008 --> CQ011["Applied to YC? (39%)"]
+    CQ009 --> CQ011
+    CQ010 --> CQ011
+    CQ007 -->|no YC setup| CQ012
+    CQ011 -->|setup| CQ012["Hacked a system? (73%)"]
+    CQ012 --> CQ013["Competitiveness cost (75%)"]
+    CQ013 -->|generic answer| CQ014["Why competitive? (16%)"]
+    CQ013 --> CQ015["Niche top-1% topic (59%)"]
+    CQ014 --> CQ015
+    CQ015 -->|hedge/claim| CQ016["Verify expertise (25%)"]
+    CQ015 --> CQ017["Your questions? (80%)"]
+    CQ016 --> CQ017
+    CQ017 --> CQ018["5 days in SF? (64%)"]
+    CQ018 --> CQ019["Visa sponsorship? (61%)"]

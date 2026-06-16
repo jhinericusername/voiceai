@@ -1,12 +1,16 @@
 from unittest.mock import MagicMock
 
-from agent.voice.stt import DeepgramSTT, SttTranscript
+from agent.voice.stt import DeepgramSTT, SttTranscript, deepgram_transcript_source
 
 
 def test_stt_transcript_holds_text_and_finality() -> None:
     t = SttTranscript(text="hello there", is_final=True, unreliable=False)
     assert t.text == "hello there"
     assert t.is_final is True
+
+
+def test_deepgram_transcript_source_uses_configured_model_name() -> None:
+    assert deepgram_transcript_source(model="nova-3-medical") == "deepgram:nova-3-medical"
 
 
 async def test_deepgram_stt_collects_final_transcript() -> None:

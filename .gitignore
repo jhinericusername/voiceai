@@ -24,6 +24,7 @@ corpus/**
 # Local artifacts
 *.log
 .DS_Store
+.worktrees/
 
 # Runtime interview artifacts (real-session data, never committed)
 artifacts/

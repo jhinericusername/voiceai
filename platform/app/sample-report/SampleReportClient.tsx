@@ -82,11 +82,11 @@ export function SampleReportClient({ variant = "page" }: { readonly variant?: "p
       className={
         isLanding
           ? "puddle-grid-band relative z-10 scroll-mt-24 overflow-hidden border-y border-slate-200 px-5 py-12 sm:px-6 md:py-16"
-          : "puddle-grid-band relative z-10 overflow-hidden border-b border-slate-200 px-5 pb-20 pt-32 sm:px-6 lg:pt-36"
+          : "puddle-grid-band relative z-10 overflow-hidden border-b border-slate-200 px-5 pb-14 pt-24 sm:px-6 lg:pt-28"
       }
     >
       <div className="relative z-10 mx-auto max-w-6xl">
-        <div className="mx-auto max-w-[92vw] text-center xl:max-w-[75vw]">
+        <div className="mx-auto max-w-4xl text-center">
           <span className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-700">{eyebrow}</span>
           {isLanding ? (
             <h2 className="mt-4 text-3xl font-semibold leading-tight text-slate-950 xl:text-4xl">

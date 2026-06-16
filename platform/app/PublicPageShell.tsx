@@ -27,15 +27,15 @@ export function PublicPageShell({ page }: { readonly page: PublicPageContent }) 
   return (
     <main className="puddle-page min-h-svh text-slate-950">
       <PublicNav />
-      <section className="relative z-10 px-5 pb-16 pt-32 sm:px-6 lg:pt-36">
-        <div className="mx-auto max-w-7xl">
-          <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-end">
+      <section className="relative z-10 px-5 pb-16 pt-24 sm:px-6 lg:pt-28">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr] lg:items-end lg:gap-8">
             <div>
               <div className="inline-flex items-center gap-2 rounded-md border border-cyan-200 bg-cyan-50/90 px-3 py-1.5 text-sm font-semibold text-cyan-900 shadow-[0_12px_34px_rgba(8,145,178,0.1)]">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
                 {page.eyebrow}
               </div>
-              <h1 className="mt-6 max-w-4xl text-4xl font-semibold leading-[1.02] tracking-normal text-slate-950 sm:text-5xl lg:text-6xl">
+              <h1 className="mt-6 max-w-3xl text-3xl font-semibold leading-[1.02] tracking-normal text-slate-950 sm:text-4xl">
                 {page.title}
               </h1>
               <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-600">{page.description}</p>

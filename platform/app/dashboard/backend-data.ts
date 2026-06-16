@@ -1,21 +1,15 @@
-function backendBaseUrl(): string {
-  return (process.env.PUDDLE_BACKEND_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-}
-
-function backendHeaders(): HeadersInit {
-  const token = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN?.trim();
-  return token ? { authorization: `Bearer ${token}` } : {};
-}
-
-export function dashboardDemoFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.PUDDLE_DASHBOARD_DEMO_FALLBACK === "true" || env.NODE_ENV !== "production";
-}
+import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
 export function dashboardOrgId(input: {
   readonly organizationId?: string | null;
   readonly userId: string;
 }): string {
-  return input.organizationId ?? `workos-user:${input.userId}`;
+  const organizationId = input.organizationId?.trim();
+  if (!organizationId) {
+    throw new Error("Signed-in user does not belong to a WorkOS organization.");
+  }
+
+  return organizationId;
 }
 
 export interface RealInterviewListItem {
@@ -28,6 +22,9 @@ export interface RealInterviewListItem {
   readonly scheduled_at: string | null;
   readonly started_at: string | null;
   readonly ended_at: string | null;
+  readonly external_source: string | null;
+  readonly external_id: string | null;
+  readonly source_metadata: unknown;
   readonly recording_status: string | null;
   readonly egress_id: string | null;
   readonly category_scores: unknown;
@@ -56,6 +53,7 @@ export interface RealInterviewDetail extends RealInterviewListItem {
     readonly offsetMs: number | null;
   }[];
   readonly compositeVideoUrl: string | null;
+  readonly candidateAudioUrl: string | null;
 }
 
 export async function getRealInterviews(input: {

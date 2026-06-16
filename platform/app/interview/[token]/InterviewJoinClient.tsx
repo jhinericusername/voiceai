@@ -493,7 +493,7 @@ function WaitingPanel({
   const joinHint = canEnterRoom ? "Ready" : "Complete the checks above";
 
   return (
-    <div className="grid gap-5 bg-[#f8fafd] p-4 text-[#202124] lg:h-[calc(100svh-40px)] lg:min-h-[680px] lg:grid-cols-[minmax(0,1fr)_390px] lg:gap-8 lg:overflow-hidden lg:p-8">
+    <div className="grid gap-5 bg-[#f8fafd] p-4 text-[#202124] lg:h-[calc(100svh-40px)] lg:min-h-[600px] lg:grid-cols-[minmax(0,1fr)_390px] lg:gap-5 lg:overflow-hidden lg:p-5">
       <div className="relative min-h-[330px] overflow-hidden rounded-[28px] bg-[#202124] shadow-[0_18px_46px_rgba(32,33,36,0.22)] lg:min-h-0">
         <video
           ref={previewVideoRef}

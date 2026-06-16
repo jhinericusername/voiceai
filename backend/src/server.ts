@@ -14,7 +14,6 @@ import { registerIntegrationRoutes } from "./integration/routes.js";
 import type { CreateSessionRequest, CreateSessionResponse } from "./integration/contract.js";
 import { registerCandidateInviteRoutes } from "./invites/routes.js";
 import { registerInternalSessionRoutes } from "./internal/routes.js";
-import { registerFinalizationRoutes } from "./finalization/routes.js";
 import { registerDashboardRoutes } from "./dashboard/routes.js";
 import {
   buildCandidateInviteRecord,
@@ -24,6 +23,8 @@ import {
 import { generateInviteToken } from "./invites/tokens.js";
 import { registerInternalAuth } from "./integration/internal-auth.js";
 import { registerAshbyRoutes } from "./ashby/routes.js";
+import { registerGradingRoutes } from "./grading/routes.js";
+import { backendLoggerOptions } from "./logging/redaction.js";
 
 // Reads the LiveKit credentials the room-provisioning code needs from the env.
 // Throws if any are missing — the server must never start half-configured.
@@ -75,7 +76,7 @@ export async function createSession(
 // Builds the Fastify app with the Scheduler/API and platform-integration
 // routes registered. Pure construction — no network I/O until a route is hit.
 export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: backendLoggerOptions() });
   // Local dev: the room app runs on Vite (default :5173). Production deploys
   // override CORS_ORIGINS with a comma-separated allowlist of public origins.
   const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
@@ -96,10 +97,10 @@ export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   registerIntegrationRoutes(app, (body) => createSession(liveKitConfig, body));
   registerCandidateInviteRoutes(app, liveKitConfig);
   registerInternalSessionRoutes(app);
-  registerFinalizationRoutes(app);
   registerDashboardRoutes(app);
   registerLiveKitWebhookRoutes(app, liveKitConfig);
   registerAshbyRoutes(app);
+  registerGradingRoutes(app);
   return app;
 }
 

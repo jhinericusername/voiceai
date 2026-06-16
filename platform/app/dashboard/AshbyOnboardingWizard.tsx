@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { AshbyCompanyState, AshbyJobOption } from "@/lib/ashby/server";
@@ -92,6 +93,8 @@ export function AshbyOnboardingWizard({
   const hasVerifiedWebhook = state.connected || Boolean(state.lastPingAt);
   const readyToSync = hasVerifiedWebhook && !state.lastSyncAt;
   const hasPendingWebhookSetup = !setup && !hasVerifiedWebhook && setupStatus === "pending_webhook";
+  const isConnectedSetup = setupStatus === "connected" && state.connected;
+  const panelTitle = isConnectedSetup ? "Reconnect Ashby" : "Connect Ashby";
   const statusLabel = state.lastSyncAt
     ? "Synced"
     : hasVerifiedWebhook
@@ -216,7 +219,7 @@ export function AshbyOnboardingWizard({
   if (!canManageSetup) {
     return (
       <SectionPanel
-        title="Connect Ashby"
+        title={panelTitle}
         eyebrow="Setup"
         action={<StatusPill status={statusLabel} className="capitalize" />}
       >
@@ -232,16 +235,38 @@ export function AshbyOnboardingWizard({
 
   return (
     <SectionPanel
-      title="Connect Ashby"
+      title={panelTitle}
       eyebrow="Setup"
       action={<StatusPill status={statusLabel} className="capitalize" />}
     >
       <div className="grid gap-5">
+        <div className="flex items-start justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-950">
+              {isConnectedSetup ? "Ashby is connected" : "Puddle screens candidates from Ashby"}
+            </div>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Connect the workspace, choose roles, verify webhooks, and sync active candidates before using the
+              dashboard.
+            </p>
+          </div>
+          <Image
+            src="/puddle-mascot.svg"
+            alt="Puddle turtle mascot"
+            width={56}
+            height={56}
+            className="hidden h-14 w-14 shrink-0 sm:block"
+          />
+        </div>
+
         <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-          <div className="text-sm font-semibold text-slate-950">{state.emailDomain}</div>
+          <div className="text-sm font-semibold text-slate-950">
+            {isConnectedSetup ? "Replace Ashby key" : state.emailDomain}
+          </div>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-            Add a company Ashby API key, choose the open jobs Puddle should screen, then configure the webhook
-            events in Ashby.
+            {isConnectedSetup
+              ? "Replacing the key resets webhook verification. Ashby must send a new ping before sync resumes."
+              : "Add a company Ashby API key, choose the open jobs Puddle should screen, then configure the webhook events in Ashby."}
           </p>
         </div>
 
@@ -263,7 +288,7 @@ export function AshbyOnboardingWizard({
             onClick={() => void submitApiKey()}
             className={cx(primaryButtonClass, "w-fit disabled:cursor-not-allowed disabled:opacity-60")}
           >
-            {isSubmitting ? "Validating" : "Validate key"}
+            {isSubmitting ? "Validating" : isConnectedSetup ? "Validate replacement key" : "Validate key"}
           </button>
         </div>
 
@@ -290,7 +315,7 @@ export function AshbyOnboardingWizard({
                   <span className="min-w-0">
                     <span className="block break-words font-medium text-slate-950">{job.name}</span>
                     <span className="mt-0.5 block break-all text-xs text-slate-500">
-                      {job.status ? `${job.status} - ${job.id}` : job.id}
+                      {job.status ? job.status : "Selected role"}
                     </span>
                   </span>
                 </label>

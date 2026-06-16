@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { getPool } from "../db/pool.js";
+import { gradingProfileUpsertStatement } from "../grading/repository.js";
+import { safeErrorLogFields } from "../logging/redaction.js";
 import {
-  decryptIntegrationSecret,
   encryptIntegrationSecret,
   generateIntegrationSecret,
   integrationSecretKeyFromEnv,
@@ -18,7 +20,6 @@ import {
   integrationJobsUpdateStatement,
   integrationLookupStatement,
   integrationSecretLookupStatement,
-  integrationSetupUpsertStatement,
   markIntegrationSyncedStatement,
   isValidEmailDomain,
   markIntegrationPingStatement,
@@ -27,14 +28,15 @@ import {
   scoreUpsertStatement,
   searchActiveApplicationsStatement,
   staleActiveApplicationsStatement,
+  ashbyIntegrationAuditInsertStatement,
   webhookEventInsertStatement,
   webhookEventProcessedStatement,
 } from "./repository.js";
+import { decryptAshbyApiKey, decryptAshbyWebhookSecret } from "./secret-use.js";
 import { verifyAshbyWebhookSignature } from "./webhook-signature.js";
 import type {
   AshbyApiKeyOnboardingRequest,
   AshbyJobSelectionRequest,
-  AshbySetupRequest,
   AshbySyncRequest,
   AshbyWebhookEnvelope,
   AshbyWebhookPayload,
@@ -116,8 +118,13 @@ function publicBaseUrl(value: unknown): string | null {
   try {
     const url = new URL(text);
     const isLocalHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-    const hasAllowedProtocol = url.protocol === "https:" || (isLocalHost && url.protocol === "http:");
+    const isProduction = process.env.NODE_ENV === "production";
+    const hasAllowedProtocol =
+      url.protocol === "https:" || (!isProduction && isLocalHost && url.protocol === "http:");
     if (!hasAllowedProtocol) {
+      return null;
+    }
+    if (isProduction && isLocalHost) {
       return null;
     }
     return url.toString().replace(/\/$/, "");
@@ -129,13 +136,14 @@ function publicBaseUrl(value: unknown): string | null {
 function companyIdentity(body: unknown): CompanyIdentity | null {
   const obj = objectValue(body);
   const emailDomain = stringValue(obj?.emailDomain);
-  if (!emailDomain || !isValidEmailDomain(emailDomain)) {
+  const organizationId = stringValue(obj?.organizationId);
+  if (!organizationId || !emailDomain || !isValidEmailDomain(emailDomain)) {
     return null;
   }
 
   return {
     emailDomain: normalizeEmailDomain(emailDomain),
-    organizationId: stringValue(obj?.organizationId),
+    organizationId,
   };
 }
 
@@ -203,26 +211,14 @@ function stringArray(value: unknown): string[] {
 
 async function integrationForWebhook(input: {
   readonly integrationId: string | null;
-  readonly companyDomain: string | null;
 }): Promise<IntegrationRow | undefined> {
-  if (input.integrationId) {
-    const stmt = integrationByIdStatement(input.integrationId);
-    const { rows } = await getPool().query<IntegrationRow>(stmt.sql, [...stmt.params]);
-    return rows[0];
-  }
-
-  if (!input.companyDomain) {
+  if (!input.integrationId) {
     return undefined;
   }
 
-  if (!isValidEmailDomain(input.companyDomain)) {
-    return undefined;
-  }
-
-  return integrationForIdentity({
-    emailDomain: normalizeEmailDomain(input.companyDomain),
-    organizationId: null,
-  });
+  const stmt = integrationByIdStatement(input.integrationId);
+  const { rows } = await getPool().query<IntegrationRow>(stmt.sql, [...stmt.params]);
+  return rows[0];
 }
 
 function applicationFromPayload(payload: AshbyWebhookPayload): Record<string, unknown> | null {
@@ -252,14 +248,17 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       if (!identity || !reviewerEmail || !apiKey) {
         return reply
           .code(400)
-          .send({ error: "emailDomain, reviewerEmail, and ashbyApiKey are required" });
+          .send({ error: "organizationId, emailDomain, reviewerEmail, and ashbyApiKey are required" });
       }
 
       let jobs: Awaited<ReturnType<typeof listJobs>>;
       try {
         jobs = await listJobs({ apiKey });
       } catch (error) {
-        request.log.warn({ err: error, emailDomain: identity.emailDomain }, "failed to validate Ashby API key");
+        request.log.warn(
+          { ...safeErrorLogFields(error), emailDomain: identity.emailDomain },
+          "failed to validate Ashby API key",
+        );
         return reply.code(400).send({
           error: "Unable to validate Ashby API key.",
         });
@@ -297,6 +296,13 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         if (integrationId) {
           const stale = staleActiveApplicationsStatement(integrationId);
           await client.query(stale.sql, [...stale.params]);
+          const audit = ashbyIntegrationAuditInsertStatement({
+            integrationId,
+            actorEmail: reviewerEmail,
+            action: "api_key_replaced",
+            metadata: { selectedJobCount: 0 },
+          });
+          await client.query(audit.sql, [...audit.params]);
         }
         await client.query("COMMIT");
         committed = true;
@@ -316,7 +322,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       const row = rows[0];
       if (row?.identity_conflict) {
         return reply.code(409).send({
-          error: "Ashby identity conflict: organizationId and emailDomain match different integrations.",
+          error: "Ashby identity conflict for organizationId.",
         });
       }
 
@@ -346,7 +352,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       const baseUrl = publicBaseUrl(body?.publicBaseUrl);
       if (!identity || !reviewerEmail || jobs.length === 0 || !baseUrl) {
         return reply.code(400).send({
-          error: "emailDomain, reviewerEmail, selectedJobIds, and publicBaseUrl are required",
+          error: "organizationId, emailDomain, reviewerEmail, selectedJobIds, and publicBaseUrl are required",
         });
       }
 
@@ -361,12 +367,19 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         return reply.code(404).send({ error: "Ashby integration is not configured" });
       }
 
-      const apiKey = decryptIntegrationSecret(encryptedApiKey, integrationSecretKeyFromEnv());
+      const apiKey = decryptAshbyApiKey({
+        ciphertext: encryptedApiKey,
+        secretKey: integrationSecretKeyFromEnv(),
+        purpose: "selected-job-validation",
+      });
       let openJobs: Awaited<ReturnType<typeof listJobs>>;
       try {
         openJobs = await listJobs({ apiKey });
       } catch (error) {
-        request.log.warn({ err: error, integrationId }, "failed to validate selected Ashby jobs");
+        request.log.warn(
+          { ...safeErrorLogFields(error), integrationId },
+          "failed to validate selected Ashby jobs",
+        );
         return reply.code(400).send({
           error: "Unable to validate selected Ashby jobs.",
         });
@@ -396,6 +409,23 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         if (updated) {
           const stale = staleActiveApplicationsStatement(integrationId);
           await client.query(stale.sql, [...stale.params]);
+          const audit = ashbyIntegrationAuditInsertStatement({
+            integrationId,
+            actorEmail: reviewerEmail,
+            action: "jobs_selected",
+            metadata: { selectedJobCount: jobs.length },
+          });
+          await client.query(audit.sql, [...audit.params]);
+          for (const jobId of jobs) {
+            const profile = gradingProfileUpsertStatement({
+              profileId: randomUUID(),
+              organizationId: identity.organizationId,
+              ashbyIntegrationId: integrationId,
+              ashbyJobId: jobId,
+              actorEmail: reviewerEmail,
+            });
+            await client.query(profile.sql, [...profile.params]);
+          }
         }
         await client.query("COMMIT");
         committed = true;
@@ -417,10 +447,11 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         return reply.code(500).send({ error: "Ashby webhook secret is not configured" });
       }
 
-      const webhookSecret = decryptIntegrationSecret(
-        encryptedWebhookSecret,
-        integrationSecretKeyFromEnv(),
-      );
+      const webhookSecret = decryptAshbyWebhookSecret({
+        ciphertext: encryptedWebhookSecret,
+        secretKey: integrationSecretKeyFromEnv(),
+        purpose: "webhook-setup-display",
+      });
       return reply.send({
         integrationId,
         webhookUrl: `${baseUrl}/api/ashby/webhook?integrationId=${encodeURIComponent(integrationId)}`,
@@ -430,92 +461,16 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     },
   );
 
-  app.post<{ Body: AshbySetupRequest }>("/integrations/ashby/setup", async (request, reply) => {
-    const identity = companyIdentity(request.body);
-    const body = objectValue(request.body);
-    const apiKey = stringValue(body?.ashbyApiKey);
-    const jobs = selectedJobIds(body?.selectedJobIds);
-    if (!identity || !apiKey || jobs.length === 0) {
-      return reply
-        .code(400)
-        .send({ error: "emailDomain, ashbyApiKey, and selectedJobIds are required" });
-    }
-
-    let openJobs: Awaited<ReturnType<typeof listJobs>>;
-    try {
-      openJobs = await listJobs({ apiKey });
-    } catch (error) {
-      request.log.warn({ err: error, emailDomain: identity.emailDomain }, "failed to validate selected Ashby jobs");
-      return reply.code(400).send({
-        error: "Unable to validate selected Ashby jobs.",
-      });
-    }
-
-    const openJobIds = new Set(openJobs.map((job) => job.id));
-    const invalidJobIds = jobs.filter((jobId) => !openJobIds.has(jobId));
-    if (invalidJobIds.length > 0) {
-      return reply.code(400).send({
-        error: "Selected Ashby jobs are not open or no longer exist",
-      });
-    }
-
-    const encrypted = encryptIntegrationSecret(apiKey, integrationSecretKeyFromEnv());
-    const stmt = integrationSetupUpsertStatement({
-      organizationId: identity.organizationId,
-      emailDomain: identity.emailDomain,
-      ashbyApiKeyCiphertext: encrypted,
-      selectedJobIds: jobs,
+  app.post("/integrations/ashby/setup", async (_request, reply) => {
+    return reply.code(410).send({
+      error: "Legacy Ashby setup is disabled. Use self-serve onboarding.",
     });
-
-    const client = await getPool().connect();
-    let transactionClosed = false;
-    try {
-      await client.query("BEGIN");
-      const { rows } = await client.query<SetupRow>(stmt.sql, [...stmt.params]);
-      const row = rows[0];
-      if (row?.identity_conflict) {
-        await client.query("ROLLBACK");
-        transactionClosed = true;
-        return reply.code(409).send({
-          error: "Ashby identity conflict: organizationId and emailDomain match different integrations.",
-        });
-      }
-
-      const integrationId = stringValue(row?.integration_id);
-      if (!integrationId) {
-        await client.query("ROLLBACK");
-        transactionClosed = true;
-        return reply.code(500).send({ error: "Ashby integration setup did not return an integration id" });
-      }
-
-      const stale = staleActiveApplicationsStatement(integrationId);
-      await client.query(stale.sql, [...stale.params]);
-      await client.query("COMMIT");
-      transactionClosed = true;
-
-      return reply.code(201).send({
-        integrationId,
-        emailDomain: identity.emailDomain,
-        selectedJobIds: jobs,
-      });
-    } catch (error) {
-      if (!transactionClosed) {
-        try {
-          await client.query("ROLLBACK");
-        } catch (rollbackError) {
-          request.log.error({ err: rollbackError }, "failed to roll back Ashby setup transaction");
-        }
-      }
-      throw error;
-    } finally {
-      client.release();
-    }
   });
 
   app.post("/integrations/ashby/company-state", async (request, reply) => {
     const identity = companyIdentity(request.body);
     if (!identity) {
-      return reply.code(400).send({ error: "valid emailDomain is required" });
+      return reply.code(400).send({ error: "organizationId and valid emailDomain are required" });
     }
 
     const integration = await integrationForIdentity(identity);
@@ -540,7 +495,6 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const envelope = objectValue(request.body);
     const integration = await integrationForWebhook({
       integrationId: stringValue(envelope?.integrationId),
-      companyDomain: stringValue(envelope?.companyDomain),
     });
     const resolvedIntegrationId = integrationIdFrom(integration);
     if (!resolvedIntegrationId) {
@@ -558,10 +512,11 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return reply.code(404).send({ error: "Ashby webhook secret is not configured" });
     }
 
-    const webhookSecret = decryptIntegrationSecret(
-      encryptedWebhookSecret,
-      integrationSecretKeyFromEnv(),
-    );
+    const webhookSecret = decryptAshbyWebhookSecret({
+      ciphertext: encryptedWebhookSecret,
+      secretKey: integrationSecretKeyFromEnv(),
+      purpose: "webhook-signature-verification",
+    });
     if (
       !verifyAshbyWebhookSignature({
         body: rawBody,
@@ -686,7 +641,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const identity = companyIdentity(request.body);
       if (!identity) {
-        return reply.code(400).send({ error: "valid emailDomain is required" });
+        return reply.code(400).send({ error: "organizationId and valid emailDomain are required" });
       }
 
       const integration = await integrationForIdentity(identity);
@@ -711,7 +666,11 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         return reply.code(404).send({ error: "Ashby integration is not configured" });
       }
 
-      const apiKey = decryptIntegrationSecret(encryptedApiKey, integrationSecretKeyFromEnv());
+      const apiKey = decryptAshbyApiKey({
+        ciphertext: encryptedApiKey,
+        secretKey: integrationSecretKeyFromEnv(),
+        purpose: "active-application-sync",
+      });
       let syncedCount = 0;
       for (const jobId of jobIds) {
         const applications = await listActiveApplicationsForJob({ apiKey, integrationId, jobId });
@@ -724,6 +683,14 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
 
       const synced = markIntegrationSyncedStatement(integrationId);
       await getPool().query(synced.sql, [...synced.params]);
+      const actorEmail = stringValue((objectValue(request.body))?.reviewerEmail) ?? "system";
+      const audit = ashbyIntegrationAuditInsertStatement({
+        integrationId,
+        actorEmail,
+        action: "active_applications_synced",
+        metadata: { syncedCount, selectedJobCount: jobIds.length },
+      });
+      await getPool().query(audit.sql, [...audit.params]);
       return reply.send({ ok: true, syncedCount });
     },
   );
@@ -732,7 +699,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const identity = companyIdentity(request.body);
     const body = objectValue(request.body);
     if (!identity) {
-      return reply.code(400).send({ error: "valid emailDomain is required" });
+      return reply.code(400).send({ error: "organizationId and valid emailDomain are required" });
     }
 
     const integration = await integrationForIdentity(identity);
@@ -826,7 +793,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     const identity = companyIdentity(request.body);
     const body = objectValue(request.body);
     if (!identity) {
-      return reply.code(400).send({ error: "valid emailDomain is required" });
+      return reply.code(400).send({ error: "organizationId and valid emailDomain are required" });
     }
 
     const integration = await integrationForIdentity(identity);

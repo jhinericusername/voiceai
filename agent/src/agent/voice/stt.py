@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+DEEPGRAM_MODEL = "nova-3"
+
 
 class SttTranscript(BaseModel):
     """A finalized STT transcript with a reliability flag."""
@@ -27,7 +29,7 @@ def build_deepgram_stt(api_key: str) -> Any:  # pragma: no cover — vendor wiri
     from livekit.plugins import deepgram
 
     return deepgram.STT(
-        model="nova-3",
+        model=DEEPGRAM_MODEL,
         language="en-US",
         api_key=api_key,
         interim_results=True,
@@ -69,3 +71,7 @@ class DeepgramSTT:
         """Return `{text, end_of_turn}` for `CascadedVoiceAgent.listen`."""
         transcript = await self.next_final_transcript()
         return {"text": transcript.text, "end_of_turn": True}
+
+
+def deepgram_transcript_source(model: str = DEEPGRAM_MODEL) -> str:
+    return f"deepgram:{model}"

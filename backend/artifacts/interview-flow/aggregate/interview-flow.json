@@ -1,0 +1,1208 @@
+{
+  "global_interview_flow": {
+    "stages": [
+      {
+        "stage_id": "S1",
+        "stage_name": "Intro / Rapport & Small Talk",
+        "typical_position": "early",
+        "appears_in_n_interviews": 40,
+        "appears_in_percent": 91,
+        "purpose": "Open with location/weather small talk, ease the candidate in, and build rapport before substantive questions."
+      },
+      {
+        "stage_id": "S2",
+        "stage_name": "Background / Self-Introduction & Motivation",
+        "typical_position": "early",
+        "appears_in_n_interviews": 40,
+        "appears_in_percent": 91,
+        "purpose": "Elicit the candidate's career narrative, hobbies, company knowledge, and motivation (including 'why a startup / why this company')."
+      },
+      {
+        "stage_id": "S3",
+        "stage_name": "Technical / Project Deep Dive",
+        "typical_position": "middle",
+        "appears_in_n_interviews": 40,
+        "appears_in_percent": 91,
+        "purpose": "Probe the hardest/most technical thing built (often outside work), drilling into architecture, ownership, and difficulty to verify genuine technical depth."
+      },
+      {
+        "stage_id": "S4",
+        "stage_name": "Behavioral / YC-Style Personality Questions",
+        "typical_position": "middle",
+        "appears_in_n_interviews": 38,
+        "appears_in_percent": 86,
+        "purpose": "Assess agency (hacking a system / breaking rules), competitiveness (and its cost), motivation, and niche expertise/curiosity."
+      },
+      {
+        "stage_id": "S5",
+        "stage_name": "Candidate Questions & Logistics / Wrap-up",
+        "typical_position": "late",
+        "appears_in_n_interviews": 39,
+        "appears_in_percent": 89,
+        "purpose": "Invite candidate questions, then screen logistics (5-day in-person SF, visa sponsorship) and explain next steps (take-home, technical interviews with CTO Andrew, work trial)."
+      }
+    ]
+  },
+  "canonical_questions": [
+    {
+      "question_id": "CQ001",
+      "canonical_question": "Where are you calling in from?",
+      "stage_id": "S1",
+      "question_type": "intro",
+      "appears_in_n_interviews": 30,
+      "appears_in_percent": 68,
+      "representative_verbatim_variants": [
+        {
+          "text": "Where are you calling in from?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "I was wondering where are you calling in from?",
+          "source_transcript_id": "interview_020"
+        },
+        {
+          "text": "Calling in from?",
+          "source_transcript_id": "interview_012"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "greeting",
+          "description": "Immediately after initial greetings/audio check",
+          "frequency_estimate": "almost always"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "rapport / location context",
+        "explanation": "Standard icebreaker to ease the candidate in; location also doubles as soft context for the in-person SF role.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ002",
+      "canonical_question": "How's the weather there? / follow-up location small talk",
+      "stage_id": "S1",
+      "question_type": "intro",
+      "appears_in_n_interviews": 18,
+      "appears_in_percent": 41,
+      "representative_verbatim_variants": [
+        {
+          "text": "How's the weather?",
+          "source_transcript_id": "interview_023"
+        },
+        {
+          "text": "Is it cold?",
+          "source_transcript_id": "interview_002"
+        },
+        {
+          "text": "Is it, is it hot down there?",
+          "source_transcript_id": "interview_019"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "location_disclosed",
+          "description": "Candidate states their city/region",
+          "frequency_estimate": "common"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "rapport",
+        "explanation": "Light continuation of small talk to build comfort before substantive questions.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ003",
+      "canonical_question": "Can you tell me a bit about yourself?",
+      "stage_id": "S2",
+      "question_type": "background",
+      "appears_in_n_interviews": 30,
+      "appears_in_percent": 68,
+      "representative_verbatim_variants": [
+        {
+          "text": "Can you tell me a bit about yourself?",
+          "source_transcript_id": "interview_006"
+        },
+        {
+          "text": "Just, like, just a little bit about yourself, please.",
+          "source_transcript_id": "interview_042"
+        },
+        {
+          "text": "Can you just tell me a bit about yourself?",
+          "source_transcript_id": "interview_012"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "framing_done",
+          "description": "After interviewer introduces self and frames the call as personal/non-technical",
+          "frequency_estimate": "almost always"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "background and self-presentation",
+        "explanation": "Open-ended opener to learn the candidate's career arc and seed later probing.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ004",
+      "canonical_question": "What do you do for fun / what are your hobbies?",
+      "stage_id": "S2",
+      "question_type": "background",
+      "appears_in_n_interviews": 12,
+      "appears_in_percent": 27,
+      "representative_verbatim_variants": [
+        {
+          "text": "And what do you do for fun?",
+          "source_transcript_id": "interview_011"
+        },
+        {
+          "text": "And then what about your hobbies? Do you play any sports? Do you play video games?",
+          "source_transcript_id": "interview_020"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "after_self_intro",
+          "description": "Following the professional self-introduction",
+          "frequency_estimate": "common"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "personality / cultural fit",
+        "explanation": "Interviewers repeatedly framed the call as getting to know the candidate as a person; hobbies seed rapport and later niche-knowledge probes.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ005",
+      "canonical_question": "What do you know about Weave/WorkWeave?",
+      "stage_id": "S2",
+      "question_type": "motivation",
+      "appears_in_n_interviews": 8,
+      "appears_in_percent": 18,
+      "representative_verbatim_variants": [
+        {
+          "text": "For starters, what do you know about Weave?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "Can you start by telling me what you know about Weave?",
+          "source_transcript_id": "interview_011"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "after_self_intro",
+          "description": "Right after background, before technical deep dive",
+          "frequency_estimate": "occasional (earlier interviews)"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "preparation / genuine interest in the company",
+        "explanation": "Gauges how much research the candidate did; notably this question was more common in earlier transcripts and seems to drop out of the later, more refined script.",
+        "confidence": "medium"
+      }
+    },
+    {
+      "question_id": "CQ006",
+      "canonical_question": "Why do you want to work at a startup (vs. big tech)?",
+      "stage_id": "S2",
+      "question_type": "motivation",
+      "appears_in_n_interviews": 9,
+      "appears_in_percent": 20,
+      "representative_verbatim_variants": [
+        {
+          "text": "Why do you want to work at a startup?",
+          "source_transcript_id": "interview_029"
+        },
+        {
+          "text": "I guess my question is like why not big tech, right? You can make decent enough money, you could have a good work life balance.",
+          "source_transcript_id": "interview_033"
+        },
+        {
+          "text": "why do you want to work at a startup? Like, why not continue your agency? Why not get a nice corporate job that pays a lot of money?",
+          "source_transcript_id": "interview_026"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "after_self_intro",
+          "description": "After candidate describes background or current role",
+          "frequency_estimate": "common in later interviews"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "motivation / startup fit",
+        "explanation": "Tests whether the candidate genuinely wants startup intensity vs. comfort/money; sometimes posed as a challenge to test conviction.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ007",
+      "canonical_question": "What is the hardest thing you've built (technically / outside of work)?",
+      "stage_id": "S3",
+      "question_type": "project_deep_dive",
+      "appears_in_n_interviews": 38,
+      "appears_in_percent": 86,
+      "representative_verbatim_variants": [
+        {
+          "text": "Can you tell me about a genuinely hard problem you worked on where the final solution was not obvious so like you came up with something clever or elegant.",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "what is the most technical thing that you have built outside of work?",
+          "source_transcript_id": "interview_017"
+        },
+        {
+          "text": "What is the hardest thing that you've ever built? Technically?",
+          "source_transcript_id": "interview_050"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "transition_to_technical",
+          "description": "Interviewer explicitly marks 'one technical question' or 'let's dive in'",
+          "frequency_estimate": "almost always"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "technical depth and self-driven building",
+        "explanation": "The single most consistent substantive question; the 'outside of work' framing probes intrinsic motivation and genuine capability beyond assigned tasks.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ008",
+      "canonical_question": "What was the hardest part / the moment it got tougher than expected?",
+      "stage_id": "S3",
+      "question_type": "technical_depth",
+      "appears_in_n_interviews": 18,
+      "appears_in_percent": 41,
+      "representative_verbatim_variants": [
+        {
+          "text": "What was the hardest part? Like which specific piece of which workflow was like the hardest part to build?",
+          "source_transcript_id": "interview_026"
+        },
+        {
+          "text": "what was the one moment where you realized like, oh, shit, this is going to be a lot harder than I thought it was?",
+          "source_transcript_id": "interview_034"
+        },
+        {
+          "text": "what was the moment that you realized this problem was hard, like the oh, shit moment",
+          "source_transcript_id": "interview_012"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "high_level_project_described",
+          "description": "Candidate gives a broad/abstract project description",
+          "frequency_estimate": "very common after CQ007"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "depth of genuine difficulty / problem-solving",
+        "explanation": "Drills past surface descriptions to verify the candidate truly engineered something hard rather than routine work.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ009",
+      "canonical_question": "What was your specific individual role / were you the only one who built this?",
+      "stage_id": "S3",
+      "question_type": "ownership",
+      "appears_in_n_interviews": 7,
+      "appears_in_percent": 16,
+      "representative_verbatim_variants": [
+        {
+          "text": "And what was your role in this? Like were you the one who did everything from design to implementation? ... Very like specifically.",
+          "source_transcript_id": "interview_004"
+        },
+        {
+          "text": "I heard a lot of moving parts there ... What was your main contribution? What team were you on?",
+          "source_transcript_id": "interview_049"
+        },
+        {
+          "text": "And were you the only one on this because you said you'd found this and decided to do it yourself",
+          "source_transcript_id": "interview_006"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "team_framing",
+          "description": "Candidate describes project using 'we' or lists many components",
+          "frequency_estimate": "triggered when candidate uses collective framing"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "individual ownership / accountability",
+        "explanation": "When candidates speak in 'we' or describe many moving parts, the interviewer isolates personal contribution to assess real depth and agency.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ010",
+      "canonical_question": "How did you arrive at the solution / why is it not the obvious approach? (technical reasoning probe)",
+      "stage_id": "S3",
+      "question_type": "technical_depth",
+      "appears_in_n_interviews": 10,
+      "appears_in_percent": 23,
+      "representative_verbatim_variants": [
+        {
+          "text": "And how did you end up coming to the solution? Like what prompted you to this?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "what would be the obvious solution here? And then why is your solution not the obvious solution?",
+          "source_transcript_id": "interview_006"
+        },
+        {
+          "text": "if the embeddings are the same ... why would the RAG be different if we're doing cosine similarity on a vector DB versus on Pinecone versus on opensearch?",
+          "source_transcript_id": "interview_050"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "solution_claimed",
+          "description": "Candidate describes a clever/architectural choice",
+          "frequency_estimate": "common"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "originality of thought / first-principles understanding / honesty under challenge",
+        "explanation": "Tests whether the candidate genuinely understands tradeoffs; in stronger cases the interviewer challenges the premise directly (e.g., cosine similarity, metadata claims) to detect fabrication.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ011",
+      "canonical_question": "Have you ever applied to YC before?",
+      "stage_id": "S4",
+      "question_type": "background",
+      "appears_in_n_interviews": 17,
+      "appears_in_percent": 39,
+      "representative_verbatim_variants": [
+        {
+          "text": "Have you applied to yc? Like, yes or no?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "Have you ever applied to YC before?",
+          "source_transcript_id": "interview_011"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "setup_for_yc_question",
+          "description": "Immediately before asking the 'hacked a non-computer system' question",
+          "frequency_estimate": "almost always paired with CQ012"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "familiarity calibration / startup orientation",
+        "explanation": "Functions mainly as a setup to gauge whether the candidate has a rehearsed answer to the signature YC 'hacking' question that follows.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ012",
+      "canonical_question": "Tell me about a time you hacked a non-computer system / broke the rules to get what you wanted.",
+      "stage_id": "S4",
+      "question_type": "agency",
+      "appears_in_n_interviews": 32,
+      "appears_in_percent": 73,
+      "representative_verbatim_variants": [
+        {
+          "text": "Can you tell me about a time you successfully hacked a non computer system?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "can you tell me about the time that you hacked a system to your advantage? Maybe you broke some rules to get what you wanted?",
+          "source_transcript_id": "interview_034"
+        },
+        {
+          "text": "what is a system that you've successfully hacked to your advantage? ... have you broken the rules?",
+          "source_transcript_id": "interview_017"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "after_yc_check",
+          "description": "Right after asking if the candidate applied to YC",
+          "frequency_estimate": "very common"
+        },
+        {
+          "context_type": "transition_to_behavioral",
+          "description": "Interviewer signals 'fun questions' or 'changing lines of questioning'",
+          "frequency_estimate": "common"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "agency / resourcefulness / rule-bending mindset",
+        "explanation": "A signature YC-derived question used to surface scrappy, unconventional problem-solving valued in startup founders/early hires.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ013",
+      "canonical_question": "Tell me about a time your competitiveness became so intense it cost you something / the most extreme thing you've done to win.",
+      "stage_id": "S4",
+      "question_type": "competitiveness",
+      "appears_in_n_interviews": 33,
+      "appears_in_percent": 75,
+      "representative_verbatim_variants": [
+        {
+          "text": "can you tell me about an area of your life where this competitiveness that you had became so intense that it cost you something?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "What is the most insane thing that you have done to win?",
+          "source_transcript_id": "interview_031"
+        },
+        {
+          "text": "What's the most extreme thing that you did to win ... Did it cost you your friendships or something? Did you stay up 36 hours?",
+          "source_transcript_id": "interview_012"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "startup_competitiveness_framing",
+          "description": "Often framed with 'if you want to work at a startup you're competitive by nature'",
+          "frequency_estimate": "very common"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "drive / intensity / self-awareness of trade-offs",
+        "explanation": "Assesses competitive intensity (a stated company value) and whether the candidate reflects on the costs of that drive.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ014",
+      "canonical_question": "What motivated you to be this competitive? (underlying motivation probe)",
+      "stage_id": "S4",
+      "question_type": "motivation",
+      "appears_in_n_interviews": 7,
+      "appears_in_percent": 16,
+      "representative_verbatim_variants": [
+        {
+          "text": "What was the motivation? Did you just want to win? What is it? Was it dopamine?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "And then what motivated you to be this competitive? Is it just your desire to win?",
+          "source_transcript_id": "interview_003"
+        },
+        {
+          "text": "what motivated you to be competitive in the first place? ... why did you care?",
+          "source_transcript_id": "interview_009"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "competitiveness_story_given",
+          "description": "After candidate shares a competitiveness anecdote",
+          "frequency_estimate": "common follow-up to CQ013"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "intrinsic motivation / psychological driver",
+        "explanation": "Ladders from observed behavior down to the root driver (winning, dopamine, mission, high standards).",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ015",
+      "canonical_question": "What is one niche topic you are unusually knowledgeable about (top 1%)?",
+      "stage_id": "S4",
+      "question_type": "other",
+      "appears_in_n_interviews": 26,
+      "appears_in_percent": 59,
+      "representative_verbatim_variants": [
+        {
+          "text": "what is one niche topic that you are unusually knowledgeable about? ... What's your thing that you would say you're in the top 1%?",
+          "source_transcript_id": "interview_002"
+        },
+        {
+          "text": "what is one niche and obscure topic that you are unusually knowledgeable about?",
+          "source_transcript_id": "interview_043"
+        },
+        {
+          "text": "what are you in the top 1% of?",
+          "source_transcript_id": "interview_017"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "final_behavioral",
+          "description": "Frequently flagged as 'my last question'",
+          "frequency_estimate": "very common as closing behavioral question"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "intellectual curiosity / depth of obsession",
+        "explanation": "Surfaces capacity for deep, self-driven mastery and personality; interviewers often supply examples (anime card game, exoplanets) to prime the answer.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ016",
+      "canonical_question": "Are you an expert / in the top 1%? What have you done with this knowledge? (niche-depth verification)",
+      "stage_id": "S4",
+      "question_type": "follow_up",
+      "appears_in_n_interviews": 11,
+      "appears_in_percent": 25,
+      "representative_verbatim_variants": [
+        {
+          "text": "Would you say you're an expert? ... have you gambled before? Like do you put money on the line?",
+          "source_transcript_id": "interview_002"
+        },
+        {
+          "text": "Do you think you're in the top 1%? Do you think you're an expert here?",
+          "source_transcript_id": "interview_006"
+        },
+        {
+          "text": "What have you done with this knowledge? ... give me some examples of how you showcased this knowledge",
+          "source_transcript_id": "interview_012"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "niche_claim_made",
+          "description": "Candidate names a niche interest, sometimes hedging",
+          "frequency_estimate": "common follow-up to CQ015"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "authenticity / depth behind the claim",
+        "explanation": "Pushes from a stated interest to concrete evidence (ratings, actions, output) to verify genuine expertise vs. casual interest.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ017",
+      "canonical_question": "Do you have any questions for me?",
+      "stage_id": "S5",
+      "question_type": "wrap_up",
+      "appears_in_n_interviews": 35,
+      "appears_in_percent": 80,
+      "representative_verbatim_variants": [
+        {
+          "text": "All right, well, that's all the questions I have for you. Do you have any others from me?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "that's it from my end. Do you have any questions for me?",
+          "source_transcript_id": "interview_023"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "behavioral_complete",
+          "description": "After the final behavioral question (usually niche knowledge)",
+          "frequency_estimate": "almost always"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "candidate engagement / curiosity",
+        "explanation": "Standard close that also reveals what the candidate prioritizes and their genuine interest in the role.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ018",
+      "canonical_question": "This role is five days a week in person in San Francisco — does that work for you?",
+      "stage_id": "S5",
+      "question_type": "wrap_up",
+      "appears_in_n_interviews": 28,
+      "appears_in_percent": 64,
+      "representative_verbatim_variants": [
+        {
+          "text": "this role is five days a week in person in our San Francisco office. That sound good?",
+          "source_transcript_id": "interview_001"
+        },
+        {
+          "text": "This role is five days a week in San Francisco. Does that sound good?",
+          "source_transcript_id": "interview_019"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "logistics_block",
+          "description": "Often introduced as 'two final logistics questions'",
+          "frequency_estimate": "very common"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "logistical fit / in-person commitment",
+        "explanation": "Confirms a hard constraint of the role before advancing.",
+        "confidence": "high"
+      }
+    },
+    {
+      "question_id": "CQ019",
+      "canonical_question": "Would you require visa sponsorship to work here?",
+      "stage_id": "S5",
+      "question_type": "wrap_up",
+      "appears_in_n_interviews": 27,
+      "appears_in_percent": 61,
+      "representative_verbatim_variants": [
+        {
+          "text": "would you require visa sponsorship in order to work at workweave?",
+          "source_transcript_id": "interview_002"
+        },
+        {
+          "text": "And would you require any sponsorship in order to work at weave?",
+          "source_transcript_id": "interview_042"
+        }
+      ],
+      "common_preceding_contexts": [
+        {
+          "context_type": "after_in_person_question",
+          "description": "Immediately after the 5-day in-person question",
+          "frequency_estimate": "almost always paired with CQ018"
+        }
+      ],
+      "likely_reasoning": {
+        "primary_signal_sought": "work authorization / hiring feasibility",
+        "explanation": "Routine eligibility screening; sometimes followed by clarifying probes on visa type (OPT/STEM/H1B/TN/O1).",
+        "confidence": "high"
+      }
+    }
+  ],
+  "follow_up_logic": [
+    {
+      "parent_question_id": "CQ001",
+      "follow_up_question_id": "CQ002",
+      "trigger_condition": "Candidate states their location",
+      "appears_in_n_interviews": 18,
+      "appears_in_percent": 41,
+      "example_verbatim_follow_ups": [
+        "How's the weather?",
+        "Is it cold?",
+        "Where in Texas?"
+      ],
+      "reasoning": "Location naturally seeds continued small talk (weather, specific city) to deepen rapport.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ003",
+      "follow_up_question_id": "CQ004",
+      "trigger_condition": "Candidate finishes professional self-introduction",
+      "appears_in_n_interviews": 12,
+      "appears_in_percent": 27,
+      "example_verbatim_follow_ups": [
+        "And what do you do for fun?",
+        "What about your hobbies?"
+      ],
+      "reasoning": "Interviewers consistently pivot from professional background to hobbies to assess personality/fit.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ007",
+      "follow_up_question_id": "CQ008",
+      "trigger_condition": "Candidate gives an abstract or high-level project description without a concrete hardest moment",
+      "appears_in_n_interviews": 18,
+      "appears_in_percent": 41,
+      "example_verbatim_follow_ups": [
+        "What was the hardest part about it?",
+        "What was the moment you realized this was harder than you thought?"
+      ],
+      "reasoning": "Interviewers drill into the single hardest moment to verify genuine difficulty and problem-solving depth.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ007",
+      "follow_up_question_id": "CQ009",
+      "trigger_condition": "Candidate describes the project using 'we' or lists many components/team contributions",
+      "appears_in_n_interviews": 7,
+      "appears_in_percent": 16,
+      "example_verbatim_follow_ups": [
+        "What was your main contribution? What team were you on?",
+        "Were you the only person building this?"
+      ],
+      "reasoning": "Collective framing prompts the interviewer to isolate the candidate's individual ownership.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ007",
+      "follow_up_question_id": "CQ010",
+      "trigger_condition": "Candidate describes a clever/architectural solution or makes a non-obvious technical claim",
+      "appears_in_n_interviews": 10,
+      "appears_in_percent": 23,
+      "example_verbatim_follow_ups": [
+        "What was the obvious solution and why is yours not obvious?",
+        "How did you come up with it?",
+        "Why use an external vector DB instead of AWS?"
+      ],
+      "reasoning": "Probes reasoning/tradeoffs to test originality and, in stronger cases, to challenge claims for honesty.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ011",
+      "follow_up_question_id": "CQ012",
+      "trigger_condition": "Interviewer has confirmed (or not) prior YC exposure and proceeds to the signature question",
+      "appears_in_n_interviews": 16,
+      "appears_in_percent": 36,
+      "example_verbatim_follow_ups": [
+        "So you may already have an answer to this... can you tell me about a time you hacked a non-computer system?"
+      ],
+      "reasoning": "The YC-application check is a near-deterministic setup for the 'hacking a system' agency question.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ012",
+      "follow_up_question_id": "CQ012B_clarify",
+      "trigger_condition": "Candidate is confused or draws a blank on the abstract 'hacking a system' question",
+      "appears_in_n_interviews": 9,
+      "appears_in_percent": 20,
+      "example_verbatim_follow_ups": [
+        "It doesn't need to be technical — maybe you hacked your sleep schedule (4.5 hours + nap)...",
+        "Some people put flyers on cars in concert parking lots..."
+      ],
+      "reasoning": "Interviewers commonly scaffold with concrete examples (sleep hacking, concert flyering, forging documents) to unblock the candidate.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ013",
+      "follow_up_question_id": "CQ014",
+      "trigger_condition": "Candidate gives a competitiveness story (especially a generic or harmonious one)",
+      "appears_in_n_interviews": 7,
+      "appears_in_percent": 16,
+      "example_verbatim_follow_ups": [
+        "What motivated you to be this competitive? Was it dopamine?",
+        "Why did you care?"
+      ],
+      "reasoning": "Ladders from the anecdote to the root motivation; sometimes re-asked when the first answer is generic.",
+      "confidence": "medium"
+    },
+    {
+      "parent_question_id": "CQ015",
+      "follow_up_question_id": "CQ016",
+      "trigger_condition": "Candidate names a niche interest, often hedging on whether they are truly expert",
+      "appears_in_n_interviews": 11,
+      "appears_in_percent": 25,
+      "example_verbatim_follow_ups": [
+        "Would you say you're an expert?",
+        "What's your chess Elo / puzzle rating?",
+        "What have you done with this knowledge?"
+      ],
+      "reasoning": "Interviewers push for concrete, verifiable evidence (ratings, actions, output) to test authenticity of the claimed depth.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ017",
+      "follow_up_question_id": "CQ018",
+      "trigger_condition": "Candidate questions answered; interviewer transitions to logistics",
+      "appears_in_n_interviews": 28,
+      "appears_in_percent": 64,
+      "example_verbatim_follow_ups": [
+        "I have two final logistics questions. This role is five days a week in SF..."
+      ],
+      "reasoning": "Standard sequence: candidate Q&A then a paired logistics block.",
+      "confidence": "high"
+    },
+    {
+      "parent_question_id": "CQ018",
+      "follow_up_question_id": "CQ019",
+      "trigger_condition": "Candidate confirms in-person availability",
+      "appears_in_n_interviews": 26,
+      "appears_in_percent": 59,
+      "example_verbatim_follow_ups": [
+        "And would you require any visa sponsorship?"
+      ],
+      "reasoning": "Two logistics questions are almost always asked back-to-back as a closing screen.",
+      "confidence": "high"
+    }
+  ],
+  "flowchart": {
+    "nodes": [
+      {
+        "id": "CQ001",
+        "label": "Where calling from?",
+        "full_question": "Where are you calling in from?",
+        "stage": "Intro / Rapport",
+        "frequency_percent": 68
+      },
+      {
+        "id": "CQ002",
+        "label": "Weather small talk",
+        "full_question": "How's the weather there?",
+        "stage": "Intro / Rapport",
+        "frequency_percent": 41
+      },
+      {
+        "id": "CQ003",
+        "label": "Tell me about yourself",
+        "full_question": "Can you tell me a bit about yourself?",
+        "stage": "Background",
+        "frequency_percent": 68
+      },
+      {
+        "id": "CQ004",
+        "label": "Hobbies / fun",
+        "full_question": "What do you do for fun?",
+        "stage": "Background",
+        "frequency_percent": 27
+      },
+      {
+        "id": "CQ005",
+        "label": "What do you know about Weave?",
+        "full_question": "What do you know about Weave/WorkWeave?",
+        "stage": "Background",
+        "frequency_percent": 18
+      },
+      {
+        "id": "CQ006",
+        "label": "Why a startup?",
+        "full_question": "Why do you want to work at a startup vs. big tech?",
+        "stage": "Background",
+        "frequency_percent": 20
+      },
+      {
+        "id": "CQ007",
+        "label": "Hardest thing built",
+        "full_question": "What is the hardest thing you've built (technically / outside of work)?",
+        "stage": "Technical Deep Dive",
+        "frequency_percent": 86
+      },
+      {
+        "id": "CQ008",
+        "label": "Hardest part / moment",
+        "full_question": "What was the hardest part / the moment it got tougher than expected?",
+        "stage": "Technical Deep Dive",
+        "frequency_percent": 41
+      },
+      {
+        "id": "CQ009",
+        "label": "Your specific role?",
+        "full_question": "What was your specific individual role / were you the only one?",
+        "stage": "Technical Deep Dive",
+        "frequency_percent": 16
+      },
+      {
+        "id": "CQ010",
+        "label": "How/why this solution?",
+        "full_question": "How did you arrive at the solution / why not the obvious approach?",
+        "stage": "Technical Deep Dive",
+        "frequency_percent": 23
+      },
+      {
+        "id": "CQ011",
+        "label": "Applied to YC?",
+        "full_question": "Have you ever applied to YC before?",
+        "stage": "Behavioral / YC-Style",
+        "frequency_percent": 39
+      },
+      {
+        "id": "CQ012",
+        "label": "Hacked a system?",
+        "full_question": "Tell me about a time you hacked a non-computer system / broke rules to get what you wanted.",
+        "stage": "Behavioral / YC-Style",
+        "frequency_percent": 73
+      },
+      {
+        "id": "CQ013",
+        "label": "Competitiveness cost",
+        "full_question": "Tell me about a time your competitiveness cost you something / most extreme thing to win.",
+        "stage": "Behavioral / YC-Style",
+        "frequency_percent": 75
+      },
+      {
+        "id": "CQ014",
+        "label": "Why competitive?",
+        "full_question": "What motivated you to be this competitive?",
+        "stage": "Behavioral / YC-Style",
+        "frequency_percent": 16
+      },
+      {
+        "id": "CQ015",
+        "label": "Niche top-1% topic",
+        "full_question": "What is one niche topic you are unusually knowledgeable about (top 1%)?",
+        "stage": "Behavioral / YC-Style",
+        "frequency_percent": 59
+      },
+      {
+        "id": "CQ016",
+        "label": "Verify expertise",
+        "full_question": "Are you an expert? What have you done with this knowledge?",
+        "stage": "Behavioral / YC-Style",
+        "frequency_percent": 25
+      },
+      {
+        "id": "CQ017",
+        "label": "Your questions?",
+        "full_question": "Do you have any questions for me?",
+        "stage": "Wrap-up / Logistics",
+        "frequency_percent": 80
+      },
+      {
+        "id": "CQ018",
+        "label": "5 days in SF?",
+        "full_question": "This role is five days a week in person in San Francisco — does that work?",
+        "stage": "Wrap-up / Logistics",
+        "frequency_percent": 64
+      },
+      {
+        "id": "CQ019",
+        "label": "Visa sponsorship?",
+        "full_question": "Would you require visa sponsorship to work here?",
+        "stage": "Wrap-up / Logistics",
+        "frequency_percent": 61
+      }
+    ],
+    "edges": [
+      {
+        "from": "CQ001",
+        "to": "CQ002",
+        "condition": "Candidate states location",
+        "edge_label": "rapport continuation",
+        "frequency_percent": 41,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ002",
+        "to": "CQ003",
+        "condition": "Small talk concludes",
+        "edge_label": "begin substantive interview",
+        "frequency_percent": 41,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ001",
+        "to": "CQ003",
+        "condition": "Skip weather; go straight to intro",
+        "edge_label": "direct to background",
+        "frequency_percent": 30,
+        "confidence": "medium"
+      },
+      {
+        "from": "CQ003",
+        "to": "CQ004",
+        "condition": "Self-intro complete; pivot to personal",
+        "edge_label": "hobbies probe",
+        "frequency_percent": 27,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ003",
+        "to": "CQ005",
+        "condition": "Earlier interviews check company knowledge",
+        "edge_label": "company knowledge",
+        "frequency_percent": 18,
+        "confidence": "medium"
+      },
+      {
+        "from": "CQ003",
+        "to": "CQ006",
+        "condition": "Candidate mentions current role/startup interest",
+        "edge_label": "motivation probe",
+        "frequency_percent": 20,
+        "confidence": "medium"
+      },
+      {
+        "from": "CQ004",
+        "to": "CQ007",
+        "condition": "Hobbies discussed; transition to technical",
+        "edge_label": "to technical",
+        "frequency_percent": 25,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ006",
+        "to": "CQ007",
+        "condition": "Motivation answered",
+        "edge_label": "to technical",
+        "frequency_percent": 18,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ007",
+        "to": "CQ008",
+        "condition": "Project described abstractly",
+        "edge_label": "drill hardest part",
+        "frequency_percent": 41,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ007",
+        "to": "CQ009",
+        "condition": "Candidate uses 'we' / team framing",
+        "edge_label": "isolate ownership",
+        "frequency_percent": 16,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ007",
+        "to": "CQ010",
+        "condition": "Clever solution claimed",
+        "edge_label": "probe reasoning/challenge",
+        "frequency_percent": 23,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ008",
+        "to": "CQ011",
+        "condition": "Technical depth satisfied",
+        "edge_label": "to behavioral",
+        "frequency_percent": 30,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ010",
+        "to": "CQ011",
+        "condition": "Reasoning verified",
+        "edge_label": "to behavioral",
+        "frequency_percent": 15,
+        "confidence": "medium"
+      },
+      {
+        "from": "CQ011",
+        "to": "CQ012",
+        "condition": "YC familiarity established",
+        "edge_label": "ask signature agency Q",
+        "frequency_percent": 36,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ007",
+        "to": "CQ012",
+        "condition": "No YC setup; directly switch to behavioral",
+        "edge_label": "agency question",
+        "frequency_percent": 30,
+        "confidence": "medium"
+      },
+      {
+        "from": "CQ012",
+        "to": "CQ013",
+        "condition": "Agency answer given",
+        "edge_label": "competitiveness theme",
+        "frequency_percent": 50,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ013",
+        "to": "CQ014",
+        "condition": "Competitiveness story given (esp. generic)",
+        "edge_label": "probe motivation",
+        "frequency_percent": 16,
+        "confidence": "medium"
+      },
+      {
+        "from": "CQ013",
+        "to": "CQ015",
+        "condition": "Competitiveness explored; final question",
+        "edge_label": "niche knowledge",
+        "frequency_percent": 45,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ014",
+        "to": "CQ015",
+        "condition": "Motivation surfaced",
+        "edge_label": "niche knowledge",
+        "frequency_percent": 14,
+        "confidence": "medium"
+      },
+      {
+        "from": "CQ015",
+        "to": "CQ016",
+        "condition": "Candidate names niche / hedges",
+        "edge_label": "verify depth",
+        "frequency_percent": 25,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ015",
+        "to": "CQ017",
+        "condition": "Behavioral block complete",
+        "edge_label": "open floor",
+        "frequency_percent": 45,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ016",
+        "to": "CQ017",
+        "condition": "Depth verified",
+        "edge_label": "open floor",
+        "frequency_percent": 20,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ017",
+        "to": "CQ018",
+        "condition": "Candidate questions answered",
+        "edge_label": "logistics block",
+        "frequency_percent": 60,
+        "confidence": "high"
+      },
+      {
+        "from": "CQ018",
+        "to": "CQ019",
+        "condition": "In-person confirmed",
+        "edge_label": "sponsorship check",
+        "frequency_percent": 59,
+        "confidence": "high"
+      }
+    ]
+  },
+  "mermaid_flowchart": "flowchart TD\n    CQ001[\"Where calling from? (68%)\"] --> CQ002[\"Weather small talk (41%)\"]\n    CQ001 --> CQ003[\"Tell me about yourself (68%)\"]\n    CQ002 --> CQ003\n    CQ003 --> CQ004[\"Hobbies / fun (27%)\"]\n    CQ003 --> CQ005[\"What do you know about Weave? (18%)\"]\n    CQ003 --> CQ006[\"Why a startup? (20%)\"]\n    CQ004 --> CQ007[\"Hardest thing built (86%)\"]\n    CQ006 --> CQ007\n    CQ005 --> CQ007\n    CQ007 -->|abstract answer| CQ008[\"Hardest part / moment (41%)\"]\n    CQ007 -->|uses 'we'| CQ009[\"Your specific role? (16%)\"]\n    CQ007 -->|clever solution| CQ010[\"How/why this solution? (23%)\"]\n    CQ008 --> CQ011[\"Applied to YC? (39%)\"]\n    CQ009 --> CQ011\n    CQ010 --> CQ011\n    CQ007 -->|no YC setup| CQ012\n    CQ011 -->|setup| CQ012[\"Hacked a system? (73%)\"]\n    CQ012 --> CQ013[\"Competitiveness cost (75%)\"]\n    CQ013 -->|generic answer| CQ014[\"Why competitive? (16%)\"]\n    CQ013 --> CQ015[\"Niche top-1% topic (59%)\"]\n    CQ014 --> CQ015\n    CQ015 -->|hedge/claim| CQ016[\"Verify expertise (25%)\"]\n    CQ015 --> CQ017[\"Your questions? (80%)\"]\n    CQ016 --> CQ017\n    CQ017 --> CQ018[\"5 days in SF? (64%)\"]\n    CQ018 --> CQ019[\"Visa sponsorship? (61%)\"]\n",
+  "summary": {
+    "top_level_interview_strategy": "A highly standardized, lightly-technical screening call (~13-17 min) optimized for personality/founder-fit rather than deep coding skill. The interviewer (Prakul/Rakul, an engineer-recruiter at Weave/WorkWeave) follows a consistent funnel: rapport small talk -> self-intro/hobbies/motivation -> ONE technical 'hardest thing you built' deep dive (drilling for genuine difficulty and individual ownership) -> a battery of YC-derived behavioral questions (hacking a system, competitiveness cost, top-1% niche knowledge) -> candidate Q&A -> two logistics screens (5-day in-person SF, visa sponsorship). The interviewer explicitly frames most calls as 'getting to know you as a person.'",
+    "likely_core_question_sequence": [
+      "Hey, how are you? Where are you calling in from?",
+      "Could you tell me a little about yourself?",
+      "Can you recall a time when you solved a technical problem with a clever, novel, or hacky solution?",
+      "Have you ever applied to YC before?",
+      "The reason I ask is that there's a question on the YC application we really like. It's the same question I'd like to ask you: Can you tell me about a time you hacked a non-computer system to your advantage?",
+      "Can you tell me about an area of your life outside of work where you are extremely competitive?",
+      "Can you describe the single most extreme instance of you being competitive in this particular thing?",
+      "Can you tell me about a niche or obscure non-technical topic that nobody knows about and nobody cares about, but you are an expert in? Meaning you're in the top 1% of knowledge about this non-technical topic?"
+    ],
+    "most_common_questions": [
+      "What is the hardest thing you've built (technically / outside of work)? (~86%)",
+      "Tell me about a time your competitiveness cost you something / most extreme thing to win (~75%)",
+      "Tell me about a time you hacked a non-computer system / broke the rules (~73%)",
+      "Can you tell me a bit about yourself? (~68%)",
+      "Where are you calling in from? (~68%)",
+      "What is one niche topic you're unusually knowledgeable about (top 1%)? (~59%)",
+      "Do you have any questions for me? (~80%)",
+      "5 days/week in-person SF + visa sponsorship logistics (~60-64%)"
+    ],
+    "most_common_probe_triggers": [
+      "Abstract/high-level project answer -> 'what was the hardest part / oh-shit moment'",
+      "Candidate uses 'we' or lists many components -> 'what was YOUR specific role?'",
+      "Candidate makes a non-obvious technical claim -> 'why not the obvious approach?' / direct challenge",
+      "Candidate names a niche interest (often hedging) -> 'are you top 1%? what have you done with it?'",
+      "Candidate gives a generic competitiveness story -> 'what motivated you / why did you care?'",
+      "Candidate stalls on the 'hacking a system' question -> interviewer supplies concrete scaffolding examples (sleep hacking, concert flyering)"
+    ],
+    "signals_interviewer_prioritizes": [
+      "Agency / resourcefulness / willingness to bend rules (the YC 'hacking a system' question)",
+      "Competitive drive and intensity, plus self-awareness of its costs",
+      "Genuine technical depth and individual ownership (not team-credit or buzzwords)",
+      "Intellectual curiosity / obsessive depth in some niche",
+      "Authentic, company-specific or startup-specific motivation (vs. money/comfort)",
+      "Honesty under challenge (notably in interview_010 and interview_050 where claims were stress-tested)",
+      "Logistical fit: in-person SF willingness and work authorization"
+    ],
+    "surprising_patterns": [
+      "The 'hardest thing you've built' is framed 'outside of work' in many later interviews, deliberately probing intrinsic motivation rather than just job competence.",
+      "The YC-application check (CQ011) is almost never an end in itself — it functions as a deterministic setup for the 'hacked a system' question.",
+      "Technical rigor varies dramatically: most calls accept the technical answer at face value, but a minority (interview_010, interview_050) become adversarial fact-checks, and in interview_010 the interviewer caught a candidate reading answers off a screen and ended early.",
+      "Several 'interviews' inverted the dynamic: candidates were actually founders/not job-seeking (interview_013, interview_040, interview_041), turning the call into mentorship/networking rather than evaluation.",
+      "Competitiveness is treated as a near-assumed trait ('if you want to work at a startup, you're competitive by nature'), which can lead the candidate toward a desired answer.",
+      "The closing logistics pair (5-day SF in-person + visa) is remarkably scripted and consistent across interviewers."
+    ],
+    "low_confidence_findings": [
+      "Exact frequencies are estimates: 6 transcripts (interview_015, 021, 022, 025, 032, 037, 044, 046) were empty or near-empty, so percentages are computed against 44 usable transcripts but reported against 50 where noted — treat all percentages as approximate.",
+      "Whether the company-knowledge question (CQ005) is a deliberately retired part of the script or just interviewer-dependent is unclear; it concentrates in lower-numbered transcripts.",
+      "The motivation follow-up to competitiveness (CQ014) and ownership probe (CQ009) appear in fewer than ~16% of interviews and may be under-counted due to inconsistent extraction labeling.",
+      "Interviewer reasoning is inferred from question content and occasional explicit statements, not from stated rubrics (one transcript, interview_016, reveals a rubric: conscientiousness, agency, competitiveness, curiosity/production experience).",
+      "Stage boundaries and 'typical_position' are interpretive; some interviews reorder behavioral and technical blocks.",
+      "Two candidate names and several entities are transcription-approximate (ASR noise), so any verbatim quotes may differ slightly from intended phrasing."
+    ]
+  }
+}

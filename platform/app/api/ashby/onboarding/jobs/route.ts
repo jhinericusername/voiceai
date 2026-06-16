@@ -5,8 +5,9 @@ import {
   ASHBY_ONBOARDING_ADMIN_DENIED_ERROR,
   canManageAshbyOnboarding,
 } from "@/lib/auth/ashby-onboarding-admin";
-import { isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
+import { canViewDashboard, sessionOrganizationId } from "@/lib/auth/org-access.mjs";
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
+import { publicBaseUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +18,12 @@ export async function POST(request: Request) {
     backendBaseUrl,
     backendHeaders,
     canManageAshbyOnboarding,
+    canViewDashboard,
     companyIdentityFromUser,
     fetchImpl: fetch,
-    isAllowedAuthEmail,
     logger: console,
-    publicBaseUrl: process.env.PUDDLE_PUBLIC_BASE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+    publicBaseUrl: publicBaseUrl(),
+    sessionOrganizationId,
     session,
   });
 }

@@ -322,6 +322,30 @@ button {
   transform: translateY(-2px);
 }
 
+@media (min-width: 1700px) and (min-height: 980px) {
+  .puddle-workflow-shell {
+    max-width: 80rem;
+  }
+
+  .puddle-workflow-grid {
+    gap: 2.5rem;
+  }
+
+  .puddle-workflow-stage {
+    height: 560px;
+  }
+
+  .puddle-workflow-shell .puddle-how-heading-title {
+    font-size: 2.5rem;
+    line-height: 1.15;
+  }
+
+  .puddle-workflow-shell .puddle-how-heading-copy {
+    font-size: 1.125rem;
+    line-height: 2rem;
+  }
+}
+
 .puddle-how-artifact-motion {
   color: #e2e8f0;
   opacity: 1;

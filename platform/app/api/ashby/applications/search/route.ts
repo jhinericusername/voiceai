@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
-import { companyIdentityFromUser } from "@/lib/ashby/server";
-import { isAllowedAuthEmail } from "@/lib/auth/allowed-domains";
+import { requireAshbyReadyDashboardApiAccess } from "@/lib/ashby/dashboard-api-readiness.mjs";
+import { dashboardApiReadinessContext } from "@/lib/ashby/dashboard-api-readiness-context";
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
 export const dynamic = "force-dynamic";
@@ -11,17 +10,10 @@ function objectBody(value: unknown): Record<string, unknown> {
 }
 
 export async function POST(request: Request) {
-  const { user, organizationId } = await withAuth();
-  if (!user) {
-    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
-  }
-
-  if (!isAllowedAuthEmail(user.email)) {
-    return NextResponse.json({ error: "Email domain is not allowed." }, { status: 403 });
-  }
+  const access = await requireAshbyReadyDashboardApiAccess(dashboardApiReadinessContext());
+  if (access.response) return access.response;
 
   const body = objectBody(await request.json().catch(() => ({})));
-  const identity = companyIdentityFromUser({ email: user.email, organizationId });
 
   let response: Response;
   try {
@@ -29,7 +21,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: backendHeaders(),
       body: JSON.stringify({
-        ...identity,
+        ...access.identity,
         jobId: typeof body.jobId === "string" ? body.jobId : null,
         query: typeof body.query === "string" ? body.query : "",
         limit: 8,

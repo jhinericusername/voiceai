@@ -33,8 +33,8 @@ test("dashboard pages use the compact workspace width", () => {
   assert.equal(dashboardSource.includes("max-w-[1440px]"), false);
 });
 
-test("dashboard overview keeps review queue compact", () => {
-  assert.ok(overviewSource.includes("<NeedsReviewQueue limit={3} />"));
+test("dashboard home redirects and operational pages stay compact", () => {
+  assert.match(overviewSource, /redirect\("\/dashboard\/roles"\)/);
   assert.equal(dashboardSource.includes("min-w-[980px]"), false);
 });
 
