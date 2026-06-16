@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const orgAccess = await import(new URL("../lib/auth/org-access.mjs", import.meta.url));
+const dashboardApiReadiness = await import(
+  new URL("../lib/ashby/dashboard-api-readiness.mjs", import.meta.url),
+);
 const dashboardAuthSource = await readFile(new URL("../app/dashboard/auth.ts", import.meta.url), "utf8");
 const dashboardLayoutSource = await readFile(new URL("../app/dashboard/layout.tsx", import.meta.url), "utf8");
 const notAuthorizedSource = await readFile(new URL("../app/not-authorized/page.tsx", import.meta.url), "utf8");
@@ -12,6 +15,10 @@ const ashbyAdminSource = await readFile(
 );
 const orgAccessSource = await readFile(new URL("../lib/auth/org-access.mjs", import.meta.url), "utf8");
 const ashbyServerSource = await readFile(new URL("../lib/ashby/server.ts", import.meta.url), "utf8");
+const dashboardApiReadinessSource = await readFile(
+  new URL("../lib/ashby/dashboard-api-readiness.mjs", import.meta.url),
+  "utf8",
+);
 const dashboardBackendSource = await readFile(
   new URL("../app/dashboard/backend-data.ts", import.meta.url),
   "utf8",
@@ -35,6 +42,15 @@ const dashboardActionRoutes = await Promise.all(
     source: await readFile(new URL(path, import.meta.url), "utf8"),
   })),
 );
+
+async function pathExists(relativePath) {
+  try {
+    await access(new URL(relativePath, import.meta.url));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function orgSession(overrides = {}) {
   return {
@@ -101,12 +117,13 @@ test("dashboard auth is org-based, not allowed-domain based", () => {
   assert.match(notAuthorizedSource, /searchParams/);
 });
 
-test("dashboard layout does not block interview detail routes behind Ashby onboarding", () => {
+test("dashboard layout gates interview detail routes behind completed Ashby onboarding", () => {
   assert.match(dashboardLayoutSource, /requireDashboardUser/);
   assert.match(dashboardLayoutSource, /DashboardChrome/);
-  assert.doesNotMatch(dashboardLayoutSource, /AshbyOnboardingWizard/);
-  assert.doesNotMatch(dashboardLayoutSource, /getAshbyCompanyState/);
-  assert.doesNotMatch(dashboardLayoutSource, /if\s*\(!onboardingComplete\)/);
+  assert.match(dashboardLayoutSource, /AshbySetupOnlyScreen/);
+  assert.match(dashboardLayoutSource, /companyIdentityFromUser/);
+  assert.match(dashboardLayoutSource, /getAshbyCompanyState/);
+  assert.match(dashboardLayoutSource, /if\s*\(!onboardingComplete\)/);
 });
 
 test("backend tenant identity requires WorkOS organizationId", () => {
@@ -122,9 +139,8 @@ test("backend tenant identity requires WorkOS organizationId", () => {
 test("interview detail page displays Fireflies provenance without domain lookup access", () => {
   assert.match(interviewDetailPageSource, /Historical Fireflies import/);
   assert.match(interviewDetailPageSource, /Fireflies historical import/);
-  assert.match(interviewDetailPageSource, /Transcript ID/);
-  assert.match(interviewDetailPageSource, /Source occurrence/);
   assert.match(interviewDetailPageSource, /external_source\s*===\s*"fireflies"/);
+  assert.doesNotMatch(interviewDetailPageSource, /Transcript ID/);
   assert.doesNotMatch(interviewDetailPageSource, /isAllowedAuthEmail/);
   assert.doesNotMatch(interviewDetailPageSource, /allowedAuthDomains/);
 });
@@ -135,13 +151,80 @@ test("Ashby setup helper is WorkOS permission-first with opt-in bootstrap", () =
   assert.match(orgAccessSource, /PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS/);
 });
 
-test("state-changing dashboard API routes require org dashboard access", () => {
+test("state-changing dashboard API routes require completed Ashby onboarding", () => {
+  assert.match(dashboardApiReadinessSource, /canViewDashboard/);
+  assert.match(dashboardApiReadinessSource, /getAshbyCompanyState/);
+  assert.match(dashboardApiReadinessSource, /isAshbyDashboardReady/);
+  assert.match(dashboardApiReadinessSource, /Complete Ashby onboarding/);
+
   for (const { path, source } of dashboardActionRoutes) {
-    assert.match(source, /canViewDashboard/, `${path} should check dashboard permission`);
-    assert.match(source, /sessionOrganizationId/, `${path} should require organizationId`);
+    assert.match(source, /requireAshbyReadyDashboardApiAccess/, `${path} should use the shared readiness guard`);
+    assert.doesNotMatch(source, /canViewDashboard/, `${path} should not hand-roll dashboard readiness`);
     assert.doesNotMatch(source, /isAllowedAuthEmail/, `${path} should not authorize by domain`);
     assert.doesNotMatch(source, /workos-user:/, `${path} should not fall back to per-user org ids`);
   }
+});
+
+test("dashboard API readiness guard denies setup-incomplete org members before downstream work", async () => {
+  let companyStateLookups = 0;
+
+  const result = await dashboardApiReadiness.requireAshbyReadyDashboardApiAccess({
+    withAuth: async () => orgSession(),
+    canViewDashboard: () => true,
+    sessionOrganizationId: (session) => session.organizationId,
+    companyIdentityFromUser: ({ email, organizationId }) => ({
+      emailDomain: email.split("@")[1],
+      organizationId,
+    }),
+    getAshbyCompanyState: async () => {
+      companyStateLookups += 1;
+      return {
+        connected: true,
+        setupStatus: "pending_jobs",
+        integrationId: "int_123",
+        emailDomain: "workweave.ai",
+        selectedJobIds: [],
+        lastPingAt: null,
+        lastSyncAt: null,
+      };
+    },
+    isAshbyDashboardReady: () => false,
+    responseJson: (payload, status) => ({ payload, status }),
+  });
+
+  assert.equal(companyStateLookups, 1);
+  assert.equal(result.response.status, 409);
+  assert.match(result.response.payload.error, /Complete Ashby onboarding/);
+});
+
+test("dashboard API readiness guard returns identity for ready org members", async () => {
+  const result = await dashboardApiReadiness.requireAshbyReadyDashboardApiAccess({
+    withAuth: async () => orgSession(),
+    canViewDashboard: () => true,
+    sessionOrganizationId: (session) => session.organizationId,
+    companyIdentityFromUser: ({ email, organizationId }) => ({
+      emailDomain: email.split("@")[1],
+      organizationId,
+    }),
+    getAshbyCompanyState: async () => ({
+      connected: true,
+      setupStatus: "connected",
+      integrationId: "int_123",
+      emailDomain: "workweave.ai",
+      selectedJobIds: ["job_123"],
+      lastPingAt: "2026-06-15T12:00:00.000Z",
+      lastSyncAt: "2026-06-15T12:00:00.000Z",
+    }),
+    isAshbyDashboardReady: () => true,
+    responseJson: (payload, status) => ({ payload, status }),
+  });
+
+  assert.equal(result.response, null);
+  assert.equal(result.organizationId, "org_workweave");
+  assert.deepEqual(result.identity, {
+    emailDomain: "workweave.ai",
+    organizationId: "org_workweave",
+  });
 });
 
 test("team invitations require current org and team invite permission", () => {
@@ -152,6 +235,12 @@ test("team invitations require current org and team invite permission", () => {
   assert.doesNotMatch(teamInvitationRouteSource, /isAllowedAuthEmail\(user\.email\)/);
   assert.doesNotMatch(teamInvitationRouteSource, /\?\.\.\(organizationId/);
 
-  assert.match(teamPageSource, /WorkOS organization/);
+  assert.match(teamPageSource, /redirect\("\/dashboard\/settings"\)/);
+  assert.doesNotMatch(teamPageSource, /DashboardActionButton/);
+  assert.doesNotMatch(teamPageSource, /allowedAuthDomains/);
   assert.doesNotMatch(teamPageSource, /approved pilot domains/);
+});
+
+test("legacy dashboard action event components are removed", async () => {
+  assert.equal(await pathExists("../app/dashboard/DashboardActionButton.tsx"), false);
 });

@@ -376,28 +376,24 @@ test("Ashby webhook proxy sanitizes rejected backend responses", () => {
   assert.doesNotMatch(webhookRoute, /details/);
 });
 
-test("dashboard layout does not gate the entire dashboard subtree behind Ashby onboarding", () => {
+test("dashboard layout gates the dashboard subtree behind Ashby onboarding", () => {
   assert.match(dashboardLayoutSource, /requireDashboardUser/);
-  assert.match(dashboardLayoutSource, /DashboardChrome/);
-  assert.doesNotMatch(dashboardLayoutSource, /companyIdentityFromUser/);
-  assert.doesNotMatch(dashboardLayoutSource, /getAshbyCompanyState/);
-  assert.doesNotMatch(dashboardLayoutSource, /AshbyOnboardingWizard/);
-  assert.doesNotMatch(dashboardLayoutSource, /if \(!onboardingComplete\)/);
+  assert.match(dashboardLayoutSource, /companyIdentityFromUser/);
+  assert.match(dashboardLayoutSource, /getAshbyCompanyState/);
+  assert.match(dashboardLayoutSource, /AshbySetupOnlyScreen/);
+  assert.match(dashboardLayoutSource, /if\s*\(!onboardingComplete\)/);
 
+  const setupGateIndex = dashboardLayoutSource.indexOf("if (!onboardingComplete)");
   const dashboardChromeIndex = dashboardLayoutSource.indexOf("<DashboardChrome");
-  const childRenderIndex = dashboardLayoutSource.indexOf("{children}", dashboardChromeIndex);
 
+  assert.notEqual(setupGateIndex, -1);
   assert.notEqual(dashboardChromeIndex, -1);
-  assert.notEqual(childRenderIndex, -1);
-  assert.ok(dashboardChromeIndex < childRenderIndex);
+  assert.ok(setupGateIndex < dashboardChromeIndex);
 });
 
-test("dashboard uses the Ashby onboarding wizard for non-connected companies", () => {
-  assert.match(dashboardSource, /AshbyOnboardingWizard/);
-  assert.match(dashboardSource, /state\.setupStatus === "connected" && state\.connected && Boolean\(state\.lastSyncAt\)/);
-  assert.match(dashboardSource, /onboardingComplete \? await getRecentAshbyScreens/);
-  assert.match(dashboardSource, /canManageAshbyOnboarding/);
-  assert.match(dashboardSource, /canManageSetup=\{canManageSetup\}/);
+test("dashboard home redirects to roles because setup gating lives in layout", () => {
+  assert.match(dashboardSource, /redirect\("\/dashboard\/roles"\)/);
+  assert.match(dashboardLayoutSource, /AshbySetupOnlyScreen/);
   assert.match(wizardSource, /\/api\/ashby\/onboarding\/api-key/);
   assert.match(wizardSource, /\/api\/ashby\/onboarding\/jobs/);
   assert.match(wizardSource, /\/api\/ashby\/onboarding\/sync/);
@@ -420,9 +416,9 @@ test("dashboard uses the Ashby onboarding wizard for non-connected companies", (
   assert.doesNotMatch(wizardSource, /state\.setupStatus\.replaceAll/);
 });
 
-test("dashboard keeps an admin reconnect path after Ashby onboarding is complete", () => {
-  assert.match(dashboardSource, /canManageSetup && onboardingComplete/);
-  assert.match(dashboardSource, /AshbyOnboardingWizard state=\{state\} canManageSetup=\{canManageSetup\}/);
+test("dashboard layout keeps an admin reconnect path through the setup screen", () => {
+  assert.match(dashboardLayoutSource, /canManageAshbyOnboarding/);
+  assert.match(dashboardLayoutSource, /AshbySetupOnlyScreen state=\{ashbyState\} canManageSetup=\{canManageSetup\}/);
   assert.match(wizardSource, /Replace Ashby key|Reconnect Ashby/);
   assert.match(wizardSource, /Replacing the key resets webhook verification/);
 });

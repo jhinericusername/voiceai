@@ -24,6 +24,10 @@ export class BedrockGradingModel implements GradingModel {
     );
 
     const blocks = response.output?.message?.content ?? [];
-    return blocks.map((block) => block.text ?? "").join("");
+    const text = blocks.map((block) => block.text ?? "").join("");
+    if (!text.trim()) {
+      throw new Error("Bedrock grading model returned no text content.");
+    }
+    return text;
   }
 }

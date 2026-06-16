@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signedCompositeVideoUrl } from "../src/dashboard/routes.js";
+import { signedArtifactMediaUrl, signedCompositeVideoUrl } from "../src/dashboard/routes.js";
 import {
   interviewDetailStatement,
   interviewListStatement,
@@ -74,5 +74,23 @@ describe("dashboard interview read model", () => {
         },
       ),
     ).resolves.toBeNull();
+  });
+
+  it("signs available candidate audio recordings by artifact kind", async () => {
+    const client = { send: async () => ({}) };
+    const signer = async () => "https://signed.example/candidate_audio.mp3";
+
+    await expect(
+      signedArtifactMediaUrl(
+        [
+          {
+            kind: "candidate_audio",
+            status: "available",
+            storagePath: "/org1/interviews/sess1/media/candidate_audio.mp3",
+          },
+        ],
+        { bucket: "puddle-artifacts", client, signer, kind: "candidate_audio" },
+      ),
+    ).resolves.toBe("https://signed.example/candidate_audio.mp3");
   });
 });

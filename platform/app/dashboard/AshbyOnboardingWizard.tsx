@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { AshbyCompanyState, AshbyJobOption } from "@/lib/ashby/server";
@@ -239,6 +240,25 @@ export function AshbyOnboardingWizard({
       action={<StatusPill status={statusLabel} className="capitalize" />}
     >
       <div className="grid gap-5">
+        <div className="flex items-start justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-950">
+              {isConnectedSetup ? "Ashby is connected" : "Puddle screens candidates from Ashby"}
+            </div>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Connect the workspace, choose roles, verify webhooks, and sync active candidates before using the
+              dashboard.
+            </p>
+          </div>
+          <Image
+            src="/puddle-mascot.svg"
+            alt="Puddle turtle mascot"
+            width={56}
+            height={56}
+            className="hidden h-14 w-14 shrink-0 sm:block"
+          />
+        </div>
+
         <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
           <div className="text-sm font-semibold text-slate-950">
             {isConnectedSetup ? "Replace Ashby key" : state.emailDomain}
@@ -295,7 +315,7 @@ export function AshbyOnboardingWizard({
                   <span className="min-w-0">
                     <span className="block break-words font-medium text-slate-950">{job.name}</span>
                     <span className="mt-0.5 block break-all text-xs text-slate-500">
-                      {job.status ? `${job.status} - ${job.id}` : job.id}
+                      {job.status ? job.status : "Selected role"}
                     </span>
                   </span>
                 </label>

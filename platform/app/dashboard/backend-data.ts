@@ -1,9 +1,5 @@
 import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
-export function dashboardDemoFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.PUDDLE_DASHBOARD_DEMO_FALLBACK === "true" || env.NODE_ENV !== "production";
-}
-
 export function dashboardOrgId(input: {
   readonly organizationId?: string | null;
   readonly userId: string;
@@ -57,6 +53,7 @@ export interface RealInterviewDetail extends RealInterviewListItem {
     readonly offsetMs: number | null;
   }[];
   readonly compositeVideoUrl: string | null;
+  readonly candidateAudioUrl: string | null;
 }
 
 export async function getRealInterviews(input: {

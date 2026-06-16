@@ -15,6 +15,7 @@ type ArtifactLike = {
   readonly status?: string;
   readonly storagePath?: string | null;
 };
+type PlayableArtifactKind = "composite_video" | "candidate_audio";
 
 type DashboardQuery = {
   readonly orgId?: string;
@@ -26,6 +27,63 @@ function artifactsBucketFromEnv(env: NodeJS.ProcessEnv = process.env): string {
     throw new Error("PUDDLE_ARTIFACTS_BUCKET must be set for dashboard media URLs");
   }
   return bucket;
+}
+
+export async function signedArtifactMediaUrl(
+  artifacts: readonly ArtifactLike[],
+  input: {
+    readonly bucket: string | (() => string);
+    readonly client: S3Client;
+    readonly kind: PlayableArtifactKind;
+  },
+): Promise<string | null>;
+export async function signedArtifactMediaUrl<Client extends S3LikeClient>(
+  artifacts: readonly ArtifactLike[],
+  input: {
+    readonly bucket: string | (() => string);
+    readonly client: Client;
+    readonly kind: PlayableArtifactKind;
+    readonly signer: SignedUrlFn<Client>;
+  },
+): Promise<string | null>;
+export async function signedArtifactMediaUrl<Client extends S3LikeClient>(
+  artifacts: readonly ArtifactLike[],
+  input: {
+    readonly bucket: string | (() => string);
+    readonly client: S3Client | Client;
+    readonly kind: PlayableArtifactKind;
+    readonly signer?: SignedUrlFn<Client>;
+  },
+): Promise<string | null> {
+  const artifact = artifacts.find(
+    (artifact) =>
+      artifact.kind === input.kind &&
+      artifact.status === "available" &&
+      Boolean(artifact.storagePath),
+  );
+  if (!artifact?.storagePath) {
+    return null;
+  }
+
+  const bucket = typeof input.bucket === "function" ? input.bucket() : input.bucket;
+
+  if (input.signer) {
+    return signedArtifactUrl(
+      input.client as Client,
+      {
+        bucket,
+        storagePath: artifact.storagePath,
+        expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+      },
+      input.signer,
+    );
+  }
+
+  return signedArtifactUrl(input.client as S3Client, {
+    bucket,
+    storagePath: artifact.storagePath,
+    expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+  });
 }
 
 export async function signedCompositeVideoUrl(
@@ -51,34 +109,19 @@ export async function signedCompositeVideoUrl<Client extends S3LikeClient>(
     readonly signer?: SignedUrlFn<Client>;
   },
 ): Promise<string | null> {
-  const composite = artifacts.find(
-    (artifact) =>
-      artifact.kind === "composite_video" &&
-      artifact.status === "available" &&
-      Boolean(artifact.storagePath),
-  );
-  if (!composite?.storagePath) {
-    return null;
-  }
-
-  const bucket = typeof input.bucket === "function" ? input.bucket() : input.bucket;
-
   if (input.signer) {
-    return signedArtifactUrl(
-      input.client as Client,
-      {
-        bucket,
-        storagePath: composite.storagePath,
-        expiresInSeconds: SIGNED_URL_TTL_SECONDS,
-      },
-      input.signer,
-    );
+    return signedArtifactMediaUrl(artifacts, {
+      bucket: input.bucket,
+      client: input.client as Client,
+      kind: "composite_video",
+      signer: input.signer,
+    });
   }
 
-  return signedArtifactUrl(input.client as S3Client, {
-    bucket,
-    storagePath: composite.storagePath,
-    expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+  return signedArtifactMediaUrl(artifacts, {
+    bucket: input.bucket,
+    client: input.client as S3Client,
+    kind: "composite_video",
   });
 }
 
@@ -119,8 +162,13 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
         bucket: artifactsBucketFromEnv,
         client: createArtifactS3Client(),
       });
+      const candidateAudioUrl = await signedArtifactMediaUrl(artifacts, {
+        bucket: artifactsBucketFromEnv,
+        client: createArtifactS3Client(),
+        kind: "candidate_audio",
+      });
 
-      return reply.code(200).send({ interview: { ...packet, compositeVideoUrl } });
+      return reply.code(200).send({ interview: { ...packet, compositeVideoUrl, candidateAudioUrl } });
     },
   );
 }

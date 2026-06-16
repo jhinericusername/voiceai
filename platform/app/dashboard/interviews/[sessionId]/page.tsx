@@ -1,361 +1,61 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  dashboardDemoFallbackEnabled,
   dashboardOrgId,
   getRealInterview,
   type RealInterviewDetail,
 } from "../../backend-data";
 import { requireDashboardUser } from "../../auth";
-import { demoSessions, getCandidateById, getRole, getSession } from "../../demo-data";
 import {
   EmptyState,
-  ScoreBadge,
   SectionPanel,
   StatusPill,
-  TableScroller,
   cx,
   formatDateTime,
   primaryButtonClass,
   secondaryButtonClass,
-  tableCellClass,
-  tableHeaderClass,
 } from "../../dashboard-ui";
 
 export function generateStaticParams() {
-  return demoSessions.map((session) => ({ sessionId: session.id }));
+  return [];
 }
 
 export default async function InterviewSessionPage({ params }: { readonly params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
   const { user, organizationId } = await requireDashboardUser();
   const orgId = dashboardOrgId({ organizationId, userId: user.id });
-  const demoSession = getSession(sessionId);
   let realInterview: RealInterviewDetail | null = null;
 
   try {
     realInterview = await getRealInterview(sessionId, { orgId });
   } catch (error) {
-    if (!demoSession || !dashboardDemoFallbackEnabled()) {
-      throw error;
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("Unable to load real interview detail", error);
     }
   }
 
-  if (realInterview) {
-    return <RealInterviewSessionView realInterview={realInterview} />;
-  }
-
-  if (!dashboardDemoFallbackEnabled()) {
+  if (!realInterview) {
     notFound();
   }
 
-  const session = demoSession;
-
-  if (!session) {
-    notFound();
-  }
-
-  const candidate = getCandidateById(session.candidateId);
-  const role = getRole(session.roleId);
-
-  if (!candidate || !role) {
-    notFound();
-  }
-
-  const recommendation = candidate.recommendation ?? "Pending";
-
-  return (
-    <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
-      <header className="rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill status={session.lifecycleStatus} />
-              <StatusPill status={candidate.reviewStatus} />
-              <StatusPill status={recommendation} />
-              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Interview review</span>
-            </div>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">{candidate.name}</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Review the recording, transcript evidence, rubric scores, integrity signals, and recommendation for {role.title}.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Link href="/dashboard/review-queue" className={primaryButtonClass}>
-              Review queue
-            </Link>
-            <Link href={`/dashboard/roles/${role.id}`} className={secondaryButtonClass}>
-              Back to role
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Interview review summary">
-        <SummaryCard label="Score" value={candidate.score === null ? "Pending" : `${candidate.score}/${candidate.maxScore}`} detail="AI-generated rubric total" />
-        <SummaryCard label="Recommendation" value={recommendation} detail={session.reviewSummary.recommendationRationale} />
-        <SummaryCard label="Reviewer" value={session.reviewSummary.owner} detail={`Due ${formatDateTime(session.reviewSummary.dueAt)}`} />
-        <SummaryCard label="Duration" value={session.media.durationLabel} detail={session.media.note} />
-        <SummaryCard label="Integrity" value={`${candidate.integrityFlags} flags`} detail={`${candidate.aiRisk} risk / ${candidate.aiRiskPercent}% score`} />
-      </section>
-
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <main className="grid min-w-0 gap-5">
-          <SectionPanel
-            title="Video and audio review"
-            eyebrow="Recording"
-            action={
-              <div className="flex flex-wrap gap-2">
-                <StatusPill status={`Video ${session.media.videoStatus}`} />
-                <StatusPill status={`Audio ${session.media.audioStatus}`} />
-                <StatusPill status={`Transcript ${session.media.transcriptStatus}`} />
-              </div>
-            }
-          >
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-              <div className="min-w-0 overflow-hidden rounded-md border border-slate-800 bg-slate-950 text-white">
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs text-slate-300">
-                  <span>{session.roomName}</span>
-                  <span>{session.media.durationLabel}</span>
-                </div>
-                <div className="grid aspect-video place-items-center bg-[radial-gradient(circle_at_50%_30%,rgba(34,211,238,0.22),transparent_36%),linear-gradient(135deg,#020617,#0f172a)] px-6 text-center">
-                  <div>
-                    <div className="mx-auto grid h-20 w-20 place-items-center rounded-full border border-white/20 bg-white/10 text-2xl font-semibold">
-                      {candidate.initials}
-                    </div>
-                    <div className="mt-4 text-lg font-semibold">Interview recording placeholder</div>
-                    <div className="mt-2 text-sm leading-6 text-slate-300">{session.media.note}</div>
-                  </div>
-                </div>
-                <div className="border-t border-white/10 px-4 py-3">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span>{session.media.playbackPositionLabel}</span>
-                    <span>{session.media.durationLabel}</span>
-                  </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-                    <div className="h-full w-[42%] rounded-full bg-cyan-300" />
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" className="rounded-md border border-white/15 px-3 py-1.5 text-xs font-semibold text-white">
-                      Play
-                    </button>
-                    <button type="button" className="rounded-md border border-white/15 px-3 py-1.5 text-xs font-semibold text-white">
-                      Jump to evidence
-                    </button>
-                    <button type="button" className="rounded-md border border-white/15 px-3 py-1.5 text-xs font-semibold text-white">
-                      Audio only
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid content-start gap-3">
-                {session.markers.length ? (
-                  session.markers.map((marker) => (
-                    <div key={`${marker.timestamp}-${marker.label}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-mono text-xs font-semibold text-slate-500">{marker.timestamp}</div>
-                          <div className="mt-1 text-sm font-semibold text-slate-950">{marker.label}</div>
-                        </div>
-                        <StatusPill status={marker.type} />
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{marker.detail}</p>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyState title="No media markers yet" detail="Evidence and integrity markers appear after transcript processing." />
-                )}
-              </div>
-            </div>
-          </SectionPanel>
-
-          <SectionPanel title="Transcript and evidence" eyebrow="Transcript">
-            {session.transcript.length ? (
-              <div className="grid gap-3">
-                {session.transcript.map((turn) => (
-                  <article
-                    key={`${turn.timestamp}-${turn.speaker}-${turn.question}`}
-                    className={cx(
-                      "rounded-md border px-3 py-3",
-                      turn.speaker === "Candidate" ? "border-cyan-200 bg-cyan-50/40" : "border-slate-200 bg-slate-50",
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-slate-500">{turn.timestamp}</span>
-                      <StatusPill status={turn.speaker} />
-                      {turn.risk ? <StatusPill status={turn.risk} /> : null}
-                    </div>
-                    <div className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{turn.question}</div>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">&quot;{turn.text}&quot;</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {turn.evidenceTags.map((tag) => (
-                        <span key={tag} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <EmptyState title="Transcript unavailable" detail="Transcript turns appear here after recording finalization and post-processing complete." />
-            )}
-          </SectionPanel>
-
-          <SectionPanel title="Rubric scorecard" eyebrow="Scores">
-            {candidate.scorecard.length ? (
-              <TableScroller>
-                <table className="min-w-[760px] w-full border-separate border-spacing-0">
-                  <thead>
-                    <tr>
-                      <th className={`${tableHeaderClass} rounded-l-md px-3 py-2`}>Dimension</th>
-                      <th className={`${tableHeaderClass} px-3 py-2`}>Score</th>
-                      <th className={`${tableHeaderClass} px-3 py-2`}>Signal</th>
-                      <th className={`${tableHeaderClass} rounded-r-md px-3 py-2`}>Evidence</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidate.scorecard.map((row) => (
-                      <tr key={row.dimension}>
-                        <td className={`${tableCellClass} font-medium text-slate-950`}>
-                          {row.dimension}
-                          <div className="mt-1 text-xs font-normal leading-5 text-slate-500">{row.note}</div>
-                        </td>
-                        <td className={tableCellClass}>
-                          <ScoreBadge score={row.score} maxScore={row.maxScore} />
-                        </td>
-                        <td className={tableCellClass}>
-                          <StatusPill status={row.barSignal} />
-                        </td>
-                        <td className={tableCellClass}>{row.evidence}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableScroller>
-            ) : (
-              <EmptyState title="Scorecard pending" detail="Rubric scores appear after transcript processing and scorer finalization." />
-            )}
-          </SectionPanel>
-        </main>
-
-        <aside className="grid min-w-0 gap-5 xl:content-start">
-          <SectionPanel title="Recommendation" eyebrow="Human decision">
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">AI recommendation</div>
-              <div className="mt-2 flex items-center justify-between gap-3">
-                <div className="text-2xl font-semibold text-slate-950">{recommendation}</div>
-                <ScoreBadge score={candidate.score} maxScore={candidate.maxScore} />
-              </div>
-              <p className="mt-3 text-sm leading-6 text-slate-600">{session.reviewSummary.recommendationRationale}</p>
-            </div>
-
-            <div className="mt-3 grid gap-2">
-              {session.reviewSummary.reviewFocus.map((item) => (
-                <div key={item} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700">
-                  {item}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              <button type="button" className={secondaryButtonClass}>
-                Advance
-              </button>
-              <button type="button" className={secondaryButtonClass}>
-                Hold
-              </button>
-              <button type="button" className={secondaryButtonClass}>
-                Pass
-              </button>
-            </div>
-            <label className="mt-3 block">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reviewer note</span>
-              <textarea
-                className="mt-2 min-h-24 w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                defaultValue={
-                  candidate.reviewStatus === "In review"
-                    ? "Need to inspect specificity drop before final decision."
-                    : ""
-                }
-                placeholder="Add calibration note before signing off."
-              />
-            </label>
-            <button type="button" className={cx(primaryButtonClass, "mt-3 w-full")}>
-              Mark reviewed
-            </button>
-          </SectionPanel>
-
-          <SectionPanel title="Integrity signals" eyebrow="Authenticity">
-            {candidate.authenticitySignals.length ? (
-              <div className="grid gap-3">
-                {candidate.authenticitySignals.map((signal) => (
-                  <div key={signal.signal} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="font-medium text-slate-950">{signal.signal}</div>
-                      <StatusPill status={signal.rating} />
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{signal.detail}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState title="No integrity signals" detail="Signals appear after timing and transcript analysis complete." />
-            )}
-          </SectionPanel>
-
-          <SectionPanel title="Artifacts" eyebrow="Packet contents">
-            <div className="grid gap-3">
-              {session.artifactChecklist.length ? (
-                session.artifactChecklist.map((artifact) => (
-                  <div key={artifact.label} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="font-medium text-slate-950">{artifact.label}</div>
-                      <StatusPill status={artifact.status} />
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{artifact.detail}</p>
-                  </div>
-                ))
-              ) : (
-                <EmptyState title="Artifacts not created yet" detail="Recording, transcript, scorecard, and integrity artifacts appear here as the session moves through the lifecycle." />
-              )}
-            </div>
-          </SectionPanel>
-
-          <SectionPanel title="Audit timeline" eyebrow="Events">
-            <div className="grid gap-3">
-              {session.timeline.map((event) => (
-                <div key={`${event.at}-${event.label}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-slate-950">{event.label}</div>
-                      <div className="mt-1 text-xs text-slate-500">{formatDateTime(event.at)}</div>
-                    </div>
-                    <StatusPill status={event.severity === "warning" ? "In review" : "Available"} />
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{event.detail}</p>
-                </div>
-              ))}
-            </div>
-          </SectionPanel>
-        </aside>
-      </div>
-    </div>
-  );
+  return <RealInterviewDetailView realInterview={realInterview} />;
 }
 
-function RealInterviewSessionView({
+function RealInterviewDetailView({
   realInterview,
 }: {
   readonly realInterview: RealInterviewDetail;
 }) {
   const recommendation = realPacketRecommendation(realInterview);
-  const isFirefliesImport = realInterview.external_source === "fireflies";
-  const firefliesTranscriptId = firefliesTranscriptIdFrom(realInterview.source_metadata);
+  const isHistoricalFireflies = realInterview.external_source === "fireflies";
   const transcriptTurns = [...realInterview.transcript_turns].sort(
     (first, second) => first.turnIndex - second.turnIndex,
   );
+  const candidateLabel = realInterview.candidate_email?.trim() || "Candidate";
+  const completedAt = realInterview.started_at ?? realInterview.scheduled_at;
+  const videoArtifact = realInterview.artifacts.find((artifact) => artifact.kind === "composite_video");
+  const audioArtifact = realInterview.artifacts.find((artifact) => artifact.kind === "candidate_audio");
+  const playbackArtifact = videoArtifact ?? audioArtifact;
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
@@ -365,55 +65,109 @@ function RealInterviewSessionView({
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={formatBackendStatus(realInterview.status, "Unknown")} />
               <StatusPill status={recommendation} />
-              {isFirefliesImport ? <StatusPill status="Historical Fireflies import" /> : null}
-              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Real interview packet</span>
+              {isHistoricalFireflies ? <StatusPill status="Historical Fireflies import" /> : null}
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Interview review</span>
             </div>
-            <h1 className="mt-2 break-words text-2xl font-semibold text-slate-950 sm:text-3xl">{realInterview.candidate_email}</h1>
-            <p className="mt-2 max-w-3xl break-words text-sm leading-6 text-slate-600">
-              Session {realInterview.session_id} from script {realInterview.script_version}.
+            <h1 className="mt-2 break-words text-2xl font-semibold text-slate-950 sm:text-3xl">
+              {candidateLabel}
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Review the recording, transcript, and recommendation for this interview.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Link href="/dashboard/review-queue" className={primaryButtonClass}>
               Review queue
             </Link>
-            <Link href="/dashboard" className={secondaryButtonClass}>
-              Dashboard
+            <Link href="/dashboard/roles" className={secondaryButtonClass}>
+              Roles
             </Link>
           </div>
         </div>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Interview packet summary">
-        <SummaryCard label="Status" value={formatBackendStatus(realInterview.status, "Unknown")} detail={`Org ${realInterview.org_id}`} />
-        <SummaryCard label="Recording" value={formatBackendStatus(realInterview.recording_status, "Pending")} detail={realInterview.room_name ?? "No room attached"} />
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Interview packet summary">
+        <SummaryCard
+          label="Status"
+          value={formatBackendStatus(realInterview.status, "Unknown")}
+          detail={realInterview.signed_off_at ? `Reviewed ${formatDateTime(realInterview.signed_off_at)}` : "Awaiting review"}
+        />
+        <SummaryCard
+          label="Recording"
+          value={playbackArtifact ? formatBackendStatus(playbackArtifact.status, "Available") : "Missing"}
+          detail={playbackArtifact ? artifactKindLabel(playbackArtifact.kind) : "No playable media attached"}
+        />
         <SummaryCard label="Score" value={formatCategoryScoreSummary(realInterview.category_scores)} detail={recommendation} />
-        <SummaryCard label="Reviewer" value={realInterview.reviewer_email ?? "Unassigned"} detail={realInterview.signed_off_at ? `Signed ${formatDateTime(realInterview.signed_off_at)}` : "Awaiting sign-off"} />
-        <SummaryCard label="Started" value={formatNullableDate(realInterview.started_at)} detail={realInterview.ended_at ? `Ended ${formatDateTime(realInterview.ended_at)}` : "Interview not ended"} />
+        <SummaryCard
+          label="Started"
+          value={formatNullableDate(completedAt)}
+          detail={realInterview.ended_at ? `Ended ${formatDateTime(realInterview.ended_at)}` : "End time unavailable"}
+        />
       </section>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
         <main className="grid min-w-0 gap-5">
           <SectionPanel
             title="Video and audio review"
             eyebrow="Recording"
             action={
               <div className="flex flex-wrap gap-2">
-                <StatusPill status={formatBackendStatus(realInterview.recording_status, "Pending")} />
-                <StatusPill status={realInterview.compositeVideoUrl ? "Available" : "Missing"} />
+                <StatusPill status={videoArtifact ? formatBackendStatus(videoArtifact.status, "Video") : "Video missing"} />
+                <StatusPill status={audioArtifact ? formatBackendStatus(audioArtifact.status, "Audio") : "Audio missing"} />
               </div>
             }
           >
             {realInterview.compositeVideoUrl ? (
               <video className="aspect-video w-full rounded-md bg-slate-950" controls src={realInterview.compositeVideoUrl} />
+            ) : realInterview.candidateAudioUrl ? (
+              <div className="grid min-h-56 place-items-center rounded-md bg-slate-950 px-4 py-8">
+                <div className="w-full max-w-xl">
+                  <div className="mb-4 text-center text-sm font-semibold text-white">Audio recording</div>
+                  <audio className="w-full" controls src={realInterview.candidateAudioUrl} />
+                </div>
+              </div>
             ) : (
-              <EmptyState title="Composite video unavailable" detail="The backend packet has no available composite recording URL yet." />
+              <EmptyState title="Playable media unavailable" detail="The interview packet has no available playback URL yet." />
             )}
           </SectionPanel>
 
-          <SectionPanel title="Transcript and evidence" eyebrow="Transcript">
-            {transcriptTurns.length ? (
+          <SectionPanel title="Review packet" eyebrow="Summary">
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <PacketMetaRow label="Candidate" value={candidateLabel} />
+              <PacketMetaRow label="Reviewer" value={realInterview.reviewer_email ?? "Unassigned"} />
+              <PacketMetaRow label="Integrity" value={formatUnknownCollection(realInterview.integrity_flags, "flags")} />
+              {isHistoricalFireflies ? <PacketMetaRow label="Source" value="Fireflies historical import" /> : null}
+              {realInterview.error_message ? <PacketMetaRow label="Error" value={realInterview.error_message} /> : null}
+            </dl>
+          </SectionPanel>
+
+          <SectionPanel title="Artifacts" eyebrow="Packet contents">
+            {realInterview.artifacts.length ? (
               <div className="grid gap-3">
+                {realInterview.artifacts.map((artifact) => (
+                  <div key={`${artifact.kind}-${artifact.storagePath}`} className="border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-950">{artifactKindLabel(artifact.kind)}</div>
+                        <div className="mt-1 text-xs leading-5 text-slate-500">
+                          {formatArtifactDetail(artifact.contentType, artifact.sizeBytes, artifact.durationSeconds)}
+                        </div>
+                      </div>
+                      <StatusPill status={formatBackendStatus(artifact.status, "Unknown")} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="Artifacts not created yet" detail="Recording and transcript artifacts appear here as the session moves through the lifecycle." />
+            )}
+          </SectionPanel>
+        </main>
+
+        <aside aria-label="Transcript" className="grid min-w-0 gap-5 xl:content-start">
+          <SectionPanel title="Transcript" eyebrow="Evidence">
+            {transcriptTurns.length ? (
+              <div className="grid gap-3 xl:max-h-[calc(100svh-12rem)] xl:overflow-y-auto xl:pr-1">
                 {transcriptTurns.map((turn) => (
                   <article
                     key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`}
@@ -426,8 +180,7 @@ function RealInterviewSessionView({
                       <span className="font-mono text-xs font-semibold text-slate-500">
                         {formatOffset(turn.offsetMs) ?? formatDateTime(turn.occurredAt)}
                       </span>
-                      <StatusPill status={formatBackendStatus(turn.speaker, "Speaker")} />
-                      {turn.questionId ? <StatusPill status={turn.questionId} /> : null}
+                      <StatusPill status={formatSpeaker(turn.speaker)} />
                     </div>
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{turn.text}</p>
                   </article>
@@ -435,48 +188,6 @@ function RealInterviewSessionView({
               </div>
             ) : (
               <EmptyState title="Transcript unavailable" detail="Transcript turns appear here after recording finalization and post-processing complete." />
-            )}
-          </SectionPanel>
-        </main>
-
-        <aside className="grid min-w-0 gap-5 xl:content-start">
-          <SectionPanel title="Packet status" eyebrow="Backend">
-            <dl className="grid gap-3">
-              <PacketMetaRow label="Session" value={realInterview.session_id} />
-              <PacketMetaRow label="Room" value={realInterview.room_name ?? "No room"} />
-              <PacketMetaRow label="Scheduled" value={formatNullableDate(realInterview.scheduled_at)} />
-              <PacketMetaRow label="Integrity" value={formatUnknownCollection(realInterview.integrity_flags, "flags")} />
-              {isFirefliesImport ? (
-                <>
-                  <PacketMetaRow label="Source" value="Fireflies historical import" />
-                  <PacketMetaRow label="Transcript ID" value={firefliesTranscriptId ?? "Unknown"} />
-                  <PacketMetaRow label="Source occurrence" value={realInterview.external_id ?? "Unknown"} />
-                </>
-              ) : null}
-              {realInterview.error_message ? <PacketMetaRow label="Error" value={realInterview.error_message} /> : null}
-            </dl>
-          </SectionPanel>
-
-          <SectionPanel title="Artifacts" eyebrow="Packet contents">
-            {realInterview.artifacts.length ? (
-              <div className="grid gap-3">
-                {realInterview.artifacts.map((artifact) => (
-                  <div key={`${artifact.kind}-${artifact.storagePath}`} className="border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-950">{formatScoreLabel(artifact.kind)}</div>
-                        <div className="mt-1 text-xs leading-5 text-slate-500">
-                          {artifact.contentType} / {formatBytes(artifact.sizeBytes)} / {formatDuration(artifact.durationSeconds)}
-                        </div>
-                      </div>
-                      <StatusPill status={formatBackendStatus(artifact.status, "Unknown")} />
-                    </div>
-                    <div className="mt-1 truncate font-mono text-xs text-slate-500">{artifact.storagePath}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState title="Artifacts not created yet" detail="Recording, transcript, scorecard, and integrity artifacts appear here as the session moves through the lifecycle." />
             )}
           </SectionPanel>
         </aside>
@@ -499,12 +210,6 @@ function formatNullableDate(value: string | null): string {
   return value ? formatDateTime(value) : "Not set";
 }
 
-function firefliesTranscriptIdFrom(sourceMetadata: unknown): string | null {
-  const metadata = objectValue(sourceMetadata);
-  const fireflies = objectValue(metadata.fireflies);
-  return stringValue(fireflies.transcriptId);
-}
-
 function scoreValue(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
@@ -518,16 +223,6 @@ function scoreValue(value: unknown): string | null {
   }
 
   return null;
-}
-
-function objectValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function formatScoreLabel(value: string): string {
@@ -612,6 +307,10 @@ function formatDuration(value: number | null): string {
   return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
+function formatArtifactDetail(contentType: string, sizeBytes: number | null, durationSeconds: number | null): string {
+  return [contentType, formatBytes(sizeBytes), formatDuration(durationSeconds)].join(" / ");
+}
+
 function formatOffset(value: number | null): string | null {
   if (value === null) {
     return null;
@@ -621,6 +320,23 @@ function formatOffset(value: number | null): string | null {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function formatSpeaker(value: "agent" | "candidate"): string {
+  return value === "agent" ? "Interviewer" : "Candidate";
+}
+
+function artifactKindLabel(value: string): string {
+  switch (value) {
+    case "composite_video":
+      return "Video";
+    case "candidate_audio":
+      return "Audio";
+    case "transcript":
+      return "Transcript";
+    default:
+      return formatScoreLabel(value);
+  }
 }
 
 function PacketMetaRow({
@@ -651,7 +367,7 @@ function SummaryCard({
     <div className="min-w-0 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
       <div className="mt-2 truncate text-xl font-semibold text-slate-950">{value}</div>
-      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{detail}</p>
+      <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{detail}</div>
     </div>
   );
 }
