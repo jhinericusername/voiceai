@@ -101,12 +101,13 @@ test("dashboard auth is org-based, not allowed-domain based", () => {
   assert.match(notAuthorizedSource, /searchParams/);
 });
 
-test("dashboard layout does not block interview detail routes behind Ashby onboarding", () => {
+test("dashboard layout gates interview detail routes behind completed Ashby onboarding", () => {
   assert.match(dashboardLayoutSource, /requireDashboardUser/);
   assert.match(dashboardLayoutSource, /DashboardChrome/);
-  assert.doesNotMatch(dashboardLayoutSource, /AshbyOnboardingWizard/);
-  assert.doesNotMatch(dashboardLayoutSource, /getAshbyCompanyState/);
-  assert.doesNotMatch(dashboardLayoutSource, /if\s*\(!onboardingComplete\)/);
+  assert.match(dashboardLayoutSource, /AshbySetupOnlyScreen/);
+  assert.match(dashboardLayoutSource, /companyIdentityFromUser/);
+  assert.match(dashboardLayoutSource, /getAshbyCompanyState/);
+  assert.match(dashboardLayoutSource, /if\s*\(!onboardingComplete\)/);
 });
 
 test("backend tenant identity requires WorkOS organizationId", () => {
@@ -122,8 +123,8 @@ test("backend tenant identity requires WorkOS organizationId", () => {
 test("interview detail page displays Fireflies provenance without domain lookup access", () => {
   assert.match(interviewDetailPageSource, /Historical Fireflies import/);
   assert.match(interviewDetailPageSource, /Fireflies historical import/);
-  assert.match(interviewDetailPageSource, /Transcript ID/);
   assert.match(interviewDetailPageSource, /external_source\s*===\s*"fireflies"/);
+  assert.doesNotMatch(interviewDetailPageSource, /Transcript ID/);
   assert.doesNotMatch(interviewDetailPageSource, /isAllowedAuthEmail/);
   assert.doesNotMatch(interviewDetailPageSource, /allowedAuthDomains/);
 });
