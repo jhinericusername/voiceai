@@ -89,4 +89,4 @@ docker build --platform "$DOCKER_PLATFORM" -f "$ROOT_DIR/agent/Dockerfile" -t "$
 docker push "$AGENT_REPO:$AGENT_IMAGE_TAG"
 
 cd "$ROOT_DIR/infra"
-npm run cdk -- deploy --require-approval never "${CDK_CONTEXT_ARGS[@]}"
+npm run cdk -- deploy --all --require-approval never "${CDK_CONTEXT_ARGS[@]}"

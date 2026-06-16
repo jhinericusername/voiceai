@@ -434,6 +434,32 @@ describe("Fireflies historical import executor", () => {
     );
   });
 
+  it("imports exactly one recording folder while parsing against the Fireflies root prefix", async () => {
+    const exactPrefix = recordingPrefix("01LIVE");
+    const sourceS3 = new FakeS3Client([
+      ...recordingObjects("01LIVE"),
+      ...recordingObjects("02SIBLING"),
+    ]);
+
+    const result = await executeHistoricalFirefliesImport({
+      orgId,
+      sourceBucket,
+      sourcePrefix: exactPrefix,
+      sourceRootPrefix: sourcePrefix,
+      targetBucket,
+      sourceS3,
+      targetS3: new FakeS3Client(),
+      weaveDb: new FakeWeaveDb({}),
+    });
+
+    expect(result.plannedCount).toBe(1);
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.transcriptId).toBe("01LIVE");
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.sourcePrefix).toBe(exactPrefix);
+    const listCommand = sourceS3.commands.find((command) => command instanceof ListObjectsV2Command);
+    expect(listCommand).toBeInstanceOf(ListObjectsV2Command);
+    expect((listCommand as ListObjectsV2Command).input.Prefix).toBe(exactPrefix);
+  });
+
   it("apply mode preflights source conflicts before copying source objects", async () => {
     const operationLog: string[] = [];
     const sourceS3 = new FakeS3Client(recordingObjects("01APPLY"));
