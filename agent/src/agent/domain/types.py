@@ -15,6 +15,10 @@ ReasonCode = Literal[
     "AUDIO_REPAIR",
     "TIMEBOX_MOVE_ON",
     "CLOSING",
+    "REALTIME_QUESTION",
+    "STEER",
+    "GUARDRAIL_CORRECTION",
+    "COVERAGE_BACKSTOP",
 ]
 
 IntegritySignal = Literal[

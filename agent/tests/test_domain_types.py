@@ -146,3 +146,13 @@ def test_session_status_constrained() -> None:
             session_id="s2", org_id="org1", candidate_email="c@example.com",
             script_version="pilot-v1", status="invalid",
         )
+
+
+def test_new_reason_codes_validate() -> None:
+    """Test that new realtime reason codes are accepted."""
+    for code in ("REALTIME_QUESTION", "STEER", "GUARDRAIL_CORRECTION", "COVERAGE_BACKSTOP"):
+        ev = AgentEvent(
+            session_id="s", utterance="x", reason_code=code,
+            question_id=None, category=None, missing_element=None,
+        )
+        assert ev.reason_code == code

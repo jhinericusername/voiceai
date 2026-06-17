@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    """Parse a boolean from an environment variable.
+
+    Recognizes: "1", "true", "yes", "y", "on" (case-insensitive) as True.
+    All other values (including unset) are treated as False or the default.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 @dataclass(frozen=True)
@@ -24,5 +36,16 @@ class ScoringConfig:
     scorer_timeout_seconds: float = 12.0
 
 
+@dataclass(frozen=True)
+class RealtimeConfig:
+    """Configuration for OpenAI realtime mode."""
+
+    enabled: bool = field(default_factory=lambda: _bool_env("PUDDLE_USE_REALTIME", False))
+    model: str = field(default_factory=lambda: os.getenv("PUDDLE_REALTIME_MODEL", "gpt-realtime"))
+    guardrail_model: str = field(default_factory=lambda: os.getenv("PUDDLE_GUARDRAIL_MODEL", "claude-haiku-4-5"))
+    max_session_seconds: float = field(default_factory=lambda: float(os.getenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", "1800")))
+
+
 MODELS = ModelConfig()
 SCORING = ScoringConfig()
+REALTIME = RealtimeConfig()
