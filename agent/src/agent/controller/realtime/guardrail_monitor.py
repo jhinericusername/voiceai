@@ -74,9 +74,9 @@ class GuardrailMonitor:
                 messages=[{"role": "user", "content": agent_text}],
             )
             text = "".join(block.text for block in response.content)
-            return self._parse(text)
         except Exception:  # noqa: BLE001 — fail-open: never crash the interview
             return _SAFE_VERDICT
+        return self._parse(text)
 
     def _parse(self, text: str) -> GuardrailVerdict:
         """Parse the model's JSON response defensively; return safe verdict on failure."""
