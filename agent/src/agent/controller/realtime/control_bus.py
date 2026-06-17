@@ -58,16 +58,25 @@ class ControlBus:
         If the requested ``next_question_id`` would skip an earlier uncovered
         required question, steer back to that earlier question instead
         (COVERAGE_BACKSTOP).
+
+        Unknown (off-plan) ``next_question_id`` values sort after all real
+        questions, so they always trigger COVERAGE_BACKSTOP when any question
+        remains uncovered.  When everything is already covered and the id is
+        still unknown, return a safe nudge toward closing without ending.
         """
         if self._last_asked is not None:
             self._coverage.mark_covered(self._last_asked)
 
         fu = self._coverage.first_uncovered()
 
+        # Unknown ids sort after all real questions (sentinel = len(required_coverage)).
+        unknown_sentinel = len(self._plan.required_coverage)
+        next_order = self._order.get(next_question_id, unknown_sentinel)
+
         if (
             fu is not None
             and fu.question_id != next_question_id
-            and self._order.get(fu.question_id, -1) < self._order.get(next_question_id, -1)
+            and self._order[fu.question_id] < next_order  # fu always in plan; hard lookup
         ):
             # Steer back: an earlier uncovered question precedes the requested one.
             self._last_asked = fu.question_id
@@ -75,6 +84,14 @@ class ControlBus:
                 speak=fu.verbatim_text,
                 reason_code="COVERAGE_BACKSTOP",
                 question_id=fu.question_id,
+            )
+
+        # Guard: unknown id with no uncovered questions — do NOT call _verbatim.
+        if next_question_id not in self._order:
+            return ToolResult(
+                speak=self._plan.closer_text,
+                reason_code="CLOSING",
+                ended=False,
             )
 
         # Normal path.
@@ -118,7 +135,8 @@ class ControlBus:
             )
 
         fu = self._coverage.first_uncovered()
-        assert fu is not None  # guaranteed by not all_covered()
+        if fu is None:
+            raise RuntimeError("close backstop reached with no uncovered question")
         self._last_asked = fu.question_id
         return ToolResult(
             speak=fu.verbatim_text,
