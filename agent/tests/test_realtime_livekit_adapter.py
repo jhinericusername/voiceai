@@ -190,3 +190,65 @@ async def test_wait_for_reconnect_returns_when_participant_returns() -> None:
     assert not wait_task.done()
     room.handlers["participant_connected"](SimpleNamespace(identity="candidate-1"))
     await asyncio.wait_for(wait_task, timeout=1.0)  # returns without raising
+
+
+# ---------------------------------------------------------------------------
+# Reconnect-grace wiring: disconnect spawns the grace task; expiry ends events()
+# ---------------------------------------------------------------------------
+
+
+async def test_disconnect_spawns_grace_task_and_expiry_ends_events() -> None:
+    session = _make_session()
+    room = FakeRoom()
+    grace_expired = []
+    session.set_participant_state_handlers(
+        on_reconnect_grace_expired=lambda: grace_expired.append(1)
+    )
+    session._participant_reconnect_grace_seconds = 0.01
+    session._link_participant(room, "candidate-1")
+
+    # Disconnect without reconnecting: the handler must spawn the grace task.
+    room.handlers["participant_disconnected"](SimpleNamespace(identity="candidate-1"))
+    assert session._grace_task is not None
+
+    # Wait past the grace window (real asyncio, no mocks).
+    await asyncio.sleep(0.05)
+
+    # (a) grace-expired callback fired, and (b) the _END sentinel was enqueued
+    # so events() terminates yielding nothing further.
+    assert grace_expired == [1]
+    collected = [ev async for ev in session.events()]
+    assert collected == []
+
+
+async def test_disconnect_does_not_spawn_a_second_grace_task() -> None:
+    session = _make_session()
+    room = FakeRoom()
+    session._participant_reconnect_grace_seconds = 5.0
+    session._link_participant(room, "candidate-1")
+
+    room.handlers["participant_disconnected"](SimpleNamespace(identity="candidate-1"))
+    first_task = session._grace_task
+    assert first_task is not None
+    # A second disconnect event must not spawn a competing grace task.
+    room.handlers["participant_disconnected"](SimpleNamespace(identity="candidate-1"))
+    assert session._grace_task is first_task
+
+    await session.aclose()  # cancels the still-pending grace task
+
+
+# ---------------------------------------------------------------------------
+# aclose() teardown deregisters room handlers
+# ---------------------------------------------------------------------------
+
+
+async def test_aclose_deregisters_room_handlers() -> None:
+    session = _make_session()
+    room = FakeRoom()
+    session._link_participant(room, "candidate-1")
+    assert "participant_disconnected" in room.handlers
+    assert "participant_connected" in room.handlers
+
+    await session.aclose()
+
+    assert room.handlers == {}

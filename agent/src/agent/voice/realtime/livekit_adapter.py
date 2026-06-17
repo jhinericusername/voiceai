@@ -115,6 +115,7 @@ class LiveKitRealtimeSession:
         self._room: Any | None = None
         self._closed = False
         self._consumers: list[asyncio.Task[Any]] = []
+        self._grace_task: asyncio.Task[None] | None = None
         # Participant-lifecycle state (ported from LiveKitSessionVoiceAgent).
         self._participant_connected = True
         self._participant_state_changed = asyncio.Event()
@@ -221,8 +222,15 @@ class LiveKitRealtimeSession:
     async def aclose(self) -> None:
         """Shut the session down and release resources."""
         self._closed = True
+        if self._grace_task is not None and not self._grace_task.done():
+            self._grace_task.cancel()
         for task in self._consumers:
             task.cancel()
+        # Await cancellation so no in-flight translated event gets queued onto
+        # an already-_END-terminated queue and silently dropped.
+        await asyncio.gather(*self._consumers, return_exceptions=True)
+        if self._grace_task is not None:
+            await asyncio.gather(self._grace_task, return_exceptions=True)
         self._teardown_handlers()
         if self._session is not None:  # pragma: no cover - vendor I/O
             await self._session.aclose()
@@ -323,6 +331,35 @@ class LiveKitRealtimeSession:
         logger.info(
             "participant disconnected", extra={"participant": self._participant_identity}
         )
+        self._spawn_grace_task()
+
+    def _spawn_grace_task(self) -> None:
+        """Schedule the reconnect-grace wait, at most one pending at a time.
+
+        The room ``.on`` handler that calls this is sync, so we schedule the
+        coroutine on the running loop. If a grace task is already pending we do
+        not spawn another — the in-flight one already covers this disconnect.
+        """
+        if self._grace_task is not None and not self._grace_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # pragma: no cover - no running loop (defensive)
+            return
+        self._grace_task = loop.create_task(self._run_reconnect_grace())
+
+    async def _run_reconnect_grace(self) -> None:
+        """Await the grace window; on expiry, end the session via the queue.
+
+        Clean return means the participant reconnected within grace (the
+        reconnect callback already fired from ``_on_participant_connected``).
+        Expiry fires the grace-expired callback (inside the wait) and pushes the
+        ``_END`` sentinel so ``events()`` terminates and the session ends.
+        """
+        try:
+            await self._wait_for_participant_reconnect()
+        except ParticipantDisconnectedError:
+            self._emit(_END)
 
     def _on_participant_connected(self, participant: Any) -> None:
         if getattr(participant, "identity", None) != self._participant_identity:
