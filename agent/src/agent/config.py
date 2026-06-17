@@ -45,6 +45,10 @@ class RealtimeConfig:
     guardrail_model: str = field(default_factory=lambda: os.getenv("PUDDLE_GUARDRAIL_MODEL", "claude-haiku-4-5"))
     max_session_seconds: float = field(default_factory=lambda: float(os.getenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", "1800")))
 
+    def __post_init__(self) -> None:
+        if self.max_session_seconds <= 0:
+            raise ValueError("max_session_seconds must be positive")
+
 
 MODELS = ModelConfig()
 SCORING = ScoringConfig()

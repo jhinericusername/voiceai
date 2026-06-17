@@ -35,13 +35,13 @@ def test_realtime_config_custom_models(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test RealtimeConfig with custom model overrides."""
     monkeypatch.delenv("PUDDLE_USE_REALTIME", raising=False)
     monkeypatch.setenv("PUDDLE_REALTIME_MODEL", "gpt-4-turbo")
-    monkeypatch.setenv("PUDDLE_GUARDRAIL_MODEL", "claude-opus-4-1")
+    monkeypatch.setenv("PUDDLE_GUARDRAIL_MODEL", "claude-haiku-4-5")
     monkeypatch.setenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", "3600")
 
     cfg = RealtimeConfig()
     assert cfg.enabled is False
     assert cfg.model == "gpt-4-turbo"
-    assert cfg.guardrail_model == "claude-opus-4-1"
+    assert cfg.guardrail_model == "claude-haiku-4-5"
     assert cfg.max_session_seconds == 3600.0
 
 
@@ -59,3 +59,14 @@ def test_bool_env_various_truthy_values(monkeypatch: pytest.MonkeyPatch) -> None
         monkeypatch.setenv("PUDDLE_USE_REALTIME", val)
         cfg = RealtimeConfig()
         assert cfg.enabled is False, f"Failed for value: {val}"
+
+
+def test_realtime_config_rejects_nonpositive_max_session_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that RealtimeConfig rejects non-positive max_session_seconds."""
+    monkeypatch.delenv("PUDDLE_USE_REALTIME", raising=False)
+    monkeypatch.delenv("PUDDLE_REALTIME_MODEL", raising=False)
+    monkeypatch.delenv("PUDDLE_GUARDRAIL_MODEL", raising=False)
+    monkeypatch.setenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", "0")
+
+    with pytest.raises(ValueError, match="max_session_seconds must be positive"):
+        RealtimeConfig()
