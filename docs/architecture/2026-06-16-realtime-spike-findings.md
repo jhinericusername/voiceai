@@ -230,3 +230,28 @@ not stress-tested (none seeded).
 validated end-to-end against the live API. Open tuning items (not architecture):
 verbatim fidelity on q1/q2, guardrail closer-logistics false positives, and the
 difflib coverage threshold.
+
+## Long-session drift (2026-06-17)
+
+`run_eval --mode long --max-turns 30` (verbose tangent-prone candidate, backstopped
+driver). The run did NOT yield clean instruction-decay data — instead it surfaced a
+**raw-websocket transport robustness limit**: at ~230 s the OpenAI realtime
+websocket dropped with `ConnectionClosedError: sent 1011 (internal error) keepalive
+ping timeout; no close frame received` (`openai_ws_adapter.py` `_read_loop`). The
+read loop ended, `events()` terminated, and `measure()` ran on a truncated
+transcript → coverage 0/4 (all-zero similarity), duration 230 s
+(`runs/long_2026-06-17.json`).
+
+**Reading it:** this is an **eval-transport** limitation, not a production or
+architecture problem. The raw `OpenAIWebsocketRealtimeSession` is the eval-only
+transport; it has no reconnect/keepalive hardening, so a long, idle-prone session
+eventually trips the websocket keepalive. The PRODUCTION path uses LiveKit's
+`RealtimeModel`/`AgentSession`, which manages its own connection, keepalive, and
+reconnect (and the LiveKit adapter ports participant reconnect-grace) — so real
+long-session drift should be measured on the LiveKit path during the manual-gate
+room smoke test, not over the raw eval websocket.
+
+**Follow-ups (eval infra, optional):** add keepalive/reconnect to the raw WS
+adapter if long unattended eval runs are wanted; otherwise cap eval sessions below
+the keepalive window. Instruction-decay / tail-vs-head wording fidelity over a true
+~15-min session remains to be measured on the LiveKit path (manual-gate).
