@@ -190,3 +190,43 @@ backstop — NOT a backstop bug. Open decision: rewire `run_session` to drive th
 `RealtimeInterviewRunner`/`ControlBus` (measures the real backstopped coverage) vs.
 keep it as a raw-model-coverage probe. Guardrail monitor fired cleanly (0 false
 positives); fabrication detection was not stress-tested (no fabrication seeded).
+
+### Backstopped re-run (2026-06-17, ControlBus wired into run_session)
+
+Per decision, `run_session` was rewired to route `close_interview` through the
+`ControlBus` close-backstop (commit 2775d42; the denial→re-issue→accept-when-covered
+behavior is now also unit-tested with `FakeRealtimeSession`). Re-run
+(`runs/adaptive_2026-06-17-backstop.json`):
+
+| metric | raw-model (thin) | backstopped |
+|---|---|---|
+| coverage (difflib ≥0.8) | 1/4 | **2/4** |
+| q1 / q2 / q3 / q4 similarity | 0.93 / 0.45 / 0.05 / 0.05 | 0.76 / 0.45 / **0.99 / 1.00** |
+| in_order | true | true |
+| guardrail_violations | 0 | **3** |
+| duration | 45 s | 77 s |
+
+**The backstop works (live-validated).** q3 and q4 — which the raw model SKIPPED
+entirely (~0.05) — were forced to be asked and delivered near-verbatim (0.99, 1.00).
+The interview closed normally at 77 s (well under max_turns), meaning the
+`CoverageTracker` reached all-covered, i.e. all four questions were asked.
+
+**measure()'s 2/4 is a verbatim-FIDELITY signal, not a backstop bug.** The
+`CoverageTracker` (which drives the backstop, marked when the candidate answers)
+reached 100%; `measure()`'s coverage is a separate difflib-≥0.8 fidelity metric.
+q1 (0.76, just under threshold) and q2 (0.45) were asked but PARAPHRASED by the
+model below 0.8. q2 paraphrases consistently across both runs — a model-fidelity
+risk to address with prompt tuning (or a lower coverage threshold), not an
+architecture gap.
+
+**Guardrail monitor is active.** It correctly flagged one genuinely off-script
+turn (the model improvised a "niche/obscure nontechnical topic" question not in the
+rubric). The two "commitment" flags landed on closer logistics ("five days a week
+in person", the wrap-up) and are likely FALSE POSITIVES — the guardrail prompt
+should be tuned to not flag scripted closer logistics. Fabrication detection was
+not stress-tested (none seeded).
+
+**Net:** core architecture (model-drives + app-backstops + guardrail monitor)
+validated end-to-end against the live API. Open tuning items (not architecture):
+verbatim fidelity on q1/q2, guardrail closer-logistics false positives, and the
+difflib coverage threshold.

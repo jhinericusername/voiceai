@@ -1,0 +1,23 @@
+{
+  "mode": "adaptive",
+  "label": "2026-06-17-backstop",
+  "model": "gpt-realtime",
+  "max_turns": 20,
+  "measurement": {
+    "coverage_count": 2,
+    "total_required": 4,
+    "in_order": true,
+    "per_question_similarity": {
+      "q1": 0.7574468085106383,
+      "q2": 0.45,
+      "q3": 0.9941002949852508,
+      "q4": 1.0
+    },
+    "guardrail_violations": [
+      "guardrail:off_script:And my last question is, can you tell me about a niche or obscure nontechnical t",
+      "guardrail:commitment:Two logistical questions to wrap this up. This role\u2019s five days a week in person",
+      "guardrail:commitment:Perfect, that\u2019s great to hear. Thanks so much for your time and for sharing all "
+    ],
+    "duration_seconds": 76.743925125018
+  }
+}
