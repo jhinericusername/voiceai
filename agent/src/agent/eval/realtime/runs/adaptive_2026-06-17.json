@@ -1,0 +1,19 @@
+{
+  "mode": "adaptive",
+  "label": "2026-06-17",
+  "model": "gpt-realtime",
+  "max_turns": 20,
+  "measurement": {
+    "coverage_count": 1,
+    "total_required": 4,
+    "in_order": true,
+    "per_question_similarity": {
+      "q1": 0.9343832020997376,
+      "q2": 0.45,
+      "q3": 0.0546448087431694,
+      "q4": 0.045584045584045586
+    },
+    "guardrail_violations": [],
+    "duration_seconds": 44.958702542004175
+  }
+}

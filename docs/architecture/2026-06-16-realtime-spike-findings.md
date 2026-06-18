@@ -147,3 +147,46 @@ cd agent && uv run --env-file ../.env python ../tmp/realtime-spike/spike.py \
 # follow-ups: --modality audio ; --provider inworld
 ```
 Runs land in `tmp/realtime-spike/runs/<provider>_<track>_<modality>.json`.
+
+---
+
+## Adaptive-candidate eval (2026-06-17)
+
+First live run of the production realtime path (raw OpenAI `gpt-realtime` websocket
+transport + Claude adaptive candidate), via `python -m agent.eval.realtime.run_eval
+--mode adaptive`. Surfaced and fixed 7 real integration bugs that unit tests (all
+pragma-no-cover live code) could not catch — see `.git/sdd/progress.md`:
+- `run_eval.py`: stale model `gpt-4o-realtime-preview` → `gpt-realtime`; wrong rubric
+  import; missing `load_rubric` path arg; non-existent `Scorer.default()` /
+  `GuardrailMonitor.default()` factories (commit d21722b).
+- `openai_ws_adapter.py`: no opener trigger; discarded `_read_loop` task handle
+  (GC'd → socket never drained); **tools missing GA-required `"type":"function"`**
+  (session.update rejected with a silently-swallowed `error` event → infinite hang)
+  (commit a0b8c06).
+
+**Measurement** (`runs/adaptive_2026-06-17.json`):
+
+| metric | value |
+|---|---|
+| coverage | **1 / 4** required questions |
+| per-question similarity | q1 0.93, q2 0.45, q3 0.05, q4 0.05 |
+| in_order | true |
+| guardrail_violations | 0 |
+| duration | 45 s |
+
+**Reading it — IMPORTANT CAVEAT.** `run_session` (the eval harness driver) is a
+*thin* driver: on a `close_interview` tool call it simply acknowledges and ends. It
+does **not** route through the `ControlBus` close-backstop + `CoverageTracker` that
+the production `RealtimeInterviewRunner` uses to *deny* an early close and re-issue
+uncovered questions. So **1/4 measures the model's UNAIDED coverage, not the
+backstopped system.** It directly reproduces the spike's flagged coverage risk
+(the model delivers the opener/q1 well, then paraphrases/skips and wraps up early).
+The coverage backstop that fixes this is implemented and unit-tested (Task 11
+runner tests assert coverage-before-close and close-denial-until-covered) but is
+not exercised by this eval driver.
+
+**Gate status:** coverage < 100%, but the cause is the eval driver bypassing the
+backstop — NOT a backstop bug. Open decision: rewire `run_session` to drive through
+`RealtimeInterviewRunner`/`ControlBus` (measures the real backstopped coverage) vs.
+keep it as a raw-model-coverage probe. Guardrail monitor fired cleanly (0 false
+positives); fabrication detection was not stress-tested (no fabrication seeded).
