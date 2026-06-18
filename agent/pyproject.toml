@@ -27,6 +27,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["eval: live-API eval, deselected by default"]
+addopts = "-m 'not eval'"
 
 [tool.ruff]
 line-length = 100
