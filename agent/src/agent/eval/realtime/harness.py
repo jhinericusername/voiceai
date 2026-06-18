@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
-from agent.controller.realtime.plan_builder import InterviewPlan
+from agent.controller.realtime.control_bus import ControlBus
+from agent.controller.realtime.coverage import CoverageTracker
+from agent.controller.realtime.plan_builder import InterviewPlan, build_interview_plan
 from agent.domain.types import TranscriptTurn
 
 if TYPE_CHECKING:
@@ -119,7 +121,7 @@ def measure(
 # ---------------------------------------------------------------------------
 
 
-async def run_session(  # pragma: no cover
+async def run_session(
     candidate: AdaptiveCandidate,
     session: RealtimeSession,
     rubric: Any,
@@ -131,33 +133,27 @@ async def run_session(  # pragma: no cover
     """Drive a full interview and return the ``EvalMeasurement``.
 
     The session MUST be configured for TEXT output modality (not audio-only).
-    The ``OpenAIWebsocketRealtimeSession`` should be constructed with
-    ``output_modalities=["text"]`` so the adapter emits ``OutputTranscript``
-    events (it only translates ``response.output_text.*``, not
-    ``response.audio_transcript.*``).
-
-    Flow:
-    1. Build the InterviewPlan from the rubric.
-    2. Start the realtime session (sends ``session.update``).
-    3. Consume the event stream turn by turn, up to ``max_turns``.
-       - On ``OutputTranscript``: record an agent turn; ask the AdaptiveCandidate
-         to reply; feed the reply back via ``session.inject_message()``.
-       - On ``ToolCall``: check for ``close_interview`` to know when done;
-         respond with a stub so the model continues.
-    4. Collect guardrail violations from ``guardrail_monitor``.
-    5. Call ``measure()`` and return.
-
-    Network I/O throughout — excluded from unit-test coverage.
+    Routes all tool calls through ``ControlBus`` so early ``close_interview``
+    calls are denied and uncovered questions are re-issued (COVERAGE_BACKSTOP).
+    Coverage is only complete — and close accepted — once every required question
+    has been spoken and answered.
     """
-    from agent.controller.realtime.plan_builder import build_interview_plan
     from agent.voice.realtime.interface import OutputTranscript, ToolCall
 
     plan = build_interview_plan(rubric)
+    coverage = CoverageTracker(plan.required_coverage)
+    bus = ControlBus(
+        plan,
+        coverage,
+        probe_provider=lambda c: "Could you say a bit more about that?",
+        deflection_line="Let's keep this on track and continue.",
+    )
 
     transcript: list[TranscriptTurn] = []
     guardrail_events: list[str] = []
     turn_index = 0
-    agent_turns_count = 0
+    agent_turns = 0
+    current_qid: str | None = None
     ended = False
 
     start = time.monotonic()
@@ -166,33 +162,26 @@ async def run_session(  # pragma: no cover
 
     async for event in session.events():
         if isinstance(event, OutputTranscript):
-            # Record the agent turn.
             transcript.append(
                 TranscriptTurn(
                     turn_index=turn_index,
                     speaker="agent",
                     text=event.text,
-                    question_id=None,
+                    question_id=current_qid,
                 )
             )
             turn_index += 1
 
-            # Check guardrails off-loop.
-            verdict = guardrail_monitor.check_turn(event.text)
+            verdict = await asyncio.to_thread(guardrail_monitor.check_turn, event.text)
             if verdict.violation:
-                guardrail_events.append(
-                    f"guardrail:{verdict.kind}:{event.text[:80]}"
-                )
+                guardrail_events.append(f"guardrail:{verdict.kind}:{event.text[:80]}")
 
-            agent_turns_count += 1
-            if agent_turns_count >= max_turns:
+            agent_turns += 1
+            if agent_turns >= max_turns:
                 break
 
-            # AdaptiveCandidate produces a reply (sync LLM call) — run off the
-            # event loop so the websocket read loop is not blocked.
             candidate_reply = await asyncio.to_thread(candidate.reply, event.text)
 
-            # Record the candidate turn.
             transcript.append(
                 TranscriptTurn(
                     turn_index=turn_index,
@@ -203,36 +192,33 @@ async def run_session(  # pragma: no cover
             )
             turn_index += 1
 
-            # Feed the candidate's reply back into the realtime session so the
-            # agent can continue.
+            if current_qid:
+                coverage.mark_covered(current_qid)
+
             await session.inject_message(candidate_reply)
 
         elif isinstance(event, ToolCall):
-            if event.name == "close_interview":
-                ended = True
-                # Acknowledge the close so the model can deliver its farewell.
-                await session.respond_to_tool(event.call_id, plan.closer_text)
-            elif event.name == "advance_question":
-                qid = event.arguments.get("next_question_id", "")
-                verbatim = next(
-                    (
-                        r.verbatim_text
-                        for r in plan.required_coverage
-                        if r.question_id == qid
-                    ),
-                    "",
-                )
-                await session.respond_to_tool(event.call_id, verbatim)
+            args = event.arguments
+            if event.name == "advance_question":
+                next_qid = args.get("next_question_id", "")
+                res = await asyncio.to_thread(bus.advance_question, next_qid)
+            elif event.name == "request_probe":
+                res = await asyncio.to_thread(bus.request_probe, args.get("category", ""))
             elif event.name == "flag_off_script":
-                reason = event.arguments.get("reason", "")
+                reason = args.get("reason", "")
                 guardrail_events.append(f"off_script:{reason}")
-                await session.respond_to_tool(
-                    event.call_id,
-                    "That's not something I can discuss here — let's keep going.",
-                )
+                res = await asyncio.to_thread(bus.flag_off_script, reason)
+            elif event.name == "close_interview":
+                res = await asyncio.to_thread(bus.close_interview)
             else:
-                # Probe or unknown — return empty string so the model continues.
-                await session.respond_to_tool(event.call_id, "")
+                res = None
+
+            if res is not None:
+                await session.respond_to_tool(event.call_id, res.speak)
+                if res.question_id:
+                    current_qid = res.question_id
+                if res.ended:
+                    ended = True
 
         if ended:
             break
