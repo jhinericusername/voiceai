@@ -61,12 +61,35 @@ def test_bool_env_various_truthy_values(monkeypatch: pytest.MonkeyPatch) -> None
         assert cfg.enabled is False, f"Failed for value: {val}"
 
 
-def test_realtime_config_rejects_nonpositive_max_session_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that RealtimeConfig rejects non-positive max_session_seconds."""
+def test_realtime_config_clamps_nonpositive_max_session_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-positive max_session_seconds clamps to default 1800.0 — no exception."""
     monkeypatch.delenv("PUDDLE_USE_REALTIME", raising=False)
     monkeypatch.delenv("PUDDLE_REALTIME_MODEL", raising=False)
     monkeypatch.delenv("PUDDLE_GUARDRAIL_MODEL", raising=False)
-    monkeypatch.setenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", "0")
 
-    with pytest.raises(ValueError, match="max_session_seconds must be positive"):
-        RealtimeConfig()
+    for bad in ("0", "-5", "-1.5"):
+        monkeypatch.setenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", bad)
+        cfg = RealtimeConfig()
+        assert cfg.max_session_seconds == 1800.0, f"Expected clamp for value {bad!r}"
+
+
+def test_realtime_config_clamps_nonfloat_max_session_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-float max_session_seconds clamps to default 1800.0 — no exception."""
+    monkeypatch.delenv("PUDDLE_USE_REALTIME", raising=False)
+    monkeypatch.delenv("PUDDLE_REALTIME_MODEL", raising=False)
+    monkeypatch.delenv("PUDDLE_GUARDRAIL_MODEL", raising=False)
+    monkeypatch.setenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", "not-a-number")
+
+    cfg = RealtimeConfig()
+    assert cfg.max_session_seconds == 1800.0
+
+
+def test_realtime_config_valid_max_session_seconds_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A valid positive float env var is parsed and used directly."""
+    monkeypatch.delenv("PUDDLE_USE_REALTIME", raising=False)
+    monkeypatch.delenv("PUDDLE_REALTIME_MODEL", raising=False)
+    monkeypatch.delenv("PUDDLE_GUARDRAIL_MODEL", raising=False)
+    monkeypatch.setenv("PUDDLE_REALTIME_MAX_SESSION_SECONDS", "600")
+
+    cfg = RealtimeConfig()
+    assert cfg.max_session_seconds == 600.0

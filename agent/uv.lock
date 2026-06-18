@@ -1124,7 +1124,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.40" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "google-genai", specifier = ">=0.3" },
-    { name = "livekit-agents", specifier = ">=0.12" },
+    { name = "livekit-agents", specifier = ">=1.5.11" },
     { name = "livekit-plugins-cartesia", specifier = ">=0.4" },
     { name = "livekit-plugins-deepgram", specifier = ">=0.7" },
     { name = "livekit-plugins-openai", specifier = ">=1.5.11" },
