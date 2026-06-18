@@ -141,6 +141,7 @@ class OpenAIWebsocketRealtimeSession:
         )
         self._queue: asyncio.Queue[RealtimeEvent | _EndSentinel] = asyncio.Queue()
         self._conn: Any | None = None
+        self._read_task: asyncio.Task[None] | None = None
         self._closed = False
         self._translator = EventTranslator()
 
@@ -170,11 +171,16 @@ class OpenAIWebsocketRealtimeSession:
         conn = await self._ctx.__aenter__()
         self._conn = conn
 
+        # The GA realtime API requires each tool to carry "type": "function"
+        # (plan_builder emits transport-neutral {name, description, parameters}).
+        # Without it the server rejects session.update with a missing-parameter
+        # error and never produces a response.
+        ga_tools = [t if t.get("type") else {"type": "function", **t} for t in tools]
         session_cfg: dict[str, Any] = {
             "type": "realtime",
             "instructions": instructions,
             "output_modalities": self._output_modalities,
-            "tools": tools,
+            "tools": ga_tools,
         }
         await conn.session.update(session=session_cfg)
         logger.info(
@@ -183,8 +189,17 @@ class OpenAIWebsocketRealtimeSession:
         )
 
         # Spawn the background reader task that translates server events and
-        # pushes them onto the internal queue.
-        asyncio.create_task(self._read_loop(conn))
+        # pushes them onto the internal queue. MUST keep a strong reference:
+        # the event loop holds only a weak ref, so an unstored task gets
+        # garbage-collected mid-await and the socket is never drained (no
+        # events ever reach the queue → events() blocks forever).
+        self._read_task = asyncio.create_task(self._read_loop(conn))
+
+        # In text modality there is no audio VAD to trigger the agent, so
+        # explicitly request the opening turn — the model delivers its opener
+        # per the instructions. Subsequent turns are triggered by
+        # respond_to_tool / inject_message (each sends response.create).
+        await conn.response.create()
 
     async def events(self) -> AsyncIterator[RealtimeEvent]:  # type: ignore[override]
         """Drain the internal queue until the end sentinel."""
@@ -223,6 +238,12 @@ class OpenAIWebsocketRealtimeSession:
     async def aclose(self) -> None:  # pragma: no cover
         """Close the websocket and signal the end of the event stream."""
         self._closed = True
+        if self._read_task is not None:
+            self._read_task.cancel()
+            try:
+                await self._read_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 — best-effort teardown
+                pass
         if self._conn is not None and hasattr(self, "_ctx"):
             try:
                 await self._ctx.__aexit__(None, None, None)
@@ -253,6 +274,12 @@ class OpenAIWebsocketRealtimeSession:
                 else:
                     event_dict = dict(raw_event)  # type: ignore[arg-type]
 
+                if event_dict.get("type") == "error":
+                    # Surface protocol errors — a swallowed session-config error
+                    # otherwise looks identical to a silent hang.
+                    logger.error(
+                        "OpenAI realtime error event", extra={"error": event_dict.get("error")}
+                    )
                 translated = _translate_event(self._translator, event_dict)
                 if translated is not None:
                     self._emit(translated)
