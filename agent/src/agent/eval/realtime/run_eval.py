@@ -77,6 +77,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=20,
         help="Maximum agent turns before the harness stops",
     )
+    ap.add_argument(
+        "--candidate-model",
+        default=_DEFAULT_CANDIDATE_MODEL,
+        help="Anthropic model used for the AdaptiveCandidate",
+    )
     return ap
 
 
@@ -98,7 +103,7 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
     candidate = AdaptiveCandidate(
         client=anthropic_client,
         persona=persona,
-        model=_DEFAULT_CANDIDATE_MODEL,
+        model=args.candidate_model,
     )
 
     session = OpenAIWebsocketRealtimeSession(

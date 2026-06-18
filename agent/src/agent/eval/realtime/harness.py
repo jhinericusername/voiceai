@@ -13,6 +13,7 @@ The module has two distinct surfaces:
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import time
 from typing import TYPE_CHECKING, Any
@@ -187,8 +188,9 @@ async def run_session(  # pragma: no cover
             if agent_turns_count >= max_turns:
                 break
 
-            # AdaptiveCandidate produces a reply (sync LLM call).
-            candidate_reply = candidate.reply(event.text)
+            # AdaptiveCandidate produces a reply (sync LLM call) — run off the
+            # event loop so the websocket read loop is not blocked.
+            candidate_reply = await asyncio.to_thread(candidate.reply, event.text)
 
             # Record the candidate turn.
             transcript.append(
