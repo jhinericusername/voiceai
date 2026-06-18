@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from agent.controller import emit as emit_module
 from agent.controller import interview as interview_module
 from agent.controller.event_log import EventLog
 from agent.controller.interview import InterviewRunner, _emit_best_effort
@@ -276,7 +277,7 @@ async def test_runner_times_out_slow_artifact_emitters(
     caplog,
 ) -> None:  # noqa: ANN001
     monkeypatch.setattr(
-        interview_module, "_ARTIFACT_EMIT_TIMEOUT_SECONDS", 0.01, raising=False
+        emit_module, "_ARTIFACT_EMIT_TIMEOUT_SECONDS", 0.01, raising=False
     )
     rubric = RUBRIC.model_copy(update={"questions": [RUBRIC.questions[0]]})
     voice = _simulated_voice()
@@ -311,7 +312,7 @@ async def test_emit_best_effort_timeout_does_not_cancel_slow_backend_post(
     monkeypatch,
 ) -> None:  # noqa: ANN001
     monkeypatch.setattr(
-        interview_module, "_ARTIFACT_EMIT_TIMEOUT_SECONDS", 0.01, raising=False
+        emit_module, "_ARTIFACT_EMIT_TIMEOUT_SECONDS", 0.01, raising=False
     )
 
     class SlowFailingTransport:

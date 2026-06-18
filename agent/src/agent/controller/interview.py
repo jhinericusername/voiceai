@@ -11,11 +11,16 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from agent.config import MODELS, SCORING
 from agent.controller.decision import decide_next_action
+from agent.controller.emit import (
+    ArtifactEmitter,
+    _emit_best_effort,
+    _positive_float_env,
+)
 from agent.controller.event_log import EventLog
 from agent.controller.machine import InterviewStateMachine
 from agent.controller.states import InterviewState
@@ -43,26 +48,9 @@ def _join_nonempty(*parts: str) -> str:
 
 logger = logging.getLogger(__name__)
 
-ArtifactEmitter = Callable[[dict[str, Any]], Awaitable[None]]
-
 
 async def _noop_emit(_payload: dict[str, Any]) -> None:
     return None
-
-
-def _positive_float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        logger.warning("invalid float environment value", extra={"env_var": name})
-        return default
-    if value <= 0:
-        logger.warning("non-positive float environment value", extra={"env_var": name})
-        return default
-    return value
 
 
 def _positive_int_env(name: str, default: int) -> int:
@@ -80,10 +68,6 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
-_ARTIFACT_EMIT_TIMEOUT_SECONDS = _positive_float_env(
-    "PUDDLE_ARTIFACT_EMIT_TIMEOUT_SECONDS",
-    0.5,
-)
 _LISTEN_INITIAL_TIMEOUT_SECONDS = _positive_float_env(
     "PUDDLE_LISTEN_INITIAL_TIMEOUT_SECONDS",
     20.0,
@@ -107,50 +91,6 @@ _AUDIO_REPAIR_LINES = (
 
 class CandidateSilenceTimeoutError(TimeoutError):
     """Raised when a connected candidate remains silent after repair prompts."""
-
-
-def _log_background_emit_result(kind: str, task: asyncio.Task[None]) -> None:
-    try:
-        task.result()
-    except asyncio.CancelledError:
-        logger.warning(
-            "artifact emission task was cancelled",
-            extra={"artifact_kind": kind},
-        )
-    except Exception:
-        logger.warning(
-            "artifact emission failed",
-            extra={"artifact_kind": kind},
-            exc_info=True,
-        )
-
-
-async def _emit_best_effort(
-    kind: str,
-    emitter: ArtifactEmitter,
-    payload: dict[str, Any],
-) -> None:
-    task = asyncio.create_task(emitter(payload))
-    try:
-        await asyncio.wait_for(
-            asyncio.shield(task),
-            timeout=_ARTIFACT_EMIT_TIMEOUT_SECONDS,
-        )
-    except TimeoutError:
-        task.add_done_callback(lambda done: _log_background_emit_result(kind, done))
-        logger.warning(
-            "artifact emission timed out",
-            extra={
-                "artifact_kind": kind,
-                "timeout_seconds": _ARTIFACT_EMIT_TIMEOUT_SECONDS,
-            },
-        )
-    except Exception:
-        logger.warning(
-            "artifact emission failed",
-            extra={"artifact_kind": kind},
-            exc_info=True,
-        )
 
 
 class InterviewRunner:
