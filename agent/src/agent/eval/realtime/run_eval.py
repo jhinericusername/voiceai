@@ -12,7 +12,7 @@ Options:
                  long      = verbose tangent-prone candidate (~15 min)
     --label  arbitrary tag appended to the output filename (default: mode)
     --out    explicit output path; overrides the default runs/ naming
-    --model  realtime model name (default: gpt-4o-realtime-preview)
+    --model  realtime model name (default: gpt-realtime)
 
 No live API calls are made at import time.  All SDK imports are deferred
 inside ``main()`` so the module is safe to import in unit tests.
@@ -41,7 +41,7 @@ _LONG_PERSONA = (
     "answer. Simulate a realistic ~15-minute interview session."
 )
 
-_DEFAULT_MODEL = "gpt-4o-realtime-preview"
+_DEFAULT_MODEL = "gpt-realtime"
 _DEFAULT_CANDIDATE_MODEL = "claude-haiku-4-5"
 
 
@@ -89,14 +89,18 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
     """Async body — all live SDK usage lives here."""
     import anthropic
 
+    from agent.config import REALTIME
     from agent.controller.realtime.guardrail_monitor import GuardrailMonitor
     from agent.eval.realtime.adaptive_candidate import AdaptiveCandidate
     from agent.eval.realtime.harness import run_session
-    from agent.rubric.loader import load_rubric
+    from agent.rubric_loader import load_rubric
     from agent.scoring.scorer import Scorer
     from agent.voice.realtime.openai_ws_adapter import OpenAIWebsocketRealtimeSession
 
-    rubric = load_rubric()
+    # Rubric lives at <repo_root>/rubric/pilot-v1.yaml; run_eval.py is at
+    # agent/src/agent/eval/realtime/run_eval.py so repo root is 5 levels up.
+    _REPO_ROOT = Path(__file__).resolve().parents[5]
+    rubric = load_rubric(_REPO_ROOT / "rubric" / "pilot-v1.yaml")
 
     persona = _LONG_PERSONA if args.mode == "long" else _ADAPTIVE_PERSONA
     anthropic_client = anthropic.Anthropic()
@@ -111,8 +115,8 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
         output_modalities=["text"],
     )
 
-    scorer = Scorer.default()
-    guardrail_monitor = GuardrailMonitor.default()
+    scorer = Scorer(client=anthropic_client, rubric=rubric)
+    guardrail_monitor = GuardrailMonitor(client=anthropic_client, model=REALTIME.guardrail_model)
 
     measurement = await run_session(
         candidate,
