@@ -13,8 +13,11 @@ from typing import Any
 import anthropic
 from pydantic import BaseModel, ConfigDict
 
+from agent.config import REALTIME
 from agent.controller.event_log import EventLog
 from agent.controller.interview import CandidateSilenceTimeoutError, InterviewRunner
+from agent.controller.realtime.guardrail_monitor import GuardrailMonitor
+from agent.controller.realtime.runner import RealtimeInterviewRunner
 from agent.rubric_loader import load_rubric
 from agent.scoring.probe import ProbeGenerator
 from agent.scoring.scorer import Scorer
@@ -116,11 +119,18 @@ async def entrypoint(
             await _close_voice_if_present(voice)
         return
 
-    voice = await _build_livekit_voice_agent(job)
-    try:
-        await _default_run_interview(ctx, voice)
-    finally:
-        await _close_voice_if_present(voice)
+    if REALTIME.enabled:
+        voice = await _build_realtime_session(job)
+        try:
+            await _realtime_run_interview(ctx, voice)
+        finally:
+            await _close_voice_if_present(voice)
+    else:
+        voice = await _build_livekit_voice_agent(job)
+        try:
+            await _default_run_interview(ctx, voice)
+        finally:
+            await _close_voice_if_present(voice)
 
 
 async def _close_voice_if_present(voice: Any) -> None:
@@ -129,36 +139,24 @@ async def _close_voice_if_present(voice: Any) -> None:
         await aclose()
 
 
-async def _default_run_interview(
-    ctx: InterviewJobContext, voice: Any
-) -> None:  # pragma: no cover — exercised by the live integration env
-    """Production interview runner: build the components and run the interview."""
-    repo_root = Path(__file__).parents[4]
-    rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
-    anthropic_client = anthropic.Anthropic()
-    event_log = EventLog(
-        session_id=ctx.session_id,
-        path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
-    )
-    backend = BackendClient(session_id=ctx.session_id)
-    runner = InterviewRunner(
-        rubric=rubric,
-        voice=voice,
-        scorer=Scorer(client=anthropic_client, rubric=rubric),
-        probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
-        event_log=event_log,
-        clock_now=time.monotonic,
-        emit_transcript_turn=backend.post_transcript_turn,
-        emit_agent_event=backend.post_agent_event,
-        emit_score_checkpoint=backend.post_score_checkpoint,
-        candidate_transcript_source=deepgram_transcript_source(),
-    )
-    logger.info(
-        "starting interview runner",
-        extra={"session_id": ctx.session_id, "room": ctx.room_name},
-    )
+async def _run_and_finalize(
+    runner: Any,
+    *,
+    ctx: InterviewJobContext,
+    backend: BackendClient,
+    session_id: str,
+    script_version: str,
+) -> None:
+    """Run the interview runner and post finalization regardless of outcome.
+
+    Shared by both the cascade and realtime paths.  Completion reasons:
+    - "completed"              — runner.run() returned normally
+    - "candidate_disconnected" — ParticipantDisconnectedError
+    - "timeout"                — CandidateSilenceTimeoutError
+    - "agent_error"            — any other Exception (re-raised after finalization)
+    """
     try:
-        assessment = await runner.run(session_id=ctx.session_id)
+        assessment = await runner.run(session_id=session_id)
     except ParticipantDisconnectedError:
         logger.info(
             "ending interview after participant reconnect grace expired",
@@ -217,6 +215,98 @@ async def _default_run_interview(
             "interview runner completed",
             extra={"session_id": ctx.session_id, "room": ctx.room_name},
         )
+
+
+async def _default_run_interview(
+    ctx: InterviewJobContext, voice: Any
+) -> None:  # pragma: no cover — exercised by the live integration env
+    """Production interview runner: build the components and run the interview."""
+    repo_root = Path(__file__).parents[4]
+    rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
+    anthropic_client = anthropic.Anthropic()
+    event_log = EventLog(
+        session_id=ctx.session_id,
+        path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
+    )
+    backend = BackendClient(session_id=ctx.session_id)
+    runner = InterviewRunner(
+        rubric=rubric,
+        voice=voice,
+        scorer=Scorer(client=anthropic_client, rubric=rubric),
+        probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
+        event_log=event_log,
+        clock_now=time.monotonic,
+        emit_transcript_turn=backend.post_transcript_turn,
+        emit_agent_event=backend.post_agent_event,
+        emit_score_checkpoint=backend.post_score_checkpoint,
+        candidate_transcript_source=deepgram_transcript_source(),
+    )
+    logger.info(
+        "starting interview runner",
+        extra={"session_id": ctx.session_id, "room": ctx.room_name},
+    )
+    await _run_and_finalize(
+        runner,
+        ctx=ctx,
+        backend=backend,
+        session_id=ctx.session_id,
+        script_version=ctx.script_version,
+    )
+
+
+async def _realtime_run_interview(
+    ctx: InterviewJobContext, voice: Any
+) -> None:
+    """Realtime interview runner: build the realtime components and run the interview."""
+    repo_root = Path(__file__).parents[4]
+    rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
+    anthropic_client = anthropic.Anthropic()
+    event_log = EventLog(
+        session_id=ctx.session_id,
+        path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
+    )
+    backend = BackendClient(session_id=ctx.session_id)
+    runner = RealtimeInterviewRunner(
+        rubric=rubric,
+        session=voice,
+        scorer=Scorer(client=anthropic_client, rubric=rubric),
+        probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
+        guardrail_monitor=GuardrailMonitor(
+            client=anthropic_client,
+            model=REALTIME.guardrail_model,
+        ),
+        event_log=event_log,
+        clock_now=time.monotonic,
+        emit_transcript_turn=backend.post_transcript_turn,
+        emit_agent_event=backend.post_agent_event,
+        emit_score_checkpoint=backend.post_score_checkpoint,
+        candidate_transcript_source="realtime",
+    )
+    logger.info(
+        "starting realtime interview runner",
+        extra={"session_id": ctx.session_id, "room": ctx.room_name},
+    )
+    await _run_and_finalize(
+        runner,
+        ctx=ctx,
+        backend=backend,
+        session_id=ctx.session_id,
+        script_version=ctx.script_version,
+    )
+
+
+async def _build_realtime_session(job: Any) -> Any:  # pragma: no cover — vendor wiring
+    """Construct and return a LiveKitRealtimeSession for the room.
+
+    Does NOT call .start() — the runner's run() starts the session.
+    """
+    from agent.voice.realtime.livekit_adapter import LiveKitRealtimeSession
+
+    return LiveKitRealtimeSession(
+        job,
+        model=REALTIME.model,
+        participant_identity=None,
+    )
 
 
 def _finalization_payload(

@@ -503,3 +503,242 @@ async def test_entrypoint_closes_default_voice_after_runner_failure(monkeypatch)
 
     assert exc_info.value is failure
     voice.aclose.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Task 12: REALTIME flag-select tests
+# ---------------------------------------------------------------------------
+
+
+def _make_job(session_id: str = "sess1") -> MagicMock:
+    job = MagicMock()
+    job.room.name = f"interview-{session_id}"
+    job.metadata = (
+        f'{{"session_id": "{session_id}", "org_id": "org1", '
+        f'"script_version": "pilot-v1", "candidate_email": "c@example.com"}}'
+    )
+    return job
+
+
+async def test_entrypoint_flag_on_selects_realtime_path(monkeypatch) -> None:
+    """REALTIME.enabled=True → _build_realtime_session + _realtime_run_interview called."""
+    from agent.worker import entrypoint as ep
+
+    fake_voice = SimpleNamespace(aclose=AsyncMock())
+    realtime_ran: list[tuple[object, object]] = []
+    default_ran: list[object] = []
+
+    async def fake_build_realtime(_job):  # noqa: ANN001
+        return fake_voice
+
+    async def fake_realtime_run(ctx, voice):  # noqa: ANN001
+        realtime_ran.append((ctx, voice))
+
+    async def fake_default_run(ctx, voice):  # noqa: ANN001
+        default_ran.append((ctx, voice))
+
+    monkeypatch.setattr(ep, "REALTIME", SimpleNamespace(enabled=True))
+    monkeypatch.setattr(ep, "_build_realtime_session", fake_build_realtime)
+    monkeypatch.setattr(ep, "_realtime_run_interview", fake_realtime_run)
+    monkeypatch.setattr(ep, "_default_run_interview", fake_default_run)
+
+    await ep.entrypoint(_make_job())
+
+    assert len(realtime_ran) == 1
+    assert realtime_ran[0][0].session_id == "sess1"
+    assert realtime_ran[0][1] is fake_voice
+    assert len(default_ran) == 0
+    fake_voice.aclose.assert_awaited_once()
+
+
+async def test_entrypoint_flag_off_selects_cascade_path(monkeypatch) -> None:
+    """REALTIME.enabled=False → _build_livekit_voice_agent + _default_run_interview called."""
+    from types import SimpleNamespace
+
+    from agent.worker import entrypoint as ep
+
+    fake_voice = SimpleNamespace(aclose=AsyncMock())
+    realtime_ran: list[object] = []
+    default_ran: list[tuple[object, object]] = []
+
+    async def fake_build_voice(_job):  # noqa: ANN001
+        return fake_voice
+
+    async def fake_realtime_run(ctx, voice):  # noqa: ANN001
+        realtime_ran.append((ctx, voice))
+
+    async def fake_default_run(ctx, voice):  # noqa: ANN001
+        default_ran.append((ctx, voice))
+
+    monkeypatch.setattr(ep, "REALTIME", SimpleNamespace(enabled=False))
+    monkeypatch.setattr(ep, "_build_livekit_voice_agent", fake_build_voice)
+    monkeypatch.setattr(ep, "_realtime_run_interview", fake_realtime_run)
+    monkeypatch.setattr(ep, "_default_run_interview", fake_default_run)
+
+    job = _make_job()
+    await ep.entrypoint(job)
+
+    assert len(default_ran) == 1
+    assert default_ran[0][0].session_id == "sess1"
+    assert default_ran[0][1] is fake_voice
+    assert len(realtime_ran) == 0
+    fake_voice.aclose.assert_awaited_once()
+
+
+async def test_realtime_run_interview_builds_runner_and_finalizes(monkeypatch) -> None:
+    """_realtime_run_interview builds RealtimeInterviewRunner and posts finalization."""
+    from types import SimpleNamespace
+
+    from agent.worker import entrypoint as ep
+
+    calls: list[str] = []
+    clients: list[object] = []
+    runner_init: dict[str, object] = {}
+
+    class FakeBackendClient:
+        def __init__(self, session_id: str) -> None:
+            self.session_id = session_id
+            self.finalization_payloads: list[dict[str, object]] = []
+            clients.append(self)
+
+        async def post_transcript_turn(self, payload: dict[str, object]) -> None:
+            calls.append("transcript")
+
+        async def post_agent_event(self, _payload: dict[str, object]) -> None:
+            calls.append("agent_event")
+
+        async def post_score_checkpoint(self, _payload: dict[str, object]) -> None:
+            calls.append("score")
+
+        async def post_finalization(self, payload: dict[str, object]) -> None:
+            calls.append(f"finalize:{payload['completionReason']}")
+            self.finalization_payloads.append(payload)
+
+        async def flush(self, timeout_seconds: float | None = None) -> None:
+            calls.append(f"flush:{timeout_seconds}")
+
+    class FakeEventLog:
+        def events(self) -> list[object]:
+            return [object()]
+
+    class FakeRunner:
+        def __init__(self, **kwargs: object) -> None:
+            runner_init.update(kwargs)
+            self.transcript: list[str] = []
+            self.event_log = FakeEventLog()
+            self._score_checkpoint_sequence = 0
+
+        async def run(self, session_id: str) -> object:
+            assert session_id == "sess-rt"
+            return SimpleNamespace(
+                script_version="pilot-v1",
+                integrity_flags=[],
+            )
+
+    fake_voice = object()
+    fake_anthropic_client = object()
+    fake_guardrail = object()
+
+    monkeypatch.setattr(ep, "BackendClient", FakeBackendClient)
+    monkeypatch.setattr(ep, "RealtimeInterviewRunner", FakeRunner)
+    monkeypatch.setattr(ep, "GuardrailMonitor", lambda **kw: fake_guardrail)
+    monkeypatch.setattr(ep, "Scorer", lambda **_kwargs: object())
+    monkeypatch.setattr(ep, "ProbeGenerator", lambda **_kwargs: object())
+    monkeypatch.setattr(ep, "EventLog", lambda **_kwargs: FakeEventLog())
+    monkeypatch.setattr(ep, "load_rubric", lambda _path: SimpleNamespace(script_version="pilot-v1"))
+    monkeypatch.setattr(ep.anthropic, "Anthropic", lambda: fake_anthropic_client)
+    monkeypatch.setattr(
+        ep,
+        "REALTIME",
+        SimpleNamespace(enabled=True, model="gpt-realtime", guardrail_model="claude-haiku-4-5"),
+    )
+
+    ctx = InterviewJobContext(
+        session_id="sess-rt",
+        org_id="org1",
+        script_version="pilot-v1",
+        candidate_email="c@example.com",
+        room_name="interview-sess-rt",
+    )
+
+    await ep._realtime_run_interview(ctx, voice=fake_voice)
+
+    # Runner was constructed with session=fake_voice
+    assert runner_init["session"] is fake_voice
+    assert runner_init["guardrail_monitor"] is fake_guardrail
+    assert runner_init["candidate_transcript_source"] == "realtime"
+    assert runner_init["emit_transcript_turn"] == clients[0].post_transcript_turn
+    assert runner_init["emit_agent_event"] == clients[0].post_agent_event
+    assert runner_init["emit_score_checkpoint"] == clients[0].post_score_checkpoint
+
+    # Finalization was posted
+    assert any(c.startswith("finalize:") for c in calls)
+    assert clients[0].finalization_payloads[0]["completionReason"] == "completed"
+
+
+async def test_realtime_run_interview_posts_disconnected_finalization(monkeypatch) -> None:
+    """_realtime_run_interview maps ParticipantDisconnectedError → candidate_disconnected."""
+    from types import SimpleNamespace
+
+    from agent.worker import entrypoint as ep
+
+    clients: list[object] = []
+
+    class FakeBackendClient:
+        def __init__(self, session_id: str) -> None:
+            self.session_id = session_id
+            self.finalization_payloads: list[dict[str, object]] = []
+            clients.append(self)
+
+        async def post_transcript_turn(self, _p: dict[str, object]) -> None:
+            pass
+
+        async def post_agent_event(self, _p: dict[str, object]) -> None:
+            pass
+
+        async def post_score_checkpoint(self, _p: dict[str, object]) -> None:
+            pass
+
+        async def post_finalization(self, payload: dict[str, object]) -> None:
+            self.finalization_payloads.append(payload)
+
+        async def flush(self, timeout_seconds: float | None = None) -> None:
+            pass
+
+    class FakeEventLog:
+        def events(self) -> list[object]:
+            return []
+
+    class FakeRunner:
+        def __init__(self, **_kwargs: object) -> None:
+            self.transcript: list[str] = []
+            self.event_log = FakeEventLog()
+
+        async def run(self, session_id: str) -> object:
+            raise ep.ParticipantDisconnectedError("dropped")
+
+    monkeypatch.setattr(ep, "BackendClient", FakeBackendClient)
+    monkeypatch.setattr(ep, "RealtimeInterviewRunner", FakeRunner)
+    monkeypatch.setattr(ep, "GuardrailMonitor", lambda **kw: object())
+    monkeypatch.setattr(ep, "Scorer", lambda **_kwargs: object())
+    monkeypatch.setattr(ep, "ProbeGenerator", lambda **_kwargs: object())
+    monkeypatch.setattr(ep, "EventLog", lambda **_kwargs: FakeEventLog())
+    monkeypatch.setattr(ep, "load_rubric", lambda _path: SimpleNamespace(script_version="pilot-v1"))
+    monkeypatch.setattr(ep.anthropic, "Anthropic", lambda: object())
+    monkeypatch.setattr(
+        ep,
+        "REALTIME",
+        SimpleNamespace(enabled=True, model="gpt-realtime", guardrail_model="claude-haiku-4-5"),
+    )
+
+    ctx = InterviewJobContext(
+        session_id="sess-rt-disc",
+        org_id="org1",
+        script_version="pilot-v1",
+        candidate_email="c@example.com",
+        room_name="interview-sess-rt-disc",
+    )
+
+    await ep._realtime_run_interview(ctx, voice=object())
+
+    assert clients[0].finalization_payloads[0]["completionReason"] == "candidate_disconnected"  # type: ignore[index]
