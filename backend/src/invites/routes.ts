@@ -15,6 +15,7 @@ import {
 } from "../livekit/egress.js";
 import { ensureRoomReady, type LiveKitConfig } from "../livekit/provision.js";
 import { buildCandidateJoinToken } from "../livekit/token.js";
+import { hasInterviewerJoinedStatement } from "../interviewers/repository.js";
 import {
   expectedRecordingArtifacts,
   recordingArtifactUpsertStatement,
@@ -297,6 +298,12 @@ export function registerCandidateInviteRoutes(
       const consentStmt = consentUpsertStatement(consentInput.input);
       await pool.query(consentStmt.sql, [...consentStmt.params]);
 
+      const interviewerJoinedStmt = hasInterviewerJoinedStatement(invite.session_id);
+      const interviewerJoined = await pool.query(interviewerJoinedStmt.sql, [
+        ...interviewerJoinedStmt.params,
+      ]);
+      const hasInterviewerJoined = interviewerJoined.rows.length > 0;
+
       let room: string;
       let roomRecreated = false;
       try {
@@ -304,7 +311,10 @@ export function registerCandidateInviteRoutes(
           liveKitConfig,
           invite.session_id,
           buildWorkerDispatchMetadata(sessionRecordFromInvite(invite)),
-          { hadPreviousRoom: Boolean(invite.room_name) },
+          {
+            hadPreviousRoom: Boolean(invite.room_name),
+            dispatchAgent: !hasInterviewerJoined,
+          },
         );
         room = readiness.room;
         roomRecreated = readiness.roomRecreated;
@@ -355,6 +365,25 @@ export function registerCandidateInviteRoutes(
         roomRecreated,
         now: new Date(consentInput.input.consentedAt),
       });
+
+      if (hasInterviewerJoined) {
+        try {
+          await persistOpsEvent(pool, {
+            sessionId: invite.session_id,
+            eventType: "ai_interviewer_auto_dispatch_skipped",
+            payload: {
+              reason: "human_interviewer_joined",
+              invite_id: invite.invite_id,
+              room,
+            },
+          });
+        } catch (error) {
+          request.log.error(
+            { err: error, sessionId: invite.session_id, inviteId: invite.invite_id, room },
+            "failed to record AI interviewer auto-dispatch skip",
+          );
+        }
+      }
 
       return reply.code(200).send({
         sessionId: invite.session_id,

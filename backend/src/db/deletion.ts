@@ -23,6 +23,7 @@ const DELETION_ORDER = [
   "assessments",
   "consent_records",
   "candidate_invites",
+  "interview_ai_control_state",
   "sessions",
 ];
 

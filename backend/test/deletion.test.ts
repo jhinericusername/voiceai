@@ -14,8 +14,12 @@ describe("buildDeletionPlan", () => {
       "assessments",
       "consent_records",
       "candidate_invites",
+      "interview_ai_control_state",
       "sessions",
     ]);
+    expect(tables.indexOf("interview_ai_control_state")).toBeLessThan(
+      tables.indexOf("sessions"),
+    );
     expect(plan.statements.every((s) => s.params[0] === "sess1")).toBe(true);
     expect(plan.statements[0].sql).toContain("DELETE FROM recording_artifacts");
   });

@@ -174,6 +174,28 @@ describe("database migrations", () => {
     expect(migration).toContain("updated_at TIMESTAMPTZ NOT NULL DEFAULT now()");
   });
 
+  it("adds interviewer AI control state after recommendation updated-at migration", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const recommendationUpdatedAtIndex = files.indexOf("013_interview_recommendations_updated_at.sql");
+    const aiControlIndex = files.indexOf("015_interviewer_ai_control_state.sql");
+
+    expect(recommendationUpdatedAtIndex).toBeGreaterThanOrEqual(0);
+    expect(aiControlIndex).toBeGreaterThan(recommendationUpdatedAtIndex);
+
+    const migration = readFileSync(
+      join(migrationsDir, "015_interviewer_ai_control_state.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS interview_ai_control_state");
+    expect(migration).toContain("session_id             TEXT PRIMARY KEY REFERENCES sessions(session_id) ON DELETE CASCADE");
+    expect(migration).toContain("requested_state        TEXT NOT NULL CHECK (requested_state IN ('running', 'stopped'))");
+    expect(migration).toContain("requested_by_user_id   TEXT NOT NULL");
+    expect(migration).toContain("requested_by_email     TEXT NOT NULL");
+    expect(migration).toContain("requested_at           TIMESTAMPTZ NOT NULL DEFAULT now()");
+    expect(migration).toContain("updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()");
+    expect(migration).toContain("interview_ai_control_state_requested_at_idx");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 

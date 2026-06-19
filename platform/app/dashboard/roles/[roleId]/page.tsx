@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { companyIdentityFromUser, getAshbyCompanyState } from "@/lib/ashby/server";
 import { requireDashboardUser } from "../../auth";
+import { CreateAndJoinInterviewForm } from "./CreateAndJoinInterviewForm";
 import { RoleWorkspaceTabs } from "./RoleWorkspaceTabs";
 import {
   SectionPanel,
@@ -71,9 +72,10 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
           <SectionPanel title="Send interviews" eyebrow="Next step">
             <p className="text-sm leading-6 text-slate-600">
-              Bulk and single-candidate interview sending will use real Ashby applications for this role. Calendar
-              booking support should replace immediate scheduling when Cal integration ships.
+              Start a hosted Puddle room for {roleLabel}. Create the interview session, then continue to the interviewer
+              pre-call room to copy the candidate link.
             </p>
+            <CreateAndJoinInterviewForm roleLabel={roleLabel} />
           </SectionPanel>
         </aside>
       </div>

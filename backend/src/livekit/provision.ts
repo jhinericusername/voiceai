@@ -4,6 +4,7 @@ const INTERVIEW_ROOM_PREFIX = "interview-";
 const INTERVIEW_AGENT_NAME = "puddle-interviewer";
 const ROOM_EMPTY_TIMEOUT_SECONDS = 600;
 const ROOM_DEPARTURE_TIMEOUT_SECONDS = 300;
+const ROOM_MAX_PARTICIPANTS = 8;
 
 export interface LiveKitConfig {
   readonly host: string;
@@ -43,6 +44,7 @@ export interface RoomReadinessInput {
   readonly hadPreviousRoom?: boolean;
   readonly rooms?: RoomClient;
   readonly dispatch?: DispatchClient;
+  readonly dispatchAgent?: boolean;
 }
 
 export interface RoomReadinessResult {
@@ -98,8 +100,8 @@ function dispatchMatchesPuddleInterviewer(dispatch: AgentDispatch): boolean {
   return (dispatch.agentName ?? dispatch.agent_name) === INTERVIEW_AGENT_NAME;
 }
 
-// Ensures the SFU room exists and exactly one Puddle interviewer dispatch has
-// been requested. This is intentionally safe to call from every candidate join.
+// Ensures the SFU room exists and, unless disabled for interviewer-led setup,
+// that one Puddle interviewer dispatch has been requested.
 export async function ensureRoomReady(
   config: LiveKitConfig,
   sessionId: string,
@@ -119,7 +121,7 @@ export async function ensureRoomReady(
         name: room,
         emptyTimeout: ROOM_EMPTY_TIMEOUT_SECONDS,
         departureTimeout: ROOM_DEPARTURE_TIMEOUT_SECONDS,
-        maxParticipants: 3,
+        maxParticipants: ROOM_MAX_PARTICIPANTS,
       });
     } catch (error) {
       if (!roomAlreadyExists(error)) {
@@ -129,12 +131,15 @@ export async function ensureRoomReady(
     }
   }
 
-  const dispatches = await dispatch.listDispatch(room);
-  const dispatchCreated = !dispatches.some(dispatchMatchesPuddleInterviewer);
-  if (dispatchCreated) {
-    await dispatch.createDispatch(room, INTERVIEW_AGENT_NAME, {
-      metadata: workerMetadata,
-    });
+  let dispatchCreated = false;
+  if (input.dispatchAgent !== false) {
+    const dispatches = await dispatch.listDispatch(room);
+    dispatchCreated = !dispatches.some(dispatchMatchesPuddleInterviewer);
+    if (dispatchCreated) {
+      await dispatch.createDispatch(room, INTERVIEW_AGENT_NAME, {
+        metadata: workerMetadata,
+      });
+    }
   }
 
   return {
