@@ -24,15 +24,6 @@ from agent.worker.backend_client import BackendClient
 logger = logging.getLogger(__name__)
 
 
-class CandidateSilenceTimeoutError(TimeoutError):
-    """Raised when a candidate stays silent beyond the configured threshold.
-
-    Defined here (not in the deleted cascade interviewer) so the shared
-    _run_and_finalize handler can catch it.  The realtime runner does not
-    currently raise this; the handler is retained for Task 9 sweep.
-    """
-
-
 def _positive_float_env(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None:
@@ -150,7 +141,6 @@ async def _run_and_finalize(
     Completion reasons:
     - "completed"              — runner.run() returned normally
     - "candidate_disconnected" — ParticipantDisconnectedError
-    - "timeout"                — CandidateSilenceTimeoutError
     - "agent_error"            — any other Exception (re-raised after finalization)
     """
     try:
@@ -167,20 +157,6 @@ async def _run_and_finalize(
                 runner=runner,
                 completion_reason="candidate_disconnected",
                 integrity_flags=[],
-            ),
-        )
-    except CandidateSilenceTimeoutError:
-        logger.info(
-            "ending interview after candidate silence timeout",
-            extra={"session_id": ctx.session_id, "room": ctx.room_name},
-        )
-        await _post_finalization_best_effort(
-            backend,
-            _finalization_payload(
-                ctx=ctx,
-                runner=runner,
-                completion_reason="timeout",
-                integrity_flags=["timeout"],
             ),
         )
     except Exception:
