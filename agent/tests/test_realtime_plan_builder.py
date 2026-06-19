@@ -62,3 +62,14 @@ def test_instructions_surface_acknowledgments():
     assert "Got it. Got it. Got it." in instr            # a real ack phrase surfaced
     assert "acknowledg" in instr.lower()                 # the guidance framing
     assert "STYLE — sound like a warm, natural human, not a form" in instr  # _style_block contribution
+
+
+def test_instructions_include_weave_facts_allowlist():
+    from pathlib import Path
+    from agent.rubric_loader import load_rubric
+    from agent.controller.realtime.plan_builder import build_interview_plan
+    rubric = load_rubric(Path(__file__).parents[2] / "rubric" / "pilot-v1.yaml")
+    instr = build_interview_plan(rubric).instructions
+    assert "understand and quantify the work software engineers do" in instr
+    assert "open to negotiation" in instr            # relaxed comp line present
+    assert "the team will follow up" in instr.lower()

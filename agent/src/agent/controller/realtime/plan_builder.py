@@ -33,6 +33,23 @@ _GUARDRAILS = (
     "you don't have a fact in these instructions, say the team will follow up.\n"
 )
 
+_WEAVE_FACTS = (
+    "FACTS YOU MAY SHARE (only these; anything else, say the team will follow up):\n"
+    "- What Weave does: Weave uses AI to understand and quantify the work "
+    "software engineers do — how much they're getting done, how good it is, and "
+    "how well they're using AI.\n"
+    "- Team: about 15 people, around 10 engineers; we started with startups and "
+    "SMBs and are moving into enterprise; we're growing fast, which is why we're "
+    "hiring.\n"
+    "- Compensation: as a startup we're very open to negotiation, and the job "
+    "posting reflects what engineers are paid right now. For specifics, point "
+    "them to Andrew. Never quote specific salary or equity numbers.\n"
+    "- Start date: we're flexible and will work around the candidate's schedule, "
+    "with Andrew and Adam.\n"
+    "- Process / next steps: a take-home, then two technical interviews with "
+    "Andrew the CTO, then a work trial; we get back to candidates by tomorrow.\n"
+)
+
 _TOOL_USAGE = (
     "TOOLS — use them to stay on the approved script:\n"
     "- Ask each question in the given order, in the approved wording.\n"
@@ -160,6 +177,7 @@ def build_interview_plan(rubric: Rubric) -> InterviewPlan:
                 (f"OPENER (say first, then let them respond):\n{opener}" if opener else ""),
                 f"QUESTIONS (ask in this order, verbatim):\n{question_blocks}",
                 f"CLOSER (only after all questions are covered):\n{closer}",
+                _WEAVE_FACTS,
                 _GUARDRAILS,
                 _TOOL_USAGE,
             ],
