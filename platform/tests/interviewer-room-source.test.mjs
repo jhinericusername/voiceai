@@ -79,9 +79,19 @@ test("interviewer platform routes fail closed on malformed backend success paylo
 test("interviewer join page is a full-screen dashboard-gated room entry", async () => {
   const pageSource = await requiredSource("../app/dashboard/interviews/[sessionId]/join/page.tsx");
 
+  assert.match(pageSource, /dynamic = "force-dynamic"/);
+  assert.match(pageSource, /metadata: Metadata = noindexMetadata/);
+  assert.match(pageSource, /readonly params: Promise/);
+  assert.match(pageSource, /const \{ sessionId \} = await params/);
   assert.match(pageSource, /requireDashboardUser/);
+  assert.match(
+    pageSource,
+    /requireDashboardUser\(`\/dashboard\/interviews\/\$\{encodeURIComponent\(sessionId\)\}\/join`\)/,
+  );
   assert.match(pageSource, /InterviewerJoinClient/);
   assert.match(pageSource, /fixed inset-0/);
+  assert.match(pageSource, /z-\[\d+\]/);
+  assert.match(pageSource, /<InterviewerJoinClient sessionId=\{sessionId\} \/>/);
 });
 
 test("interviewer join client exposes host invite, join, and AI controls without candidate notices", async () => {
@@ -90,8 +100,11 @@ test("interviewer join client exposes host invite, join, and AI controls without
   );
 
   for (const expectedSource of [
+    "livekit-client",
     "candidate-invite",
     "Copy candidate link",
+    "Create new link",
+    "Retry",
     "interviewer-join",
     "Start AI",
     "Stop AI",
@@ -99,6 +112,33 @@ test("interviewer join client exposes host invite, join, and AI controls without
   ]) {
     assert.match(clientSource, new RegExp(expectedSource));
   }
+
+  assert.match(clientSource, /const inviteRequestedRef = useRef\(false\)/);
+  assert.match(clientSource, /if \(inviteRequestedRef\.current\)/);
+  assert.match(clientSource, /inviteRequestedRef\.current = true/);
+  assert.match(clientSource, /void createCandidateInvite\(\)/);
+
+  assert.match(clientSource, /new Room\(/);
+  assert.match(clientSource, /room\.connect\(payload\.liveKitUrl, payload\.token\)/);
+  assert.match(clientSource, /createLocalAudioTrack/);
+  assert.match(clientSource, /createLocalVideoTrack/);
+  assert.match(clientSource, /room\.localParticipant\.publishTrack\(audioTrack\)/);
+  assert.match(clientSource, /room\.localParticipant\.publishTrack\(videoTrack\)/);
+  assert.match(clientSource, /\.attach\(video\)/);
+  assert.match(clientSource, /\.detach\(video\)/);
+  assert.match(clientSource, /track\.attach\(\)/);
+  assert.match(clientSource, /track\.detach\(\)/);
+  assert.match(clientSource, /replaceChildren\(\)/);
+  assert.match(clientSource, /localAudioTrackRef\.current\?\.stop\(\)/);
+  assert.match(clientSource, /localVideoTrackRef\.current\?\.stop\(\)/);
+  assert.match(clientSource, /liveKitRoomRef\.current\?\.disconnect\(\)/);
+
+  assert.match(clientSource, /body: JSON\.stringify\(\{ action: control\.action \}\)/);
+  assert.match(clientSource, /setAiInterviewerState\(payload\.aiInterviewerState\)/);
+  assert.match(clientSource, /parseJsonResponse\(response\)/);
+  assert.match(clientSource, /return await response\.json\(\)/);
+  assert.match(clientSource, /catch \{\s+return null;\s+\}/);
+  assert.match(clientSource, /errorFromPayload\(payload, "AI interviewer control request failed\."\)/);
 
   assert.doesNotMatch(clientSource, /AI interview disclosure/);
   assert.doesNotMatch(clientSource, /Accept all required interview notices/);
