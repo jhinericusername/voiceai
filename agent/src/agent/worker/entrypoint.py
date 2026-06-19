@@ -259,7 +259,9 @@ def _finalization_payload(
         "agentEventCount": _runner_agent_event_count(runner),
     }
     if completion_reason == "completed":
-        payload["scoreCheckpointCount"] = _runner_score_checkpoint_count(runner)
+        # The realtime interviewer emits no live score checkpoints (scoring is
+        # post-hoc in the backend); keep the field for the finalization contract.
+        payload["scoreCheckpointCount"] = 0
     return payload
 
 
@@ -303,15 +305,5 @@ def _runner_agent_event_count(runner: Any) -> int:
     if not callable(events):
         return 0
     return len(events())
-
-
-def _runner_score_checkpoint_count(runner: Any) -> int:
-    count = getattr(runner, "score_checkpoint_count", None)
-    if isinstance(count, int) and count >= 0:
-        return count
-    sequence = getattr(runner, "_score_checkpoint_sequence", None)
-    if isinstance(sequence, int) and sequence >= 0:
-        return sequence
-    return 0
 
 

@@ -357,8 +357,8 @@ async def test_post_transcript_turn_always_fails_logs_and_does_not_raise(
     with caplog.at_level(logging.WARNING, logger="agent.worker.backend_client"):
         # must not raise
         await client.post_transcript_turn({"turnIndex": 0, "speaker": "agent", "text": "hi"})
-    assert calls["n"] >= 2  # at least one retry attempted
-    assert any("transcript" in r.message.lower() or "retry" in r.message.lower() or "artifact" in r.message.lower() for r in caplog.records)
+    assert calls["n"] == 3  # all _TRANSCRIPT_RETRY_ATTEMPTS attempts were made
+    assert any("transcript-turn post failed" in r.message for r in caplog.records)
 
 
 async def test_urllib_transport_propagates_http_error(monkeypatch: pytest.MonkeyPatch) -> None:

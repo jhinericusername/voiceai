@@ -9,18 +9,6 @@ from dataclasses import dataclass, field
 _log = logging.getLogger(__name__)
 
 
-def _bool_env(name: str, default: bool) -> bool:
-    """Parse a boolean from an environment variable.
-
-    Recognizes: "1", "true", "yes", "y", "on" (case-insensitive) as True.
-    All other values (including unset) are treated as False or the default.
-    """
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
 def _positive_float_env(name: str, default: float) -> float:
     """Read *name* from the environment, parse as float, and return it if > 0.
 

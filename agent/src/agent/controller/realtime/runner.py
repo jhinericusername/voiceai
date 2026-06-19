@@ -1,12 +1,12 @@
 """The RealtimeInterviewRunner — orchestration core for realtime interviews.
 
-Unlike the cascade `InterviewRunner`, which drives the conversation turn by
-turn, the realtime model runs the conversation autonomously. This runner
-consumes the realtime event stream and steers *by exception*:
+The realtime model runs the conversation autonomously. This runner consumes
+the realtime event stream and steers *by exception*; its sole deliverable is a
+clean, speaker-attributed transcript that the backend grades post-hoc:
 
 - it logs every agent and candidate turn into the transcript + event log,
-- it runs the guardrail classifier off-loop on each agent turn and injects a
-  correction when the turn violates a guardrail,
+- it runs the guardrail classifier non-blocking, off the speak path, and may
+  inject a next-turn correction when a turn violates a guardrail,
 - it routes the four control tools (advance / probe / off-script / close)
   through the in-path `ControlBus`, which enforces verbatim coverage,
 - it owns coverage: each candidate answer marks the current question covered
@@ -14,9 +14,9 @@ consumes the realtime event stream and steers *by exception*:
 - it enforces a hard session time cap, and rolls the transcript into a
   transcript-only `Assessment` (post-hoc scoring happens in the backend).
 
-Blocking work (the guardrail / probe calls) runs in worker threads so the
-realtime audio event loop is never starved. Artifact emission is best-effort
-and never breaks the loop.
+No Anthropic call sits inline on the speak path: the guardrail check runs as a
+fire-and-forget background task, drained at shutdown. Artifact emission is
+best-effort and never breaks the loop.
 """
 
 from __future__ import annotations
