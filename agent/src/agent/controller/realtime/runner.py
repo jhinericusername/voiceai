@@ -69,6 +69,7 @@ class RealtimeInterviewRunner:
         emit_transcript_turn: ArtifactEmitter | None = None,
         emit_agent_event: ArtifactEmitter | None = None,
         candidate_transcript_source: str = "realtime",
+        control_tools_enabled: bool = True,
     ) -> None:
         self._rubric = rubric
         self._session = session
@@ -80,7 +81,8 @@ class RealtimeInterviewRunner:
         }
         self._probe_cursor: dict[str, int] = {}
 
-        self._plan = build_interview_plan(rubric)
+        self._control_tools_enabled = control_tools_enabled
+        self._plan = build_interview_plan(rubric, include_tools=control_tools_enabled)
         self._coverage = CoverageTracker(self._plan.required_coverage)
         self._bus = ControlBus(
             self._plan,

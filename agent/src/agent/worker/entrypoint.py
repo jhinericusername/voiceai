@@ -215,6 +215,10 @@ async def _realtime_run_interview(
         emit_transcript_turn=backend.post_transcript_turn,
         emit_agent_event=backend.post_agent_event,
         candidate_transcript_source="realtime",
+        # The LiveKit room path runs the interview purely from the prompt — the
+        # adapter does not register the control tools with the realtime model, so
+        # instructing the model to call them would only derail it into a monologue.
+        control_tools_enabled=False,
     )
     logger.info(
         "starting realtime interview runner",

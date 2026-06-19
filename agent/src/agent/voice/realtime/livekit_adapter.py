@@ -37,6 +37,23 @@ _INSTRUCTIONS_FALLBACK = "You are Puddle's realtime interviewer."
 _DEFAULT_RECONNECT_GRACE_SECONDS = 300.0
 _TRANSCRIPTION_MODEL = "gpt-4o-transcribe"
 
+# Semantic server-side VAD eagerness. "low" makes the model wait a little longer
+# before deciding the candidate has finished — better for an interview, where
+# candidates pause to think and we never want to talk over them. Bump to "medium"
+# if turns feel sluggish. (See _build_turn_detection.)
+_VAD_EAGERNESS = "low"
+
+# One-shot steering for the opening turn. The standing instructions already carry
+# the scripted opener; this just tells the model to deliver it now and then yield
+# the floor, so the interview always starts with a clean, properly-formatted intro
+# instead of waiting silently for the candidate to speak first.
+_OPENER_NUDGE = (
+    "The candidate has just joined. Greet them and deliver your opener now, "
+    "warmly and naturally in your own voice, exactly covering the scripted "
+    "opener in your instructions. Then STOP and wait for them to respond — do "
+    "not ask your first interview question yet."
+)
+
 
 class _EndSentinel:
     """Single-instance marker that terminates the `events()` async generator."""
@@ -134,11 +151,26 @@ class LiveKitRealtimeSession:
         from livekit.agents import Agent, AgentSession, room_io
         from livekit.plugins.openai import realtime as openai_realtime
         from openai.types.realtime import AudioTranscription
+        from openai.types.realtime.realtime_audio_input_turn_detection import (
+            SemanticVad,
+        )
+
+        # Turn-taking: semantic server-side VAD. The model decides when the
+        # candidate has finished a turn and then replies (create_response), and
+        # yields the floor if the candidate starts talking over it
+        # (interrupt_response). The plugin already defaults to semantic VAD, but
+        # we set it EXPLICITLY so the interview's turn-taking is greppable and
+        # tunable in one place (eagerness), and is not at the mercy of an
+        # upstream default change.
+        turn_detection = SemanticVad(
+            type="semantic_vad",
+            eagerness=_VAD_EAGERNESS,
+            create_response=True,
+            interrupt_response=True,
+        )
 
         # input_audio_transcription MUST be set explicitly or candidate
-        # transcription events never fire (Task 8 finding Q1). The plugin keeps
-        # auto_tool_reply_generation off by default; this adapter owns the
-        # tool-reply loop (Task 8 finding Q3, see respond_to_tool).
+        # transcription events never fire (Task 8 finding Q1).
         realtime_model = openai_realtime.RealtimeModel(
             model=self._model,
             # High-quality gpt-realtime voice. gpt-realtime has no native en-AU
@@ -147,6 +179,17 @@ class LiveKitRealtimeSession:
             # the accent/timbre isn't right.
             voice="cedar",
             input_audio_transcription=AudioTranscription(model=_TRANSCRIPTION_MODEL),
+            turn_detection=turn_detection,
+        )
+        logger.info(
+            "realtime model configured",
+            extra={
+                "model": self._model,
+                "voice": "cedar",
+                "turn_detection": f"semantic_vad/{_VAD_EAGERNESS}",
+                "instructions_chars": len(instructions or ""),
+                "tools": len(tools),
+            },
         )
 
         session = AgentSession(llm=realtime_model)
@@ -185,6 +228,14 @@ class LiveKitRealtimeSession:
             "started realtime LiveKit session",
             extra={"room": self._job.room.name, "participant": participant.identity},
         )
+
+        # Kick off the agent's opening turn. Without this the model only speaks
+        # AFTER the candidate does (semantic VAD only fires create_response on a
+        # candidate turn), so the interview would start with awkward silence.
+        # Triggering generate_reply here makes the agent join and deliver its
+        # scripted opener first, like a structured gpt-realtime session.
+        session.generate_reply(instructions=_OPENER_NUDGE)
+        logger.info("triggered agent opener", extra={"room": self._job.room.name})
 
     async def events(self) -> AsyncIterator[RealtimeEvent]:
         """Drain the internal queue until the end sentinel."""
@@ -248,9 +299,15 @@ class LiveKitRealtimeSession:
         self._queue.put_nowait(event)
 
     def _on_input_transcription(self, event: Any) -> None:  # pragma: no cover - vendor event
-        self._emit(_to_input_transcript(event))
+        transcript = _to_input_transcript(event)
+        logger.info(
+            "candidate transcript",
+            extra={"chars": len(transcript.text), "preview": transcript.text[:80]},
+        )
+        self._emit(transcript)
 
     def _on_generation_created(self, event: Any) -> None:  # pragma: no cover - vendor event
+        logger.info("agent generation created")
         # Each generation carries a message stream (agent transcript deltas) and
         # a function stream (tool calls). Consume both concurrently.
         self._consumers.append(

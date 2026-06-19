@@ -73,6 +73,24 @@ _TOOL_USAGE = (
 )
 
 
+_SELF_MANAGEMENT = (
+    "RUN THE CONVERSATION YOURSELF — you have NO tools, so manage flow by hand:\n"
+    "- Deliver the OPENER first, then STOP and let the candidate respond. Do not "
+    "ask an interview question in the same turn as the opener.\n"
+    "- Ask the questions in the given order, in their approved wording. Ask ONE "
+    "question at a time, then STOP and listen. Never read the whole list at once.\n"
+    "- After each answer, give a brief, natural acknowledgment before you move on.\n"
+    "- If an answer is thin (it doesn't cover the listed elements), ask a short "
+    "follow-up probe. Once it's covered — or after a couple of probes — move on. "
+    "Do not over-probe a complete answer.\n"
+    "- If the candidate pushes off-script (specific salary/equity numbers, "
+    "protected topics, asking their score), briefly deflect and steer back.\n"
+    "- When every question has been covered, deliver the CLOSER and end warmly.\n"
+    "- Take turns like a real person: speak your turn, then wait for them to "
+    "finish before you respond. Never talk over the candidate.\n"
+)
+
+
 def _question_block(q: Question) -> str:
     lines = [f"[{q.question_id}] {q.verbatim_text}"]
     if q.pre_question and q.pre_question.ask:
@@ -172,10 +190,20 @@ def _tool_schemas() -> list[dict]:
     ]
 
 
-def build_interview_plan(rubric: Rubric) -> InterviewPlan:
+def build_interview_plan(rubric: Rubric, *, include_tools: bool = True) -> InterviewPlan:
+    """Assemble the interview system prompt + tool schemas.
+
+    ``include_tools=True`` (default) emits the control-tool protocol and the four
+    tool schemas — used by the WS eval transport, which registers them with the
+    model. ``include_tools=False`` emits a prose self-management protocol and no
+    tool schemas, for the LiveKit room path where the model runs the interview
+    purely from the prompt (a structured gpt-realtime session) — no tools are
+    registered there, so instructing the model to call them would only confuse it.
+    """
     opener = _opener_text(rubric)
     closer = _closer_text(rubric)
     question_blocks = "\n".join(_question_block(q) for q in rubric.questions)
+    flow_protocol = _TOOL_USAGE if include_tools else _SELF_MANAGEMENT
     instructions = "\n\n".join(
         filter(
             None,
@@ -187,13 +215,13 @@ def build_interview_plan(rubric: Rubric) -> InterviewPlan:
                 f"CLOSER (only after all questions are covered):\n{closer}",
                 _WEAVE_FACTS,
                 _GUARDRAILS,
-                _TOOL_USAGE,
+                flow_protocol,
             ],
         )
     )
     return InterviewPlan(
         instructions=instructions,
-        tool_schemas=_tool_schemas(),
+        tool_schemas=_tool_schemas() if include_tools else [],
         required_coverage=[
             RequiredQuestion(question_id=q.question_id, verbatim_text=q.verbatim_text)
             for q in rubric.questions
