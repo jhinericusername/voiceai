@@ -126,7 +126,7 @@ function setupCandidateJoinQueries(input: {
     if (sql.includes("FROM candidate_invites")) {
       return { rows: [invite], rowCount: 1 };
     }
-    if (sql.includes("payload->>'event_type' = 'interviewer_joined'")) {
+    if (sql.includes("payload->>'event_type' = 'human_interviewer_joined'")) {
       return {
         rows: input.interviewerJoined ? [{ exists: true }] : [],
         rowCount: input.interviewerJoined ? 1 : 0,
@@ -247,7 +247,7 @@ describe("interviewer repository", () => {
 
     expect(stmt.sql).toContain("FROM events");
     expect(stmt.sql).toContain("kind = 'ops'");
-    expect(stmt.sql).toContain("payload->>'event_type' = 'interviewer_joined'");
+    expect(stmt.sql).toContain("payload->>'event_type' = 'human_interviewer_joined'");
     expect(stmt.sql).toContain("LIMIT 1");
     expect(stmt.params).toEqual(["sess1"]);
   });
@@ -257,7 +257,7 @@ describe("candidate auto-dispatch guard", () => {
   it("uses interviewer join events as the durable human-present signal", () => {
     const stmt = hasInterviewerJoinedStatement("sess-human");
 
-    expect(stmt.sql).toContain("interviewer_joined");
+    expect(stmt.sql).toContain("human_interviewer_joined");
     expect(stmt.sql).toContain("LIMIT 1");
     expect(stmt.params).toEqual(["sess-human"]);
   });
@@ -518,7 +518,7 @@ describe("interviewer internal routes", () => {
     expect(queryMock.mock.calls.some(([sql]) => String(sql).includes("UPDATE sessions SET room_name"))).toBe(true);
     const eventCall = queryMock.mock.calls.find(([sql, params]) =>
       String(sql).includes("INSERT INTO events") &&
-      String(params?.[2] ?? "").includes("interviewer_joined"),
+      String(params?.[2] ?? "").includes("human_interviewer_joined"),
     );
     expect(eventCall).toBeUndefined();
     await app.close();
@@ -563,7 +563,7 @@ describe("interviewer internal routes", () => {
     expect(clientInsertedEventPayloads()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          event_type: "interviewer_joined",
+          event_type: "human_interviewer_joined",
           interviewer_email: "interviewer@example.com",
           interviewer_user_id: "user1",
           room: "interview-sess1",
@@ -610,7 +610,7 @@ describe("interviewer internal routes", () => {
     expect(clientInsertedEventPayloads()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          event_type: "interviewer_joined",
+          event_type: "human_interviewer_joined",
           interviewer_email: "interviewer@example.com",
           interviewer_user_id: "user1",
           room: "interview-sess1",

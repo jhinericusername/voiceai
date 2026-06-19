@@ -30,6 +30,7 @@ interface RuntimeSecrets {
   livekitApiKey: secretsmanager.ISecret;
   livekitApiSecret: secretsmanager.ISecret;
   anthropicApiKey: secretsmanager.ISecret;
+  openaiApiKey: secretsmanager.ISecret;
   deepgramApiKey: secretsmanager.ISecret;
   cartesiaApiKey: secretsmanager.ISecret;
   geminiApiKey: secretsmanager.ISecret;
@@ -98,6 +99,7 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   livekitApiKey: 'livekit/api-key',
   livekitApiSecret: 'livekit/api-secret',
   anthropicApiKey: 'providers/anthropic-api-key',
+  openaiApiKey: 'providers/openai-api-key',
   deepgramApiKey: 'providers/deepgram-api-key',
   cartesiaApiKey: 'providers/cartesia-api-key',
   geminiApiKey: 'providers/gemini-api-key',
@@ -835,6 +837,11 @@ export class InfraStack extends cdk.Stack {
         RUNTIME_SECRET_PATHS.anthropicApiKey,
         removalPolicy,
       ),
+      openaiApiKey: this.createSecret(
+        'OpenaiApiKey',
+        RUNTIME_SECRET_PATHS.openaiApiKey,
+        removalPolicy,
+      ),
       deepgramApiKey: this.createSecret(
         'DeepgramApiKey',
         RUNTIME_SECRET_PATHS.deepgramApiKey,
@@ -1016,6 +1023,7 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.backendInternalToken,
       runtimeSecrets.ashbyIntegrationSecretKey,
+      runtimeSecrets.openaiApiKey,
       ...(runtimeSecrets.livekitEgressS3Credentials
         ? [runtimeSecrets.livekitEgressS3Credentials]
         : []),
@@ -1197,6 +1205,10 @@ export class InfraStack extends cdk.Stack {
         params.weaveHistoricalRecordingsBucket.bucketName,
       WEAVE_HISTORICAL_RECORDINGS_REGION: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
       WEAVE_HISTORICAL_RECORDINGS_PREFIX: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+      PUDDLE_GRADING_MODEL_PROVIDER: 'openai',
+      PUDDLE_GRADING_MODEL_ID: 'gpt-5.5',
+      PUDDLE_GRADING_OPENAI_REASONING_EFFORT: 'high',
+      PUDDLE_GRADING_OPENAI_VERBOSITY: 'low',
     };
     const containerSecrets = {
       LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.livekitApiKey),
@@ -1209,6 +1221,7 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_INTEGRATION_SECRET_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.ashbyIntegrationSecretKey,
       ),
+      OPENAI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.openaiApiKey),
       ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
         ? {
             PUDDLE_EGRESS_S3_ACCESS_KEY_ID: ecs.Secret.fromSecretsManager(

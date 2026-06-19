@@ -37,7 +37,7 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
-      <header className="min-w-0 rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <header className="puddle-dashboard-hero-card min-w-0 overflow-hidden rounded-md border border-cyan-200 bg-white/94 px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">

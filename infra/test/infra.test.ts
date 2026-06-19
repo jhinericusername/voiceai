@@ -21,7 +21,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 12);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
@@ -309,6 +309,9 @@ describe('InfraStack', () => {
     expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'AshbyIntegrationSecretKey')).toBe(
       true,
     );
+    expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'OpenaiApiKey')).toBe(
+      true,
+    );
     template.resourceCountIs('AWS::IAM::User', 0);
   });
 
@@ -339,6 +342,9 @@ describe('InfraStack', () => {
     template.hasOutput('AshbyIntegrationSecretKeySecretName', {
       Value: Match.stringLikeRegexp('/integrations/ashby/secret-key$'),
     });
+    template.hasOutput('OpenaiApiKeySecretName', {
+      Value: Match.stringLikeRegexp('/providers/openai-api-key$'),
+    });
 
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       ContainerDefinitions: Match.arrayWith([
@@ -347,6 +353,9 @@ describe('InfraStack', () => {
           Secrets: Match.arrayWith([
             Match.objectLike({
               Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+            Match.objectLike({
+              Name: 'OPENAI_API_KEY',
             }),
           ]),
         }),
@@ -360,6 +369,22 @@ describe('InfraStack', () => {
           Secrets: Match.arrayWith([
             Match.objectLike({
               Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+            Match.objectLike({
+              Name: 'OPENAI_API_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'fireflies-ingestion-worker',
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'OPENAI_API_KEY',
             }),
           ]),
         }),
@@ -376,6 +401,8 @@ describe('InfraStack', () => {
 
     expect(JSON.stringify(platformTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
     expect(JSON.stringify(agentTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
+    expect(JSON.stringify(platformTask)).not.toContain('OPENAI_API_KEY');
+    expect(JSON.stringify(agentTask)).not.toContain('OPENAI_API_KEY');
   });
 
   test('connects the historical Fireflies bucket as a read-only backend source', () => {

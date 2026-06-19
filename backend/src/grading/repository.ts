@@ -155,14 +155,15 @@ export function recommendationUpsertStatement(input: RecommendationInput): SqlSt
     sql:
       "INSERT INTO interview_recommendations " +
       "(recommendation_id, session_id, organization_id, ashby_job_id, rubric_version_id, " +
-      "source, recommendation, confidence, category_scores, evidence, warnings, model_metadata) " +
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb) " +
+      "source, recommendation, confidence, category_scores, evidence, scorecard_json, warnings, model_metadata) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb) " +
       "ON CONFLICT (session_id, rubric_version_id) DO UPDATE SET " +
       "source = EXCLUDED.source, " +
       "recommendation = EXCLUDED.recommendation, " +
       "confidence = EXCLUDED.confidence, " +
       "category_scores = EXCLUDED.category_scores, " +
       "evidence = EXCLUDED.evidence, " +
+      "scorecard_json = EXCLUDED.scorecard_json, " +
       "warnings = EXCLUDED.warnings, " +
       "model_metadata = EXCLUDED.model_metadata, " +
       "updated_at = now() " +
@@ -180,6 +181,7 @@ export function recommendationUpsertStatement(input: RecommendationInput): SqlSt
       input.confidence,
       jsonParam(input.categoryScores),
       jsonParam(input.evidence),
+      jsonParam(input.scorecardJson),
       jsonParam(input.warnings),
       jsonParam(input.modelMetadata),
     ],
@@ -240,7 +242,9 @@ export function reviewerFeedbackInsertStatement(input: ReviewerFeedbackInput): S
       "INSERT INTO reviewer_feedback " +
       "(feedback_id, recommendation_id, session_id, organization_id, reviewer_email, " +
       "reviewer_decision, override_reason, dimension_feedback) " +
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) " +
+      "SELECT $1, rec.recommendation_id, rec.session_id, rec.organization_id, $5, $6, $7, $8::jsonb " +
+      "FROM interview_recommendations rec " +
+      "WHERE rec.recommendation_id = $2 AND rec.session_id = $3 AND rec.organization_id = $4 " +
       "RETURNING *",
     params: [
       input.feedbackId,

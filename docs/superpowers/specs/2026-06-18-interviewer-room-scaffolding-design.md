@@ -110,7 +110,7 @@ join. It should:
 - Require the caller's `organizationId` to match `sessions.org_id`.
 - Prepare or reuse the LiveKit room.
 - Issue a LiveKit token with `participant_kind: "interviewer"`.
-- Record `interviewer_joined` and reconnect-style events.
+- Record `human_interviewer_joined` and reconnect-style events.
 
 The candidate join path should keep issuing `participant_kind: "candidate"`.
 It should not be responsible for authenticating interviewers.
@@ -190,7 +190,7 @@ schema. The API must record:
 Events should be persisted through the existing ops/audit event path where
 possible:
 
-- `interviewer_joined`
+- `human_interviewer_joined`
 - `interviewer_reconnected`
 - `ai_interviewer_start_requested`
 - `ai_interviewer_stop_requested`

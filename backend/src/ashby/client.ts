@@ -189,7 +189,7 @@ export async function listJobs(input: {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        status: "Open",
+        status: ["Open"],
         ...(cursor ? { cursor } : {}),
       }),
     });

@@ -483,7 +483,7 @@ describe("interviewer repository", () => {
     const stmt = hasInterviewerJoinedStatement("sess1");
 
     expect(stmt.sql).toContain("FROM events");
-    expect(stmt.sql).toContain("payload->>'event_type' = 'interviewer_joined'");
+    expect(stmt.sql).toContain("payload->>'event_type' = 'human_interviewer_joined'");
     expect(stmt.params).toEqual(["sess1"]);
   });
 });
@@ -567,7 +567,7 @@ export function hasInterviewerJoinedStatement(sessionId: string): SqlStatement {
     sql:
       "SELECT 1 FROM events " +
       "WHERE session_id = $1 AND kind = 'ops' " +
-      "AND payload->>'event_type' = 'interviewer_joined' LIMIT 1",
+      "AND payload->>'event_type' = 'human_interviewer_joined' LIMIT 1",
     params: [sessionId],
   };
 }
@@ -867,7 +867,7 @@ export function registerInterviewerRoutes(app: FastifyInstance, liveKitConfig: L
       });
       await persistOpsEvent(getPool(), {
         sessionId,
-        eventType: "interviewer_joined",
+        eventType: "human_interviewer_joined",
         payload: {
           interviewer_email: interviewerEmail,
           interviewer_user_id: interviewerUserId,
@@ -996,7 +996,7 @@ describe("candidate auto-dispatch guard", () => {
   it("uses interviewer join events as the durable human-present signal", () => {
     const stmt = hasInterviewerJoinedStatement("sess-human");
 
-    expect(stmt.sql).toContain("interviewer_joined");
+    expect(stmt.sql).toContain("human_interviewer_joined");
     expect(stmt.sql).toContain("LIMIT 1");
     expect(stmt.params).toEqual(["sess-human"]);
   });

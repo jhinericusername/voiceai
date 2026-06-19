@@ -377,7 +377,10 @@ describe("grading routes", () => {
           reviewerEmail: "reviewer@example.com",
           reviewerDecision: "hold",
           overrideReason: "Needs hiring manager review.",
-          dimensionFeedback: { agency: "Too high" },
+          dimensionFeedback: {
+            problem_solving: { correctedScore: 2.5, notes: "AI score was too generous." },
+            agency: "Too high",
+          },
         },
       });
 
@@ -390,6 +393,12 @@ describe("grading routes", () => {
         },
       });
       expect(sqlCalls.some((sql) => sql.includes("reviewer_feedback"))).toBe(true);
+      expect(queryCalls.at(-1)?.params[7]).toBe(
+        JSON.stringify({
+          problem_solving: { correctedScore: 2.5, notes: "AI score was too generous." },
+          agency: { notes: "Too high" },
+        }),
+      );
     } finally {
       await app.close();
     }
@@ -460,6 +469,32 @@ describe("grading routes", () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.json()).toEqual({ error: "dimensionFeedback must be an object" });
+      expect(sqlCalls).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects non-half-step reviewer scores before querying the database", async () => {
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/rec_1/feedback",
+        headers: { "content-type": "application/json" },
+        payload: {
+          sessionId: "sess_1",
+          organizationId: "org_1",
+          reviewerEmail: "reviewer@example.com",
+          reviewerDecision: "hold",
+          dimensionFeedback: { agency: { correctedScore: 2.25 } },
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: "dimensionFeedback.agency.correctedScore must be a half-step score from 1 to 4",
+      });
       expect(sqlCalls).toEqual([]);
     } finally {
       await app.close();

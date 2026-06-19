@@ -14,6 +14,13 @@ interface SetupPayload {
 }
 
 type Feedback = { readonly tone: "success" | "error"; readonly text: string } | null;
+type SetupStepState = "done" | "active" | "pending";
+
+interface SetupStep {
+  readonly label: string;
+  readonly detail: string;
+  readonly state: SetupStepState;
+}
 
 function errorMessage(payload: unknown, fallback: string): string {
   if (payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string") {
@@ -102,6 +109,47 @@ export function AshbyOnboardingWizard({
       : setup
         ? "Webhook pending"
         : setupStatus.replaceAll("_", " ");
+  const activeStep = state.lastSyncAt
+    ? "synced"
+    : hasVerifiedWebhook
+      ? "sync"
+      : setup || hasPendingWebhookSetup
+        ? "webhook"
+        : jobs.length
+          ? "jobs"
+          : "key";
+  const setupSteps: readonly SetupStep[] = [
+    {
+      label: "Connect",
+      detail: "Validate Ashby",
+      state: activeStep === "key" ? "active" : "done",
+    },
+    {
+      label: "Roles",
+      detail: "Choose jobs",
+      state:
+        activeStep === "key"
+          ? "pending"
+          : activeStep === "jobs"
+            ? "active"
+            : "done",
+    },
+    {
+      label: "Webhook",
+      detail: "Verify events",
+      state:
+        activeStep === "key" || activeStep === "jobs"
+          ? "pending"
+          : activeStep === "webhook"
+            ? "active"
+            : "done",
+    },
+    {
+      label: "Sync",
+      detail: "Load candidates",
+      state: activeStep === "synced" ? "done" : activeStep === "sync" ? "active" : "pending",
+    },
+  ];
 
   async function submitApiKey() {
     const submittedApiKey = apiKey;
@@ -240,8 +288,8 @@ export function AshbyOnboardingWizard({
       action={<StatusPill status={statusLabel} className="capitalize" />}
     >
       <div className="grid gap-5">
-        <div className="flex items-start justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-          <div className="min-w-0">
+        <div className="puddle-onboarding-hero flex items-start justify-between gap-4 rounded-md border border-cyan-200 px-3 py-3 sm:px-4 sm:py-4">
+          <div className="relative z-10 min-w-0">
             <div className="text-sm font-semibold text-slate-950">
               {isConnectedSetup ? "Ashby is connected" : "Puddle screens candidates from Ashby"}
             </div>
@@ -255,11 +303,13 @@ export function AshbyOnboardingWizard({
             alt="Puddle turtle mascot"
             width={56}
             height={56}
-            className="hidden h-14 w-14 shrink-0 sm:block"
+            className="puddle-mascot-float relative z-10 hidden h-14 w-14 shrink-0 sm:block"
           />
         </div>
 
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+        <SetupStepRail steps={setupSteps} />
+
+        <div className="puddle-dashboard-card rounded-md border border-slate-200 bg-white/88 px-3 py-3">
           <div className="text-sm font-semibold text-slate-950">
             {isConnectedSetup ? "Replace Ashby key" : state.emailDomain}
           </div>
@@ -304,7 +354,7 @@ export function AshbyOnboardingWizard({
               {jobs.map((job) => (
                 <label
                   key={job.id}
-                  className="flex min-w-0 items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-3 text-sm text-slate-800"
+                  className="puddle-dashboard-card flex min-w-0 items-start gap-3 rounded-md border border-slate-200 bg-white/94 px-3 py-3 text-sm text-slate-800"
                 >
                   <input
                     type="checkbox"
@@ -333,7 +383,7 @@ export function AshbyOnboardingWizard({
         ) : null}
 
         {!setup && readyToSync ? (
-          <div className="grid gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3">
+          <div className="puddle-dashboard-card grid gap-3 rounded-md border border-emerald-200 bg-emerald-50/90 px-3 py-3">
             <div>
               <div className="text-sm font-semibold text-emerald-950">Webhook connection verified</div>
               <p className="mt-1 text-sm leading-6 text-emerald-900">
@@ -353,7 +403,7 @@ export function AshbyOnboardingWizard({
         ) : null}
 
         {hasPendingWebhookSetup ? (
-          <div className="grid gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
+          <div className="puddle-dashboard-card grid gap-3 rounded-md border border-amber-200 bg-amber-50/90 px-3 py-3">
             <div>
               <div className="text-sm font-semibold text-amber-950">Webhook setup pending</div>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
@@ -369,7 +419,7 @@ export function AshbyOnboardingWizard({
         ) : null}
 
         {setup ? (
-          <div className="grid gap-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="puddle-dashboard-card grid gap-4 rounded-md border border-cyan-200 bg-cyan-50/40 p-3">
             <CopyField label="Webhook URL" value={setup.webhookUrl} />
             <CopyField label="Webhook secret" value={setup.webhookSecret} />
             <div className="grid gap-2">
@@ -380,7 +430,7 @@ export function AshbyOnboardingWizard({
                 {setup.requiredEvents.map((event) => (
                   <div
                     key={event}
-                    className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800"
+                    className="puddle-dashboard-card min-w-0 rounded-md border border-slate-200 bg-white/94 px-3 py-2 text-sm font-medium text-slate-800"
                   >
                     <span className="break-all">{event}</span>
                   </div>
@@ -420,6 +470,42 @@ export function AshbyOnboardingWizard({
         ) : null}
       </div>
     </SectionPanel>
+  );
+}
+
+function SetupStepRail({ steps }: { readonly steps: readonly SetupStep[] }) {
+  return (
+    <ol className="puddle-setup-step-rail grid gap-3 sm:grid-cols-4" aria-label="Ashby setup progress">
+      {steps.map((step) => (
+        <li
+          key={step.label}
+          className={cx(
+            "puddle-setup-step rounded-md border bg-white/88 px-3 py-3",
+            step.state === "done"
+              ? "puddle-setup-step--done border-emerald-200"
+              : step.state === "active"
+                ? "puddle-setup-step--active border-cyan-200"
+                : "border-slate-200",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={cx(
+                "puddle-setup-step-dot h-3 w-3 shrink-0 rounded-full",
+                step.state === "done"
+                  ? "bg-emerald-500"
+                  : step.state === "active"
+                    ? "bg-cyan-500"
+                    : "bg-slate-300",
+              )}
+              aria-hidden="true"
+            />
+            <span className="text-sm font-semibold text-slate-950">{step.label}</span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{step.detail}</p>
+        </li>
+      ))}
+    </ol>
   );
 }
 

@@ -22,8 +22,8 @@ export function RoleWorkspaceTabs({
   const [activeTab, setActiveTab] = useState<RoleTab>("Pipeline");
 
   return (
-    <section className="rounded-md border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="border-b border-slate-200 px-4 pt-3">
+    <section className="puddle-panel overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="puddle-panel-header border-b border-slate-200 px-4 pt-3">
         <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Role workspace tabs">
           {tabs.map((tab) => (
             <button
@@ -33,7 +33,7 @@ export function RoleWorkspaceTabs({
               aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
               className={cx(
-                "min-h-10 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition",
+                "min-h-10 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition hover:-translate-y-px",
                 activeTab === tab
                   ? "border-cyan-600 text-slate-950"
                   : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900",
@@ -66,7 +66,7 @@ function PipelineTab({ roleLabel }: { readonly roleLabel: string }) {
   return (
     <div className="grid gap-3">
       {states.map(([state, detail]) => (
-        <section key={state} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+        <section key={state} className="puddle-dashboard-card rounded-md border border-slate-200 bg-white/88 px-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill status={state} />
             <span className="text-sm font-semibold text-slate-950">{roleLabel}</span>

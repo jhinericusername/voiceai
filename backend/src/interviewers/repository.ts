@@ -70,7 +70,7 @@ export function hasInterviewerJoinedStatement(sessionId: string): SqlStatement {
   return {
     sql:
       "SELECT 1 FROM events WHERE session_id = $1 AND kind = 'ops' " +
-      "AND payload->>'event_type' = 'interviewer_joined' LIMIT 1",
+      "AND payload->>'event_type' = 'human_interviewer_joined' LIMIT 1",
     params: [sessionId],
   };
 }

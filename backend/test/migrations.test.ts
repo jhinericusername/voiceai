@@ -174,13 +174,31 @@ describe("database migrations", () => {
     expect(migration).toContain("updated_at TIMESTAMPTZ NOT NULL DEFAULT now()");
   });
 
-  it("adds interviewer AI control state after recommendation updated-at migration", () => {
+  it("adds rich recommendation scorecard json after recommendation timestamps", () => {
     const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
-    const recommendationUpdatedAtIndex = files.indexOf("013_interview_recommendations_updated_at.sql");
+    const updatedAtIndex = files.indexOf("013_interview_recommendations_updated_at.sql");
+    const scorecardIndex = files.indexOf("014_interview_recommendations_scorecard_json.sql");
+
+    expect(updatedAtIndex).toBeGreaterThanOrEqual(0);
+    expect(scorecardIndex).toBeGreaterThan(updatedAtIndex);
+
+    const migration = readFileSync(
+      join(migrationsDir, "014_interview_recommendations_scorecard_json.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("ALTER TABLE interview_recommendations");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS scorecard_json");
+    expect(migration).toContain("scorecard_json JSONB");
+    expect(migration).toContain("NOT NULL DEFAULT '{}'::jsonb");
+  });
+
+  it("adds interviewer AI control state after recommendation scorecard json", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const scorecardIndex = files.indexOf("014_interview_recommendations_scorecard_json.sql");
     const aiControlIndex = files.indexOf("015_interviewer_ai_control_state.sql");
 
-    expect(recommendationUpdatedAtIndex).toBeGreaterThanOrEqual(0);
-    expect(aiControlIndex).toBeGreaterThan(recommendationUpdatedAtIndex);
+    expect(scorecardIndex).toBeGreaterThanOrEqual(0);
+    expect(aiControlIndex).toBeGreaterThan(scorecardIndex);
 
     const migration = readFileSync(
       join(migrationsDir, "015_interviewer_ai_control_state.sql"),

@@ -130,12 +130,16 @@ describe("grading repository", () => {
       confidence: 0.86,
       categoryScores: [{ category: "problem_solving", score: 4 }],
       evidence: [{ quote: "I shipped it" }],
+      scorecardJson: { comment: "Strong candidate." },
       warnings: [],
       modelMetadata: { model: "fake" },
     });
 
     expect(stmt.sql).toContain("INSERT INTO interview_recommendations");
+    expect(stmt.sql).toContain("scorecard_json");
+    expect(stmt.sql).toContain("$11::jsonb");
     expect(stmt.sql).toContain("ON CONFLICT (session_id, rubric_version_id) DO UPDATE");
+    expect(stmt.sql).toContain("scorecard_json = EXCLUDED.scorecard_json");
     expect(stmt.sql).toContain("updated_at = now()");
     expect(stmt.sql).toContain(
       "WHERE interview_recommendations.organization_id = EXCLUDED.organization_id " +
@@ -143,6 +147,7 @@ describe("grading repository", () => {
     );
     expect(stmt.sql).not.toContain("created_at = now()");
     expect(stmt.params[7]).toBe(0.86);
+    expect(stmt.params[10]).toBe(JSON.stringify({ comment: "Strong candidate." }));
   });
 
   it("loads a scoped session for recommendation with Ashby job fallback metadata", () => {
@@ -199,6 +204,8 @@ describe("grading repository", () => {
 
     expect(stmt.sql).toContain("INSERT INTO reviewer_feedback");
     expect(stmt.sql).toContain("reviewer_decision, override_reason, dimension_feedback");
+    expect(stmt.sql).toContain("FROM interview_recommendations rec");
+    expect(stmt.sql).toContain("rec.recommendation_id = $2 AND rec.session_id = $3 AND rec.organization_id = $4");
     expect(stmt.params).toEqual([
       "fb_1",
       "rec_1",

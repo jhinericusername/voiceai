@@ -36,6 +36,29 @@ export interface RealInterviewListItem {
 
 export interface RealInterviewDetail extends RealInterviewListItem {
   readonly error_message: string | null;
+  readonly recommendation_packet: {
+    readonly recommendationId: string;
+    readonly recommendation: "advance" | "hold" | "pass";
+    readonly confidence: number | string | null;
+    readonly source: "historical_fireflies" | "puddle_live" | "manual_retry" | string;
+    readonly rubricVersionId: string;
+    readonly categoryScores: unknown;
+    readonly evidence: unknown;
+    readonly scorecardJson: unknown;
+    readonly warnings: unknown;
+    readonly latestFeedback: {
+      readonly feedbackId: string;
+      readonly recommendationId: string;
+      readonly reviewerEmail: string;
+      readonly reviewerDecision: "advance" | "hold" | "pass" | "needs_more_review";
+      readonly overrideReason: string | null;
+      readonly dimensionFeedback: unknown;
+      readonly createdAt: string;
+    } | null;
+    readonly modelMetadata: unknown;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+  } | null;
   readonly artifacts: readonly {
     readonly kind: string;
     readonly status: string;

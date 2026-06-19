@@ -117,6 +117,201 @@ button {
   background: linear-gradient(180deg, #ffffff 0%, #ffffff 58%, #f8fcff 100%);
 }
 
+.puddle-dashboard-shell {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(247, 252, 255, 0.92) 42%, #f8fbff 100%),
+    linear-gradient(135deg, rgba(236, 254, 255, 0.82) 0%, rgba(255, 255, 255, 0) 42%),
+    linear-gradient(315deg, rgba(209, 250, 229, 0.38) 0%, rgba(255, 255, 255, 0) 36%);
+}
+
+.puddle-dashboard-shell::before {
+  pointer-events: none;
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px);
+  background-size:
+    48px 48px,
+    48px 48px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.42) 48%, transparent 100%);
+}
+
+.puddle-dashboard-sidebar,
+.puddle-dashboard-topbar {
+  backdrop-filter: blur(18px);
+}
+
+.puddle-panel,
+.puddle-dashboard-card,
+.puddle-metric-card,
+.puddle-empty-state,
+.puddle-dashboard-hero-card {
+  position: relative;
+  isolation: isolate;
+  transform: translateY(0);
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    transform 220ms ease,
+    background-color 220ms ease;
+}
+
+.puddle-panel::before,
+.puddle-dashboard-card::before,
+.puddle-metric-card::before,
+.puddle-empty-state::before,
+.puddle-dashboard-hero-card::before {
+  pointer-events: none;
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(103, 232, 249, 0.34), rgba(16, 185, 129, 0.14), transparent 48%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0));
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.puddle-panel:hover,
+.puddle-dashboard-card:hover,
+.puddle-metric-card:hover,
+.puddle-empty-state:hover,
+.puddle-dashboard-hero-card:hover {
+  border-color: rgba(103, 232, 249, 0.62);
+  box-shadow:
+    0 18px 54px rgba(15, 23, 42, 0.07),
+    0 0 0 1px rgba(103, 232, 249, 0.16);
+  transform: translateY(-1px);
+}
+
+.puddle-panel:hover::before,
+.puddle-dashboard-card:hover::before,
+.puddle-metric-card:hover::before,
+.puddle-empty-state:hover::before,
+.puddle-dashboard-hero-card:hover::before {
+  opacity: 1;
+}
+
+.puddle-panel-header {
+  background:
+    linear-gradient(90deg, rgba(236, 254, 255, 0.68), rgba(255, 255, 255, 0.92) 42%),
+    rgba(255, 255, 255, 0.92);
+}
+
+.puddle-search-affordance {
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.puddle-search-affordance:hover {
+  border-color: rgba(103, 232, 249, 0.72);
+  box-shadow:
+    0 12px 34px rgba(8, 145, 178, 0.09),
+    0 0 0 1px rgba(103, 232, 249, 0.14);
+  transform: translateY(-1px);
+}
+
+.puddle-setup-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(125, 211, 252, 0.38);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 253, 255, 0.9)),
+    linear-gradient(135deg, rgba(207, 250, 254, 0.68), rgba(209, 250, 229, 0.24) 52%, rgba(255, 255, 255, 0));
+  box-shadow:
+    0 24px 70px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.puddle-setup-hero::before {
+  pointer-events: none;
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px);
+  background-size:
+    38px 38px,
+    38px 38px;
+  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.48), transparent 72%);
+}
+
+.puddle-onboarding-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(236, 254, 255, 0.76), rgba(255, 255, 255, 0.9) 44%),
+    linear-gradient(315deg, rgba(209, 250, 229, 0.36), rgba(255, 255, 255, 0) 38%);
+}
+
+.puddle-onboarding-hero::after {
+  pointer-events: none;
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(8, 145, 178, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(8, 145, 178, 0.055) 1px, transparent 1px);
+  background-size:
+    32px 32px,
+    32px 32px;
+  mask-image: linear-gradient(135deg, rgba(0, 0, 0, 0.34), transparent 58%);
+}
+
+.puddle-mascot-float {
+  animation: puddle-mascot-float 5.2s ease-in-out infinite;
+  filter: drop-shadow(0 18px 30px rgba(8, 145, 178, 0.12));
+}
+
+.puddle-setup-step-rail {
+  position: relative;
+  isolation: isolate;
+}
+
+.puddle-setup-step-rail::before {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  top: 1.18rem;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(8, 145, 178, 0.18), rgba(16, 185, 129, 0.2));
+}
+
+.puddle-setup-step {
+  position: relative;
+  z-index: 1;
+}
+
+.puddle-setup-step-dot {
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.86),
+    0 0 0 6px rgba(103, 232, 249, 0.16);
+}
+
+.puddle-setup-step--active .puddle-setup-step-dot {
+  animation: puddle-step-pulse 2.6s ease-in-out infinite;
+}
+
+.puddle-setup-step--done .puddle-setup-step-dot {
+  box-shadow:
+    0 0 0 5px rgba(255, 255, 255, 0.86),
+    0 0 20px rgba(16, 185, 129, 0.26);
+}
+
 .puddle-how-heading-shell {
   isolation: isolate;
 }
@@ -777,6 +972,34 @@ button {
   }
 }
 
+@keyframes puddle-mascot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes puddle-step-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 5px rgba(255, 255, 255, 0.86),
+      0 0 0 6px rgba(103, 232, 249, 0.18),
+      0 0 0 0 rgba(34, 211, 238, 0.26);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(255, 255, 255, 0.86),
+      0 0 0 6px rgba(103, 232, 249, 0.2),
+      0 0 0 10px rgba(34, 211, 238, 0);
+  }
+}
+
 [data-reveal] {
   opacity: 1;
   transform: none;
@@ -791,6 +1014,10 @@ button {
 }
 
 @media (max-width: 640px) {
+  .puddle-setup-step-rail::before {
+    display: none;
+  }
+
   .puddle-hero-frame::before {
     background-size:
       38px 38px,

@@ -313,7 +313,7 @@ export function registerInterviewerRoutes(
       await withInterviewerTransaction(pool, async (client) => {
         await persistOpsEvent(client, {
           sessionId,
-          eventType: "interviewer_joined",
+          eventType: "human_interviewer_joined",
           payload: {
             interviewer_email: validation.body.interviewerEmail,
             interviewer_user_id: validation.body.interviewerUserId,
