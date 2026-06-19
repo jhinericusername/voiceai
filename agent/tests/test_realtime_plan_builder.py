@@ -36,3 +36,18 @@ def test_instructions_include_completeness_exemplars():
         assert element in plan.instructions
     assert "complete answer covers" in plan.instructions.lower()
     assert "stop probing" in plan.instructions.lower()
+
+
+def test_persona_content_updates_present():
+    from pathlib import Path
+    from agent.rubric_loader import load_rubric
+    from agent.controller.realtime.plan_builder import build_interview_plan
+    rubric = load_rubric(Path(__file__).parents[2] / "rubric" / "pilot-v1.yaml")
+    instr = build_interview_plan(rubric).instructions
+    # AI disclosure in the opener
+    assert "an AI modeled after Prakul" in instr
+    # Q1 worked example (cache story) + Q3 worked example (competitiveness)
+    assert "in-memory cache" in instr
+    assert "competitive" in instr.lower()
+    # Warm close
+    assert "thanks so much for your time" in instr.lower()

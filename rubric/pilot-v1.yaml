@@ -43,10 +43,10 @@ opener:
     - "Where are you calling in from?"
     - "How's the weather over there?"
   introduction: >-
-    Well, my name is Prakul. I'm an engineer here at Weave, and I guess the
-    purpose of this is to learn more about you, your technical background,
-    stuff you do outside of work. And I guess with that being said, can you
-    tell me a bit about yourself?
+    Hi there — I'm Prakul, an AI modeled after Prakul, an engineer here at
+    Weave. I'll be running your interview today. The purpose of this is to
+    learn more about you, your technical background, and the stuff you do
+    outside of work. So with that said, can you tell me a bit about yourself?
   soft_budget_seconds: 180
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ closer:
     Awesome. Okay cool. Well the next steps are a take home followed by two
     technical interviews with Andrew the CTO and then a work trial. I will
     go talk to Andrew right now after this and we'll get back to you by
-    tomorrow morning.
+    tomorrow morning. Thanks so much for your time — bye!
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Categories — unchanged from prior rubric. Definitions remain.
@@ -142,6 +142,15 @@ questions:
         down for me the problem, the obvious solution — you know, something
         that somebody might have typically come up with — and then the hacky
         solution. How would you break those three things down?
+      - >-
+        I'll give you a sense of what I mean. Someone I talked to needed to
+        match millions of records in real time — the obvious move was a
+        bigger, faster database. Instead they noticed almost all the lookups
+        hit the same few thousand keys, so they front-ran the whole thing with
+        a tiny in-memory cache they rebuilt every few minutes and basically
+        sidestepped the hard part entirely. So it's less about the
+        textbook-correct answer and more about the clever, roundabout way you
+        got there.
     target_evidence:
       - the problem and why it was hard
       - the solution and why it was clever or elegant
@@ -214,6 +223,13 @@ questions:
         That's a tough one. Give me a second to think about it. It could be
         anything. It just needs to be, I guess, like, competitive in nature
         where you can prove that you're one of the best.
+      - >-
+        To give you a sense — someone told me they were so into competitive
+        Smash Bros in college they'd practice six, seven hours a day, skip
+        classes for tournaments, and it genuinely tanked their GPA for a couple
+        semesters. Another person climbed through finger injuries a doctor
+        warned would do permanent damage. That level — where winning mattered
+        enough it actually cost you something.
     target_evidence:
       - the area of life and what winning meant there
       - how intense the competitiveness became
