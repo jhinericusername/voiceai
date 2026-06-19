@@ -6,6 +6,14 @@ async function source(relativePath) {
   return readFile(new URL(relativePath, import.meta.url), "utf8");
 }
 
+async function requiredSource(relativePath) {
+  try {
+    return await source(relativePath);
+  } catch {
+    assert.fail(`${relativePath} should exist`);
+  }
+}
+
 const createInterviewRoute = await source("../app/api/interviews/route.ts");
 const candidateInviteRoute = await source(
   "../app/api/dashboard/interviews/[sessionId]/candidate-invite/route.ts",
@@ -66,4 +74,32 @@ test("interviewer platform routes fail closed on malformed backend success paylo
   for (const field of ["sessionId", "aiInterviewerState", "requestedAt"]) {
     assert.match(aiControlRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
   }
+});
+
+test("interviewer join page is a full-screen dashboard-gated room entry", async () => {
+  const pageSource = await requiredSource("../app/dashboard/interviews/[sessionId]/join/page.tsx");
+
+  assert.match(pageSource, /requireDashboardUser/);
+  assert.match(pageSource, /InterviewerJoinClient/);
+  assert.match(pageSource, /fixed inset-0/);
+});
+
+test("interviewer join client exposes host invite, join, and AI controls without candidate notices", async () => {
+  const clientSource = await requiredSource(
+    "../app/dashboard/interviews/[sessionId]/join/InterviewerJoinClient.tsx",
+  );
+
+  for (const expectedSource of [
+    "candidate-invite",
+    "Copy candidate link",
+    "interviewer-join",
+    "Start AI",
+    "Stop AI",
+    "Resume AI",
+  ]) {
+    assert.match(clientSource, new RegExp(expectedSource));
+  }
+
+  assert.doesNotMatch(clientSource, /AI interview disclosure/);
+  assert.doesNotMatch(clientSource, /Accept all required interview notices/);
 });
