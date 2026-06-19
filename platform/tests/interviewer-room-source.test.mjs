@@ -96,6 +96,18 @@ test("interviewer join page is a full-screen dashboard-gated room entry", async 
   assert.match(pageSource, /<InterviewerJoinClient sessionId=\{sessionId\} \/>/);
 });
 
+test("role workspace exposes create-and-join launcher", async () => {
+  const rolePageSource = await requiredSource("../app/dashboard/roles/[roleId]/page.tsx");
+  const formSource = await requiredSource("../app/dashboard/roles/[roleId]/CreateAndJoinInterviewForm.tsx");
+
+  assert.match(rolePageSource, /CreateAndJoinInterviewForm/);
+  assert.match(formSource, /Create and join interview/);
+  assert.match(formSource, /candidateEmail/);
+  assert.match(formSource, /\/api\/interviews/);
+  assert.match(formSource, /interviewerJoinUrl/);
+  assert.match(formSource, /router\.push/);
+});
+
 test("interviewer join client exposes host invite, join, and AI controls without candidate notices", async () => {
   const clientSource = await requiredSource(
     "../app/dashboard/interviews/[sessionId]/join/InterviewerJoinClient.tsx",

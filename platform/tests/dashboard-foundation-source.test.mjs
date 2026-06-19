@@ -105,6 +105,8 @@ test("nested role workspace routes do not expose demo dashboard data", () => {
   }
 
   assert.match(roleDetailSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
+  assert.match(roleDetailSource, /CreateAndJoinInterviewForm/);
+  assert.match(roleDetailSource, /Start a hosted Puddle room/);
   assert.match(roleCandidateSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
   assert.match(roleRubricSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
 });
