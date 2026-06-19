@@ -1,10 +1,9 @@
-"""Best-effort artifact emission shared by both interview runners.
+"""Best-effort artifact emission for the realtime interview runner.
 
-The cascade `InterviewRunner` and the `RealtimeInterviewRunner` both stream
-transcript turns, agent events, and score checkpoints to the backend. Those
-emissions must never break the interview loop: a slow or failing backend is
-logged and abandoned, not propagated. This module holds that shared
-best-effort emit machinery.
+The `RealtimeInterviewRunner` streams transcript turns and agent events to
+the backend. Those emissions must never break the interview loop: a slow or
+failing backend is logged and abandoned, not propagated. This module holds
+that best-effort emit machinery.
 """
 
 from __future__ import annotations

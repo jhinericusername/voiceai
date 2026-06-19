@@ -15,17 +15,22 @@ from pydantic import BaseModel, ConfigDict
 
 from agent.config import REALTIME
 from agent.controller.event_log import EventLog
-from agent.controller.interview import CandidateSilenceTimeoutError, InterviewRunner
 from agent.controller.realtime.guardrail_monitor import GuardrailMonitor
 from agent.controller.realtime.runner import RealtimeInterviewRunner
 from agent.rubric_loader import load_rubric
-from agent.scoring.probe import ProbeGenerator
-from agent.scoring.scorer import Scorer
 from agent.voice.livekit_session import ParticipantDisconnectedError
-from agent.voice.stt import deepgram_transcript_source
 from agent.worker.backend_client import BackendClient
 
 logger = logging.getLogger(__name__)
+
+
+class CandidateSilenceTimeoutError(TimeoutError):
+    """Raised when a candidate stays silent beyond the configured threshold.
+
+    Defined here (not in the deleted cascade interviewer) so the shared
+    _run_and_finalize handler can catch it.  The realtime runner does not
+    currently raise this; the handler is retained for Task 9 sweep.
+    """
 
 
 def _positive_float_env(name: str, default: float) -> float:
@@ -140,9 +145,9 @@ async def _run_and_finalize(
     session_id: str,
     script_version: str,
 ) -> None:
-    """Run the interview runner and post finalization regardless of outcome.
+    """Run the realtime interview runner and post finalization regardless of outcome.
 
-    Shared by both the cascade and realtime paths.  Completion reasons:
+    Completion reasons:
     - "completed"              — runner.run() returned normally
     - "candidate_disconnected" — ParticipantDisconnectedError
     - "timeout"                — CandidateSilenceTimeoutError
@@ -208,43 +213,6 @@ async def _run_and_finalize(
             "interview runner completed",
             extra={"session_id": ctx.session_id, "room": ctx.room_name},
         )
-
-
-async def _default_run_interview(
-    ctx: InterviewJobContext, voice: Any
-) -> None:  # pragma: no cover — exercised by the live integration env
-    """Production interview runner: build the components and run the interview."""
-    repo_root = Path(__file__).parents[4]
-    rubric = load_rubric(repo_root / "rubric" / f"{ctx.script_version}.yaml")
-    anthropic_client = anthropic.Anthropic()
-    event_log = EventLog(
-        session_id=ctx.session_id,
-        path=repo_root / "artifacts" / ctx.session_id / "agent_events.jsonl",
-    )
-    backend = BackendClient(session_id=ctx.session_id)
-    runner = InterviewRunner(
-        rubric=rubric,
-        voice=voice,
-        scorer=Scorer(client=anthropic_client, rubric=rubric),
-        probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
-        event_log=event_log,
-        clock_now=time.monotonic,
-        emit_transcript_turn=backend.post_transcript_turn,
-        emit_agent_event=backend.post_agent_event,
-        emit_score_checkpoint=backend.post_score_checkpoint,
-        candidate_transcript_source=deepgram_transcript_source(),
-    )
-    logger.info(
-        "starting interview runner",
-        extra={"session_id": ctx.session_id, "room": ctx.room_name},
-    )
-    await _run_and_finalize(
-        runner,
-        ctx=ctx,
-        backend=backend,
-        session_id=ctx.session_id,
-        script_version=ctx.script_version,
-    )
 
 
 async def _realtime_run_interview(
@@ -371,22 +339,3 @@ def _runner_score_checkpoint_count(runner: Any) -> int:
     return 0
 
 
-async def _build_livekit_voice_agent(job: Any) -> Any:  # pragma: no cover — vendor wiring
-    """Construct and start the LiveKit-backed VoiceAgent for the room.
-
-    Uses the production-shaped `LiveKitSessionVoiceAgent` which handles
-    participant linking, audio track subscription, reconnect grace, and
-    proper event wiring. The Silero VAD comes prewarmed from `prewarm()`.
-    """
-    import os
-
-    from agent.voice.livekit_session import LiveKitSessionVoiceAgent
-    from agent.voice.stt import build_deepgram_stt
-    from agent.voice.tts import build_cartesia_tts
-
-    return await LiveKitSessionVoiceAgent.start(
-        job,
-        stt=build_deepgram_stt(os.environ["DEEPGRAM_API_KEY"]),
-        tts=build_cartesia_tts(os.environ["CARTESIA_API_KEY"]),
-        vad=job.proc.userdata.get("vad"),
-    )
