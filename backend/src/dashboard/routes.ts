@@ -7,7 +7,11 @@ import {
   type S3LikeClient,
   type SignedUrlFn,
 } from "../storage/artifactStore.js";
-import { interviewDetailStatement, interviewListStatement } from "./interviews.js";
+import {
+  interviewDetailStatement,
+  interviewListStatement,
+  roomRecordingListStatement,
+} from "./interviews.js";
 
 const SIGNED_URL_TTL_SECONDS = 15 * 60;
 type ArtifactLike = {
@@ -140,6 +144,17 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
     const stmt = interviewListStatement({ limit: 100, orgId });
     const result = await getPool().query(stmt.sql, [...stmt.params]);
     return reply.code(200).send({ interviews: result.rows });
+  });
+
+  app.get<{ Querystring: DashboardQuery }>("/internal/room-recordings", async (request, reply) => {
+    const orgId = orgIdFromQuery(request.query);
+    if (!orgId) {
+      return reply.code(400).send({ error: "orgId is required" });
+    }
+
+    const stmt = roomRecordingListStatement({ limit: 500, orgId });
+    const result = await getPool().query(stmt.sql, [...stmt.params]);
+    return reply.code(200).send({ recordings: result.rows });
   });
 
   app.get<{ Params: { sessionId: string }; Querystring: DashboardQuery }>(
