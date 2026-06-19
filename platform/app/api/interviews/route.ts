@@ -72,6 +72,7 @@ export async function POST(request: Request) {
       sessionId: createdSession.sessionId,
       room: createdSession.room,
       inviteUrl: `${publicOrigin()}${invitePath}`,
+      interviewerJoinUrl: `${publicOrigin()}/dashboard/interviews/${encodeURIComponent(createdSession.sessionId)}/join`,
       inviteExpiresAt: createdSession.inviteExpiresAt,
     },
     { status: 201 },
