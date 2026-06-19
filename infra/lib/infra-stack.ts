@@ -1465,6 +1465,7 @@ export class InfraStack extends cdk.Stack {
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.anthropicApiKey,
       ),
+      OPENAI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.openaiApiKey),
       DEEPGRAM_API_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.deepgramApiKey,
       ),
