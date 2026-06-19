@@ -34,6 +34,8 @@ describe("createSessionInsert", () => {
       }),
     );
     expect(stmt.sql).toContain("INSERT INTO sessions");
+    expect(stmt.sql).toContain("external_source");
+    expect(stmt.sql).toContain("source_metadata");
     expect(stmt.params).toEqual([
       "sess1",
       "org1",
@@ -41,7 +43,47 @@ describe("createSessionInsert", () => {
       "pilot-v1",
       "scheduled",
       "2026-05-21T15:00:00Z",
+      null,
+      null,
+      "{}",
     ]);
+  });
+
+  it("persists optional Ashby source metadata for role-aware grading", () => {
+    const stmt = createSessionInsert(
+      buildSessionRecord({
+        sessionId: "sess1",
+        orgId: "org1",
+        candidateEmail: "c@example.com",
+        scriptVersion: "pilot-v1",
+        scheduledAt: "2026-05-21T15:00:00Z",
+        sourceMetadata: {
+          ashby: {
+            selected: {
+              applicationId: "app_1",
+              candidateId: "cand_1",
+              candidateName: "Maya Chen",
+              jobId: "job_1",
+              currentStage: "Initial Screen",
+            },
+          },
+        },
+      }),
+    );
+
+    expect(stmt.params.at(-1)).toBe(
+      JSON.stringify({
+        ashby: {
+          selected: {
+            applicationId: "app_1",
+            candidateId: "cand_1",
+            candidateName: "Maya Chen",
+            jobId: "job_1",
+            currentStage: "Initial Screen",
+          },
+        },
+      }),
+    );
   });
 });
 

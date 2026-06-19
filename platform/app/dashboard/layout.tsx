@@ -21,7 +21,12 @@ export default async function DashboardLayout({ children }: { readonly children:
 
   if (!onboardingComplete) {
     return (
-      <AshbySetupOnlyScreen state={ashbyState} canManageSetup={canManageSetup} />
+      <AshbySetupOnlyScreen
+        state={ashbyState}
+        canManageSetup={canManageSetup}
+        displayName={displayName}
+        email={user.email}
+      />
     );
   }
 

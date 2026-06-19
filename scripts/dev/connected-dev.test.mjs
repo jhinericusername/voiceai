@@ -18,6 +18,7 @@ import {
   startProcess,
   terminateChild,
   waitForHttpOk,
+  waitForTcpOpen,
 } from "./connected-dev.mjs";
 
 const outputs = [
@@ -162,6 +163,29 @@ test("waitForHttpOk rejects for a non-2xx response", async () => {
   }
 });
 
+test("waitForTcpOpen succeeds once a local TCP server accepts connections", async () => {
+  const server = net.createServer((socket) => socket.end());
+  await listen(server, 0, "127.0.0.1");
+  try {
+    const { port } = server.address();
+    await waitForTcpOpen(port, "127.0.0.1", { timeoutMs: 250, intervalMs: 10 });
+  } finally {
+    await close(server);
+  }
+});
+
+test("waitForTcpOpen rejects when the port never opens", async () => {
+  const server = net.createServer();
+  await listen(server, 0, "127.0.0.1");
+  const { port } = server.address();
+  await close(server);
+
+  await assert.rejects(
+    waitForTcpOpen(port, "127.0.0.1", { timeoutMs: 25, intervalMs: 5 }),
+    /Timed out waiting for TCP 127\.0\.0\.1:/,
+  );
+});
+
 test("assertPortAvailable rejects when a local server already occupies the port", async () => {
   const server = net.createServer();
   await listen(server, 0, "127.0.0.1");
@@ -283,6 +307,10 @@ test("root package exposes connected dev commands", async () => {
     "node scripts/dev/dev-backend-connected.mjs",
   );
   assert.equal(
+    packageJson.scripts["grading:evaluate:connected"],
+    "node scripts/dev/grading-evaluate-connected.mjs",
+  );
+  assert.equal(
     packageJson.scripts["test:connected-dev"],
     "node --test scripts/dev/connected-dev.test.mjs",
   );
@@ -298,6 +326,28 @@ test("backend connected runner binds local backend to loopback", async () => {
   const source = await readFile(new URL("./dev-backend-connected.mjs", import.meta.url), "utf8");
 
   assert.match(source, /^\s*HOST:\s*"127\.0\.0\.1",$/m);
+});
+
+test("grading evaluation connected runner clears inherited database URLs", async () => {
+  const source = await readFile(
+    new URL("./grading-evaluate-connected.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /DATABASE_URL:\s*""/);
+  assert.match(source, /WEAVE_DATABASE_URL:\s*""/);
+});
+
+test("grading evaluation connected runner wires both puddle and weave databases", async () => {
+  const source = await readFile(
+    new URL("./grading-evaluate-connected.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /^\s*DATABASE_HOST:\s*"127\.0\.0\.1",$/m);
+  assert.match(source, /^\s*WEAVE_DATABASE_HOST:\s*"127\.0\.0\.1",$/m);
+  assert.match(source, /^\s*WEAVE_DATABASE_NAME:\s*"weave",$/m);
+  assert.match(source, /waitForTcpOpen\(dbLocalPort/);
 });
 
 test("runbook documents connected local development commands", async () => {

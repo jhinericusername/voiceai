@@ -238,6 +238,25 @@ export async function waitForHttpOk(url, { timeoutMs = 30000, intervalMs = 1000 
   throw lastError;
 }
 
+export async function waitForTcpOpen(
+  port,
+  host = "127.0.0.1",
+  { timeoutMs = 30000, intervalMs = 250, createConnectionFn = net.createConnection } = {},
+) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = new Error(`Timed out waiting for TCP ${host}:${port}`);
+  while (Date.now() < deadline) {
+    try {
+      await tcpConnect(port, host, createConnectionFn);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`Timed out waiting for TCP ${host}:${port}: ${lastError.message}`);
+}
+
 function httpStatus(url) {
   return new Promise((resolve, reject) => {
     const request = http.get(url, (response) => {
@@ -248,6 +267,24 @@ function httpStatus(url) {
     request.setTimeout(2000, () => {
       request.destroy(new Error(`Timed out connecting to ${url}`));
     });
+  });
+}
+
+function tcpConnect(port, host, createConnectionFn) {
+  return new Promise((resolve, reject) => {
+    const socket = createConnectionFn({ host, port });
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      socket.removeAllListeners();
+      socket.destroy();
+      callback(value);
+    };
+    socket.setTimeout(2000);
+    socket.once("connect", () => finish(resolve));
+    socket.once("error", (error) => finish(reject, error));
+    socket.once("timeout", () => finish(reject, new Error("connection timed out")));
   });
 }
 

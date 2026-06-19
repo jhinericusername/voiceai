@@ -71,12 +71,10 @@ export function historicalSessionEvaluationLinksStatement(input: {
       "WITH base AS (" +
       "SELECT s.session_id, s.org_id AS organization_id, " +
       "NULLIF(s.source_metadata #>> '{ashby,selected,candidateName}', '') AS candidate_name, " +
-      "s.external_id, s.source_metadata, " +
-      "jsonb_path_query_first(" +
-      "s.source_metadata, '$.ashby.matchCandidates[*] ? (@.candidateEvaluationId != null || @.candidate_evaluation_id != null)'" +
-      ") AS matched_candidate " +
+      "s.external_id, s.source_metadata " +
       "FROM sessions s " +
-      "WHERE s.org_id = $1 AND s.external_source = 'fireflies'" +
+      "WHERE s.org_id = $1 AND s.external_source = 'fireflies' " +
+      "AND s.source_metadata #> '{ashby,selected}' IS NOT NULL" +
       "), linked AS (" +
       "SELECT session_id, organization_id, candidate_name, external_id, " +
       "COALESCE(" +
@@ -84,37 +82,29 @@ export function historicalSessionEvaluationLinksStatement(input: {
       "NULLIF(source_metadata #>> '{ashby,selected,ashbyApplicationId}', ''), " +
       "NULLIF(source_metadata #>> '{ashby,selected,application_id}', ''), " +
       "NULLIF(source_metadata #>> '{ashby,applicationId}', ''), " +
-      "NULLIF(source_metadata #>> '{ashby_application_id}', ''), " +
-      "NULLIF(matched_candidate ->> 'applicationId', ''), " +
-      "NULLIF(matched_candidate ->> 'ashbyApplicationId', ''), " +
-      "NULLIF(matched_candidate ->> 'application_id', '')" +
+      "NULLIF(source_metadata #>> '{ashby_application_id}', '')" +
       ") AS ashby_application_id, " +
       "COALESCE(" +
       "NULLIF(source_metadata #>> '{ashby,selected,jobId}', ''), " +
       "NULLIF(source_metadata #>> '{ashby,selected,ashbyJobId}', ''), " +
       "NULLIF(source_metadata #>> '{ashby,selected,ashby_job_id}', ''), " +
       "NULLIF(source_metadata #>> '{ashby,jobId}', ''), " +
-      "NULLIF(source_metadata #>> '{ashby_job_id}', ''), " +
-      "NULLIF(matched_candidate ->> 'jobId', ''), " +
-      "NULLIF(matched_candidate ->> 'ashbyJobId', ''), " +
-      "NULLIF(matched_candidate ->> 'job_id', '')" +
+      "NULLIF(source_metadata #>> '{ashby_job_id}', '')" +
       ") AS ashby_job_id, " +
       "COALESCE(" +
       "NULLIF(source_metadata #>> '{ashby,selected,candidateEvaluationId}', ''), " +
       "NULLIF(source_metadata #>> '{ashby,selected,candidate_evaluation_id}', ''), " +
       "NULLIF(source_metadata #>> '{candidateEvaluationId}', ''), " +
       "NULLIF(source_metadata #>> '{candidate_evaluation_id}', ''), " +
-      "NULLIF(source_metadata #>> '{fireflies,candidate_evaluation_id}', ''), " +
-      "NULLIF(matched_candidate ->> 'candidateEvaluationId', ''), " +
-      "NULLIF(matched_candidate ->> 'candidate_evaluation_id', '')" +
+      "NULLIF(source_metadata #>> '{fireflies,candidate_evaluation_id}', '')" +
       ") AS candidate_evaluation_id, " +
       "jsonb_build_object(" +
       "'externalId', external_id, " +
       "'externalSource', 'fireflies', " +
       "'matchStatus', source_metadata #>> '{fireflies,matchStatus}', " +
-      "'selectedApplicationId', COALESCE(source_metadata #>> '{ashby,selected,applicationId}', matched_candidate ->> 'applicationId'), " +
-      "'selectedJobId', COALESCE(source_metadata #>> '{ashby,selected,jobId}', matched_candidate ->> 'jobId'), " +
-      "'candidateEvaluationId', COALESCE(source_metadata #>> '{ashby,selected,candidateEvaluationId}', matched_candidate ->> 'candidateEvaluationId')" +
+      "'selectedApplicationId', source_metadata #>> '{ashby,selected,applicationId}', " +
+      "'selectedJobId', source_metadata #>> '{ashby,selected,jobId}', " +
+      "'candidateEvaluationId', source_metadata #>> '{ashby,selected,candidateEvaluationId}'" +
       ") AS source_metadata " +
       "FROM base" +
       ") " +

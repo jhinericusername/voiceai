@@ -31,11 +31,50 @@ export function interviewDetailStatement(sessionId: string, orgId: string): SqlS
       "r.status AS recording_status, r.egress_id, r.error_message, " +
       "a.category_scores, a.meets_bare_minimum, a.integrity_flags, " +
       "a.reviewer_email, a.signed_off_at, " +
+      "latest_recommendation.item AS recommendation_packet, " +
       "COALESCE(artifacts.items, '[]'::json) AS artifacts, " +
       "COALESCE(transcript_turns.items, '[]'::json) AS transcript_turns " +
       "FROM sessions s " +
       "LEFT JOIN recordings r ON r.session_id = s.session_id " +
       "LEFT JOIN assessments a ON a.session_id = s.session_id " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT json_build_object(" +
+      "'recommendationId', rec.recommendation_id, " +
+      "'recommendation', rec.recommendation, " +
+      "'confidence', rec.confidence, " +
+      "'source', rec.source, " +
+      "'rubricVersionId', rec.rubric_version_id, " +
+      "'categoryScores', rec.category_scores, " +
+      "'evidence', rec.evidence, " +
+      "'scorecardJson', rec.scorecard_json, " +
+      "'warnings', rec.warnings, " +
+      "'modelMetadata', rec.model_metadata, " +
+      "'latestFeedback', latest_feedback.item, " +
+      "'createdAt', rec.created_at, " +
+      "'updatedAt', rec.updated_at" +
+      ") AS item " +
+      "FROM interview_recommendations rec " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT json_build_object(" +
+      "'feedbackId', feedback.feedback_id, " +
+      "'recommendationId', feedback.recommendation_id, " +
+      "'reviewerEmail', feedback.reviewer_email, " +
+      "'reviewerDecision', feedback.reviewer_decision, " +
+      "'overrideReason', feedback.override_reason, " +
+      "'dimensionFeedback', feedback.dimension_feedback, " +
+      "'createdAt', feedback.created_at" +
+      ") AS item " +
+      "FROM reviewer_feedback feedback " +
+      "WHERE feedback.recommendation_id = rec.recommendation_id " +
+      "AND feedback.session_id = rec.session_id " +
+      "AND feedback.organization_id = rec.organization_id " +
+      "ORDER BY feedback.created_at DESC " +
+      "LIMIT 1" +
+      ") latest_feedback ON true " +
+      "WHERE rec.session_id = s.session_id AND rec.organization_id = s.org_id " +
+      "ORDER BY rec.updated_at DESC, rec.created_at DESC " +
+      "LIMIT 1" +
+      ") latest_recommendation ON true " +
       "LEFT JOIN LATERAL (" +
       "SELECT json_agg(json_build_object(" +
       "'kind', ordered.kind, 'status', ordered.status, " +

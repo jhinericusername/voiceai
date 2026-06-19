@@ -1,5 +1,6 @@
 import {
-  buildDefaultGradingGuide,
+  buildScoringCalibrationInput,
+  type CalibrationExample,
   clampEvaluationBatchSize,
   defaultCalibrationExamples,
   selectCalibrationExamples,
@@ -13,6 +14,7 @@ import {
 import {
   scoreTranscript,
   type GradingModel,
+  type GradingModelCompleteOptions,
   type ParsedCategoryScore,
   type TranscriptTurnLike,
 } from "../scoring.js";
@@ -31,8 +33,30 @@ export interface LabeledInterviewCase {
 export interface EvaluationRunOptions {
   readonly batchSize: number;
   readonly calibrationExampleLimit: number;
+  readonly calibrationExamples?: readonly CalibrationExample[];
   readonly includeTranscriptInOutput?: boolean;
+  readonly modelCallTimeoutMs?: number;
+  readonly progress?: (event: EvaluationProgressEvent) => void;
 }
+
+interface EvaluationProgressBase {
+  readonly caseIndex: number;
+  readonly caseCount: number;
+  readonly sessionId: string;
+  readonly ashbyJobId: string;
+  readonly source: LabeledInterviewCase["source"];
+  readonly modelCallCount: number;
+}
+
+export type EvaluationProgressEvent =
+  | ({
+      readonly type: "case_started";
+    } & EvaluationProgressBase)
+  | ({
+      readonly type: "case_finished";
+      readonly status: EvaluationCaseResult["status"];
+      readonly elapsedMs: number;
+    } & EvaluationProgressBase);
 
 export interface EvaluationDimensionAggregate {
   readonly count: number;
@@ -97,47 +121,148 @@ export async function evaluateLabeledInterviews(input: {
   readonly options: EvaluationRunOptions;
 }): Promise<EvaluationReport> {
   const batchSize = clampEvaluationBatchSize(input.options.batchSize);
-  const gradingGuide = buildDefaultGradingGuide();
+  const defaultCalibration = buildScoringCalibrationInput();
+  const gradingGuide = defaultCalibration.gradingGuide;
+  const dimensionScoreAnchors = defaultCalibration.dimensionScoreAnchors;
   const calibrationExamples = selectCalibrationExamples(
-    defaultCalibrationExamples(),
+    input.options.calibrationExamples ?? defaultCalibrationExamples(),
     input.options.calibrationExampleLimit,
   );
+  const modelCallTimeoutMs = normalizeModelCallTimeoutMs(input.options.modelCallTimeoutMs);
   let modelCallCount = 0;
   const countingModel: GradingModel = {
-    complete: async (prompt) => {
+    complete: async (prompt, options) => {
       modelCallCount += 1;
-      return input.model.complete(prompt);
+      return completeWithTimeout(input.model, prompt, options, modelCallTimeoutMs);
     },
   };
-  const results: EvaluationCaseResult[] = [];
+  const results: Array<EvaluationCaseResult | undefined> = new Array(input.cases.length);
+  let nextCaseOffset = 0;
 
-  for (let offset = 0; offset < input.cases.length; offset += batchSize) {
-    const batch = input.cases.slice(offset, offset + batchSize);
-    for (const interviewCase of batch) {
-      results.push(
-        await evaluateOneCase({
-          interviewCase,
-          rubric: input.rubric,
-          model: countingModel,
-          gradingGuide,
-          calibrationExamples,
-          includeTranscriptInOutput: input.options.includeTranscriptInOutput === true,
-        }),
-      );
+  async function runWorker(): Promise<void> {
+    while (nextCaseOffset < input.cases.length) {
+      const currentOffset = nextCaseOffset;
+      nextCaseOffset += 1;
+      const interviewCase = input.cases[currentOffset];
+      if (!interviewCase) {
+        return;
+      }
+      const currentCaseIndex = currentOffset + 1;
+      input.options.progress?.({
+        type: "case_started",
+        caseIndex: currentCaseIndex,
+        caseCount: input.cases.length,
+        sessionId: interviewCase.sessionId,
+        ashbyJobId: interviewCase.ashbyJobId,
+        source: interviewCase.source,
+        modelCallCount,
+      });
+      const startedAt = Date.now();
+      const result = await evaluateOneCase({
+        interviewCase,
+        rubric: input.rubric,
+        model: countingModel,
+        gradingGuide,
+        dimensionScoreAnchors,
+        calibrationExamples,
+        includeTranscriptInOutput: input.options.includeTranscriptInOutput === true,
+      });
+      input.options.progress?.({
+        type: "case_finished",
+        caseIndex: currentCaseIndex,
+        caseCount: input.cases.length,
+        sessionId: interviewCase.sessionId,
+        ashbyJobId: interviewCase.ashbyJobId,
+        source: interviewCase.source,
+        status: result.status,
+        elapsedMs: Math.max(0, Date.now() - startedAt),
+        modelCallCount,
+      });
+      results[currentOffset] = result;
     }
   }
 
-  const succeeded = results.filter((result) => result.status === "succeeded").length;
+  const workerCount = Math.min(batchSize, input.cases.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  const orderedResults = results.filter(
+    (result): result is EvaluationCaseResult => result !== undefined,
+  );
+
+  const succeeded = orderedResults.filter((result) => result.status === "succeeded").length;
 
   return {
     caseCount: input.cases.length,
     succeeded,
-    failed: results.length - succeeded,
+    failed: orderedResults.length - succeeded,
     batchSize,
     modelCallCount,
-    aggregate: buildAggregate(results),
-    cases: results,
+    aggregate: buildAggregate(orderedResults),
+    cases: orderedResults,
   };
+}
+
+async function completeWithTimeout(
+  model: GradingModel,
+  prompt: string,
+  options: GradingModelCompleteOptions | undefined,
+  timeoutMs: number | undefined,
+): Promise<string> {
+  if (timeoutMs === undefined) {
+    return model.complete(prompt, options);
+  }
+
+  const timeoutMessage = `Model call timed out after ${timeoutMs}ms.`;
+  const controller = new AbortController();
+  const parentSignal = options?.signal;
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let abortParentListener: (() => void) | undefined;
+
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      controller.abort();
+    } else {
+      abortParentListener = () => controller.abort();
+      parentSignal.addEventListener("abort", abortParentListener, { once: true });
+    }
+  }
+
+  const modelPromise = model.complete(prompt, {
+    ...(options ?? {}),
+    signal: controller.signal,
+  });
+  modelPromise.catch(() => undefined);
+
+  const timeoutPromise = new Promise<string>((_, reject) => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([modelPromise, timeoutPromise]);
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+    if (parentSignal && abortParentListener) {
+      parentSignal.removeEventListener("abort", abortParentListener);
+    }
+  }
+}
+
+function normalizeModelCallTimeoutMs(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.trunc(value);
 }
 
 async function evaluateOneCase(input: {
@@ -145,6 +270,7 @@ async function evaluateOneCase(input: {
   readonly rubric: unknown;
   readonly model: GradingModel;
   readonly gradingGuide: string;
+  readonly dimensionScoreAnchors: Parameters<typeof scoreTranscript>[0]["dimensionScoreAnchors"];
   readonly calibrationExamples: Parameters<typeof scoreTranscript>[0]["calibrationExamples"];
   readonly includeTranscriptInOutput: boolean;
 }): Promise<EvaluationCaseResult> {
@@ -156,6 +282,7 @@ async function evaluateOneCase(input: {
         rubric: input.rubric,
         transcriptTurns: interviewCase.transcriptTurns,
         gradingGuide: input.gradingGuide,
+        dimensionScoreAnchors: input.dimensionScoreAnchors,
         calibrationExamples: input.calibrationExamples,
       },
       input.model,

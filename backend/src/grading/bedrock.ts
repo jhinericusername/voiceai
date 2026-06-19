@@ -1,13 +1,36 @@
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
-import type { GradingModel } from "./scoring.js";
+import type { GradingModel, GradingModelCompleteOptions } from "./scoring.js";
+
+const defaultModelId = "us.anthropic.claude-opus-4-8";
+const defaultRegion = "us-east-1";
+const richScorecardMaxTokens = 6000;
+
+export interface BedrockGradingModelConfig {
+  readonly client?: BedrockRuntimeClient;
+  readonly region?: string;
+  readonly modelId?: string;
+}
 
 export class BedrockGradingModel implements GradingModel {
-  constructor(
-    private readonly client = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us-east-1" }),
-    private readonly modelId = process.env.PUDDLE_GRADING_MODEL_ID ?? "us.anthropic.claude-opus-4-8",
-  ) {}
+  private readonly client: BedrockRuntimeClient;
+  private readonly modelId: string;
 
-  async complete(prompt: string): Promise<string> {
+  constructor(clientOrConfig?: BedrockRuntimeClient | BedrockGradingModelConfig, modelId?: string) {
+    if (clientOrConfig === undefined || isBedrockGradingModelConfig(clientOrConfig)) {
+      this.client =
+        clientOrConfig?.client ??
+        new BedrockRuntimeClient({
+          region: clientOrConfig?.region ?? process.env.AWS_REGION ?? defaultRegion,
+        });
+      this.modelId = clientOrConfig?.modelId ?? process.env.PUDDLE_GRADING_MODEL_ID ?? defaultModelId;
+      return;
+    }
+
+    this.client = clientOrConfig;
+    this.modelId = modelId ?? process.env.PUDDLE_GRADING_MODEL_ID ?? defaultModelId;
+  }
+
+  async complete(prompt: string, options?: GradingModelCompleteOptions): Promise<string> {
     const response = await this.client.send(
       new ConverseCommand({
         modelId: this.modelId,
@@ -18,9 +41,10 @@ export class BedrockGradingModel implements GradingModel {
           },
         ],
         inferenceConfig: {
-          maxTokens: 2000,
+          maxTokens: richScorecardMaxTokens,
         },
       }),
+      options?.signal ? { abortSignal: options.signal } : undefined,
     );
 
     const blocks = response.output?.message?.content ?? [];
@@ -30,4 +54,12 @@ export class BedrockGradingModel implements GradingModel {
     }
     return text;
   }
+}
+
+function isBedrockGradingModelConfig(value: unknown): value is BedrockGradingModelConfig {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return "client" in record || "region" in record || "modelId" in record;
 }

@@ -95,7 +95,7 @@ export function MetricCard({
   readonly detail: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="puddle-metric-card min-w-0 rounded-md border border-slate-200 bg-white/94 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</div>
       <div className="mt-2 text-2xl font-semibold text-slate-950">{value}</div>
       <div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div>
@@ -111,7 +111,7 @@ export function EmptyState({
   readonly detail: string;
 }) {
   return (
-    <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
+    <div className="puddle-empty-state rounded-md border border-dashed border-cyan-200 bg-cyan-50/40 px-4 py-6 text-center">
       <div className="text-sm font-semibold text-slate-900">{title}</div>
       <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500">{detail}</p>
     </div>
@@ -137,11 +137,11 @@ export function SectionPanel({
     <section
       id={id}
       className={cx(
-        "min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+        "puddle-panel min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
         className,
       )}
     >
-      <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="puddle-panel-header flex min-w-0 flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           {eyebrow ? (
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700">{eyebrow}</div>
@@ -185,7 +185,7 @@ export const tableHeaderClass =
 export const tableCellClass = "border-b border-slate-100 px-3 py-3 text-sm text-slate-700";
 
 export const primaryButtonClass =
-  "inline-flex min-h-9 max-w-full items-center justify-center truncate rounded-md bg-slate-950 px-3 text-sm font-semibold !text-white transition hover:bg-slate-800";
+  "inline-flex min-h-9 max-w-full items-center justify-center truncate rounded-md bg-slate-950 px-3 text-sm font-semibold !text-white shadow-[0_10px_24px_rgba(15,23,42,0.12)] transition hover:-translate-y-px hover:bg-slate-800 hover:shadow-[0_14px_34px_rgba(15,23,42,0.16)] focus:outline-none focus:ring-4 focus:ring-cyan-100";
 
 export const secondaryButtonClass =
-  "inline-flex min-h-9 max-w-full items-center justify-center truncate rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50";
+  "inline-flex min-h-9 max-w-full items-center justify-center truncate rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-px hover:border-cyan-200 hover:bg-cyan-50/50 hover:text-slate-950 hover:shadow-[0_10px_24px_rgba(8,145,178,0.08)] focus:outline-none focus:ring-4 focus:ring-cyan-100";

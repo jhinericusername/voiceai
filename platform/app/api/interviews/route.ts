@@ -26,12 +26,45 @@ function candidateEmailFromBody(body: unknown, fallback: string): string {
   return candidateEmail || fallback;
 }
 
+function objectBody(body: unknown): Record<string, unknown> | null {
+  return body && typeof body === "object" && !Array.isArray(body)
+    ? (body as Record<string, unknown>)
+    : null;
+}
+
+function stringField(body: Record<string, unknown>, field: string): string | null {
+  const value = body[field];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function ashbySourceMetadataFromBody(body: unknown): Record<string, unknown> | undefined {
+  const obj = objectBody(body);
+  if (!obj) return undefined;
+
+  const applicationId = stringField(obj, "applicationId");
+  const jobId = stringField(obj, "jobId");
+  if (!applicationId || !jobId) return undefined;
+
+  return {
+    ashby: {
+      selected: {
+        applicationId,
+        candidateId: stringField(obj, "candidateId"),
+        candidateName: stringField(obj, "candidateName"),
+        jobId,
+        currentStage: stringField(obj, "currentStage"),
+      },
+    },
+  };
+}
+
 export async function POST(request: Request) {
   const access = await requireAshbyReadyDashboardApiAccess(dashboardApiReadinessContext());
   if (access.response) return access.response;
 
   const body = await request.json().catch(() => ({}));
   const candidateEmail = candidateEmailFromBody(body, access.user.email);
+  const sourceMetadata = ashbySourceMetadataFromBody(body);
   const scriptVersion = process.env.PUDDLE_DEFAULT_SCRIPT_VERSION ?? "pilot-v1";
   const orgId = access.organizationId;
 
@@ -45,6 +78,7 @@ export async function POST(request: Request) {
         candidateEmail,
         scriptVersion,
         scheduledAt: new Date().toISOString(),
+        ...(sourceMetadata ? { sourceMetadata } : {}),
       }),
       cache: "no-store",
     });
@@ -72,6 +106,7 @@ export async function POST(request: Request) {
       sessionId: createdSession.sessionId,
       room: createdSession.room,
       inviteUrl: `${publicOrigin()}${invitePath}`,
+      interviewerJoinUrl: `${publicOrigin()}/dashboard/interviews/${encodeURIComponent(createdSession.sessionId)}/join`,
       inviteExpiresAt: createdSession.inviteExpiresAt,
     },
     { status: 201 },

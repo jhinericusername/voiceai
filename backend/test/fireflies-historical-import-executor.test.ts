@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { describe, expect, it } from "vitest";
 import {
@@ -35,11 +36,13 @@ class FakeS3Client implements S3LikeClient {
   readonly commands: unknown[] = [];
   readonly copiedSources: string[] = [];
   readonly copiedKeys: string[] = [];
+  readonly putKeys: string[] = [];
 
   constructor(
     private readonly objects: readonly StoredObject[] = [],
     private readonly existingTargetSizes = new Map<string, number>(),
     private readonly operationLog?: string[],
+    private readonly copyError: Error | null = null,
   ) {}
 
   async send(command: unknown): Promise<unknown> {
@@ -62,7 +65,7 @@ class FakeS3Client implements S3LikeClient {
         error.name = "NoSuchKey";
         throw error;
       }
-      return { Body: bodyFromJson(object.body ?? {}) };
+      return { Body: bodyFromStoredObject(object.body ?? {}) };
     }
     if (command instanceof HeadObjectCommand) {
       const size = this.existingTargetSizes.get(String(command.input.Key));
@@ -75,8 +78,13 @@ class FakeS3Client implements S3LikeClient {
       return { ContentLength: size };
     }
     if (command instanceof CopyObjectCommand) {
+      if (this.copyError) throw this.copyError;
       this.copiedSources.push(String(command.input.CopySource));
       this.copiedKeys.push(String(command.input.Key));
+      return {};
+    }
+    if (command instanceof PutObjectCommand) {
+      this.putKeys.push(String(command.input.Key));
       return {};
     }
     throw new Error(`Unexpected command: ${command?.constructor?.name ?? typeof command}`);
@@ -172,6 +180,30 @@ function bodyFromJson(value: unknown) {
       return JSON.stringify(value);
     },
   };
+}
+
+function bodyFromStoredObject(value: unknown) {
+  if (isAsyncIterable(value)) return value;
+  return bodyFromJson(value);
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<Uint8Array> {
+  return Boolean(value && typeof value === "object" && Symbol.asyncIterator in value);
+}
+
+async function* chunkedBody(chunkSizes: readonly number[]): AsyncIterable<Uint8Array> {
+  for (const size of chunkSizes) {
+    yield Buffer.alloc(size, "x");
+  }
+}
+
+async function collectChunkSizes(body: unknown): Promise<number[]> {
+  const chunks: number[] = [];
+  if (!isAsyncIterable(body)) return chunks;
+  for await (const chunk of body) {
+    chunks.push(chunk.length);
+  }
+  return chunks;
 }
 
 function recordingObjects(
@@ -434,6 +466,32 @@ describe("Fireflies historical import executor", () => {
     );
   });
 
+  it("imports exactly one recording folder while parsing against the Fireflies root prefix", async () => {
+    const exactPrefix = recordingPrefix("01LIVE");
+    const sourceS3 = new FakeS3Client([
+      ...recordingObjects("01LIVE"),
+      ...recordingObjects("02SIBLING"),
+    ]);
+
+    const result = await executeHistoricalFirefliesImport({
+      orgId,
+      sourceBucket,
+      sourcePrefix: exactPrefix,
+      sourceRootPrefix: sourcePrefix,
+      targetBucket,
+      sourceS3,
+      targetS3: new FakeS3Client(),
+      weaveDb: new FakeWeaveDb({}),
+    });
+
+    expect(result.plannedCount).toBe(1);
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.transcriptId).toBe("01LIVE");
+    expect(result.plans[0]?.session.sourceMetadata.fireflies.sourcePrefix).toBe(exactPrefix);
+    const listCommand = sourceS3.commands.find((command) => command instanceof ListObjectsV2Command);
+    expect(listCommand).toBeInstanceOf(ListObjectsV2Command);
+    expect((listCommand as ListObjectsV2Command).input.Prefix).toBe(exactPrefix);
+  });
+
   it("apply mode preflights source conflicts before copying source objects", async () => {
     const operationLog: string[] = [];
     const sourceS3 = new FakeS3Client(recordingObjects("01APPLY"));
@@ -474,6 +532,83 @@ describe("Fireflies historical import executor", () => {
       ),
     ).toBe(true);
     expect(puddleDb.queryLog.at(-1)?.sql).toContain("UPDATE historical_interview_import_runs SET");
+  });
+
+  it("streams objects through the worker when S3 copy rejects cross-region VPC endpoint requests", async () => {
+    const copyError = new Error("VPC endpoints do not support cross-region requests");
+    const sourceS3 = new FakeS3Client(recordingObjects("01VPCENDPOINT"));
+    const targetS3 = new FakeS3Client([], new Map(), undefined, copyError);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3,
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb: new FakePuddleDb(),
+      importRunId: "run_vpc_endpoint_fallback",
+    });
+
+    expect(result.importedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    expect(result.copyCount).toBe(6);
+    expect(commandNames(targetS3).filter((name) => name === "CopyObjectCommand")).toHaveLength(6);
+    expect(commandNames(targetS3).filter((name) => name === "PutObjectCommand")).toHaveLength(6);
+    const putCommands = targetS3.commands.filter(
+      (command): command is PutObjectCommand => command instanceof PutObjectCommand,
+    );
+    expect(putCommands.map((command) => command.input.ContentLength)).toEqual([
+      404,
+      101,
+      303,
+      202,
+      57,
+      58,
+    ]);
+    expect(commandNames(sourceS3).filter((name) => name === "GetObjectCommand").length).toBeGreaterThan(
+      4,
+    );
+  });
+
+  it("buffers streamed fallback upload chunks so intermediate chunks satisfy AWS SDK constraints", async () => {
+    const copyError = new Error("VPC endpoints do not support cross-region requests");
+    const objects = recordingObjects("01BUFFERED").map((object) =>
+      object.key.endsWith("/video.mp4")
+        ? {
+            ...object,
+            size: 200_000,
+            body: chunkedBody(Array.from({ length: 200 }, () => 1_000)),
+          }
+        : object,
+    );
+    const sourceS3 = new FakeS3Client(objects);
+    const targetS3 = new FakeS3Client([], new Map(), undefined, copyError);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3,
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb: new FakePuddleDb(),
+      importRunId: "run_buffered_stream_fallback",
+    });
+
+    expect(result.importedCount).toBe(1);
+    expect(result.failedCount).toBe(0);
+    const firstPut = targetS3.commands.find(
+      (command): command is PutObjectCommand => command instanceof PutObjectCommand,
+    );
+    const chunkSizes = await collectChunkSizes(firstPut?.input.Body);
+    expect(chunkSizes.length).toBeGreaterThan(1);
+    expect(chunkSizes.slice(0, -1).every((size) => size >= 8_192)).toBe(true);
+    expect(chunkSizes.reduce((sum, size) => sum + size, 0)).toBe(200_000);
   });
 
   it("fails occurrence source conflicts from another org before target S3 copy checks", async () => {

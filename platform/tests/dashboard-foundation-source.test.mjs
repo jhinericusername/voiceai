@@ -19,6 +19,7 @@ const layoutSource = await source("../app/dashboard/layout.tsx");
 const chromeSource = await source("../app/dashboard/DashboardChrome.tsx");
 const overviewSource = await source("../app/dashboard/page.tsx");
 const rolesSource = await source("../app/dashboard/roles/page.tsx");
+const activePipelineSource = await source("../app/dashboard/roles/ActivePipelineDashboard.tsx");
 const roleDetailSource = await source("../app/dashboard/roles/[roleId]/page.tsx");
 const roleTabsSource = await source("../app/dashboard/roles/[roleId]/RoleWorkspaceTabs.tsx");
 const roleCandidateSource = await source("../app/dashboard/roles/[roleId]/candidates/[candidateId]/page.tsx");
@@ -105,14 +106,30 @@ test("nested role workspace routes do not expose demo dashboard data", () => {
   }
 
   assert.match(roleDetailSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
+  assert.doesNotMatch(roleDetailSource, /CreateAndJoinInterviewForm/);
+  assert.match(chromeSource, /DashboardCreateInterviewLauncher/);
   assert.match(roleCandidateSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
   assert.match(roleRubricSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
 });
 
 test("roles, candidates, and review queue are explicit about role-scoped interviewing", () => {
-  assert.match(rolesSource, /RolesPipelineFoundation/);
-  assert.match(rolesSource, /selectedAshbyJobCount/);
-  assert.match(candidatesSource, /CandidateApplicationsFoundation/);
+  assert.match(rolesSource, /getAshbyActivePipeline/);
+  assert.match(rolesSource, /ActivePipelineDashboard/);
+  assert.match(rolesSource, /canManageAshbyOnboarding\(session\)/);
+  assert.match(rolesSource, /canManagePipelineStages/);
+  assert.match(candidatesSource, /getAshbyActivePipeline/);
+  assert.match(candidatesSource, /ActivePipelineDashboard/);
+  assert.match(candidatesSource, /canManageAshbyOnboarding\(session\)/);
+  assert.match(candidatesSource, /canManagePipelineStages/);
+  assert.match(activePipelineSource, /selectedRole\.stageOptions\.map/);
+  assert.match(activePipelineSource, /readonly canManagePipelineStages: boolean/);
+  assert.match(activePipelineSource, /if \(!canManagePipelineStages\)/);
+  assert.match(activePipelineSource, /disabled=\{!canManagePipelineStages \|\| pendingStageKey !== null\}/);
+  assert.match(activePipelineSource, /candidateRowsTruncated/);
+  assert.match(activePipelineSource, /DashboardCreateInterviewLauncher/);
+  assert.match(activePipelineSource, /Stage filters are read-only for members\./);
+  assert.match(activePipelineSource, /data-active-candidate-scroll-region/);
+  assert.match(activePipelineSource, /overflow-y-auto/);
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);
   assert.match(ashbyFirstSectionsSource, /role picker/i);
   assert.match(ashbyFirstSectionsSource, /<select/);
@@ -128,6 +145,19 @@ test("interview detail is Fireflies-like, real-only, and hides raw internal iden
   assert.match(interviewDetailSource, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(360px,420px\)\]/);
   assert.match(interviewDetailSource, /Historical Fireflies import/);
   assert.match(interviewDetailSource, /Fireflies historical import/);
+  assert.match(backendDataSource, /recommendation_packet/);
+  assert.match(backendDataSource, /scorecardJson/);
+  assert.match(interviewDetailSource, /AI recommendation/);
+  assert.match(interviewDetailSource, /formatRecommendationPacketStatus/);
+  assert.match(interviewDetailSource, /formatRecommendationPacketConfidence/);
+  assert.match(interviewDetailSource, /scorecardRowsFromRecommendationPacket/);
+  assert.match(interviewDetailSource, /ScorecardDimensionRow/);
+  assert.match(interviewDetailSource, /recommendation_packet\?\.categoryScores/);
+  assert.match(interviewDetailSource, /recommendation_packet\?\.scorecardJson/);
+  assert.match(interviewDetailSource, /Missing questions/);
+  assert.match(interviewDetailSource, /Scripted answer detection/);
+  assert.match(interviewDetailSource, /Final scores/);
+  assert.match(interviewDetailSource, /Overall comment/);
   assert.doesNotMatch(interviewDetailSource, /dashboardDemoFallbackEnabled/);
   assert.doesNotMatch(interviewDetailSource, /demoSessions/);
   assert.doesNotMatch(interviewDetailSource, /getSession\(/);

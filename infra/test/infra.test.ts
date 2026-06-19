@@ -1,14 +1,15 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { configFromApp, PuddleEnvConfig } from '../lib/config';
+import {
+  FirefliesIngestionSourceStack,
+  WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
+  WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME,
+  WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+  WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN,
+  WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+} from '../lib/fireflies-ingestion-source-stack';
 import { InfraStack } from '../lib/infra-stack';
-
-const WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME =
-  'weave-fireflies-prod-851725544921-us-west-2';
-const WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION = 'us-west-2';
-const WEAVE_HISTORICAL_RECORDINGS_PREFIX = 'raw/fireflies/';
-const WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN =
-  'arn:aws:kms:us-west-2:851725544921:key/34ca088f-7a67-4cd8-b3a3-ba52cbfe4a73';
 
 describe('InfraStack', () => {
   test('creates the foundation resources with services disabled', () => {
@@ -20,7 +21,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 11);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 12);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
@@ -213,8 +214,8 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 1);
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 2);
+    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 3);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 1);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::TargetGroup', 1);
@@ -308,6 +309,9 @@ describe('InfraStack', () => {
     expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'AshbyIntegrationSecretKey')).toBe(
       true,
     );
+    expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'OpenaiApiKey')).toBe(
+      true,
+    );
     template.resourceCountIs('AWS::IAM::User', 0);
   });
 
@@ -338,6 +342,9 @@ describe('InfraStack', () => {
     template.hasOutput('AshbyIntegrationSecretKeySecretName', {
       Value: Match.stringLikeRegexp('/integrations/ashby/secret-key$'),
     });
+    template.hasOutput('OpenaiApiKeySecretName', {
+      Value: Match.stringLikeRegexp('/providers/openai-api-key$'),
+    });
 
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       ContainerDefinitions: Match.arrayWith([
@@ -346,6 +353,9 @@ describe('InfraStack', () => {
           Secrets: Match.arrayWith([
             Match.objectLike({
               Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+            Match.objectLike({
+              Name: 'OPENAI_API_KEY',
             }),
           ]),
         }),
@@ -359,6 +369,22 @@ describe('InfraStack', () => {
           Secrets: Match.arrayWith([
             Match.objectLike({
               Name: 'PUDDLE_INTEGRATION_SECRET_KEY',
+            }),
+            Match.objectLike({
+              Name: 'OPENAI_API_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'fireflies-ingestion-worker',
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'OPENAI_API_KEY',
             }),
           ]),
         }),
@@ -375,6 +401,8 @@ describe('InfraStack', () => {
 
     expect(JSON.stringify(platformTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
     expect(JSON.stringify(agentTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
+    expect(JSON.stringify(platformTask)).not.toContain('OPENAI_API_KEY');
+    expect(JSON.stringify(agentTask)).not.toContain('OPENAI_API_KEY');
   });
 
   test('connects the historical Fireflies bucket as a read-only backend source', () => {
@@ -424,6 +452,79 @@ describe('InfraStack', () => {
     expect(backendTaskPolicyJson).toContain(WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN);
     expect(backendTaskPolicyJson).toContain('kms:Decrypt');
     expect(JSON.stringify(historicalStatements)).not.toContain('s3:DeleteObject');
+  });
+
+  test('wires the source-region Fireflies S3 notification queue', () => {
+    const stack = createFirefliesSourceStack();
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::SQS::Queue', 2);
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'puddle-videoagent-fireflies-ingestion',
+      VisibilityTimeout: 900,
+      RedrivePolicy: Match.objectLike({
+        maxReceiveCount: 10,
+      }),
+    });
+
+    const templateJson = JSON.stringify(template.toJSON());
+    expect(templateJson).toContain('s3:ObjectCreated:*');
+    expect(templateJson).toContain(WEAVE_HISTORICAL_RECORDINGS_PREFIX);
+    expect(templateJson).toContain('sqs:SendMessage');
+    template.hasOutput('FirefliesIngestionQueueUrl', {});
+    template.hasOutput('FirefliesIngestionQueueArn', {});
+  });
+
+  test('wires the Fireflies ingestion backend worker service to the source-region queue', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'test',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::SQS::Queue', 0);
+    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 3);
+    template.hasResourceProperties('AWS::ECS::Service', {
+      ServiceName: 'puddle-videoagent-fireflies-ingestion-worker-service',
+      DesiredCount: 1,
+    });
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'puddle-videoagent-fireflies-ingestion-worker',
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'fireflies-ingestion-worker',
+          Command: ['node', 'dist/weave/fireflies/live-ingestion-worker.js'],
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'WEAVE_HISTORICAL_RECORDINGS_PREFIX',
+              Value: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+            }),
+            Match.objectLike({
+              Name: 'FIREFLIES_INGESTION_QUEUE_URL',
+            }),
+            Match.objectLike({
+              Name: 'FIREFLIES_INGESTION_ORG_ID',
+              Value: 'org_01KV4FF7KX24B76H7Q57QVB5CT',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
+    const templateJson = JSON.stringify(template.toJSON());
+    expect(templateJson).toContain('sqs:ReceiveMessage');
+    expect(templateJson).toContain('sqs:DeleteMessage');
+    expect(templateJson).toContain('sqs:ChangeMessageVisibility');
+    template.hasOutput('FirefliesIngestionQueueUrl', {});
+    template.hasOutput('FirefliesIngestionWorkerServiceName', {});
   });
 
   test('creates LiveKit Egress S3 credentials only when recordings are enabled', () => {
@@ -567,8 +668,8 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 2);
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 3);
+    template.resourceCountIs('AWS::ECS::Service', 3);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 4);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
 
     template.hasResourceProperties('AWS::ECS::Service', {
@@ -700,7 +801,7 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 2);
+    template.resourceCountIs('AWS::ECS::Service', 3);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 2);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 3);
 
@@ -912,6 +1013,24 @@ function createStack(overrides: Partial<PuddleEnvConfig> = {}): InfraStack {
     env: {
       account: config.account,
       region: config.region,
+    },
+    config,
+  });
+}
+
+function createFirefliesSourceStack(
+  overrides: Partial<PuddleEnvConfig> = {},
+): FirefliesIngestionSourceStack {
+  const app = new cdk.App();
+  const config = {
+    ...defaultConfig(),
+    ...overrides,
+  };
+
+  return new FirefliesIngestionSourceStack(app, 'FirefliesSourceTestStack', {
+    env: {
+      account: WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
+      region: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
     },
     config,
   });

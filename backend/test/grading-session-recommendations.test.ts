@@ -7,9 +7,58 @@ const {
   sqlCalls,
   queryCalls,
   routeState,
+  defaultScorecard,
+  bedrockConstructorConfigs,
+  openaiConstructorConfigs,
+  bedrockModelInstances,
+  openaiModelInstances,
 } = vi.hoisted(() => {
   const sqlCalls: string[] = [];
   const queryCalls: Array<{ readonly sql: string; readonly params: readonly unknown[] }> = [];
+  const bedrockConstructorConfigs: unknown[] = [];
+  const openaiConstructorConfigs: unknown[] = [];
+  const bedrockModelInstances: unknown[] = [];
+  const openaiModelInstances: unknown[] = [];
+  const defaultScorecard = {
+    version: "company_scorecard_v1",
+    dimensionScores: [
+      {
+        category: "problem_solving",
+        score: 4,
+        confidence: 0.9,
+        notes: "Specific high-impact migration.",
+        evidenceQuotes: ["cut runtime by 90%"],
+      },
+      {
+        category: "agency",
+        score: 3,
+        confidence: 0.84,
+        notes: "Shows ownership.",
+        evidenceQuotes: ["owned the migration"],
+      },
+    ],
+    missingQuestions: [
+      {
+        question: "Niche curiosity question",
+        asked: "no",
+        notes: "The transcript did not include the curiosity calibration question.",
+      },
+    ],
+    scriptedAnswerDetection: {
+      signals: [{ signal: "Scripted / rehearsed likelihood", rating: "Low" }],
+      summary: "Specific, imperfect answers with low scripted risk.",
+      confidence: "5-10%",
+    },
+    finalScores: {
+      dimensions: [
+        { category: "problem_solving", score: 4 },
+        { category: "agency", score: 3 },
+      ],
+      totalScore: 7,
+      maxScore: 8,
+    },
+    comment: "Strong PS and solid agency.",
+  };
   const routeState = {
     sessionRows: [
       {
@@ -57,6 +106,7 @@ const {
         rationale: "Shows ownership.",
       },
     ],
+    scorecard: defaultScorecard,
     warnings: [],
   }));
   const queryMock = vi.fn(async (sql: string, params: readonly unknown[] = []) => {
@@ -91,8 +141,9 @@ const {
                 confidence: params[7],
                 category_scores: JSON.parse(String(params[8])),
                 evidence: JSON.parse(String(params[9])),
-                warnings: JSON.parse(String(params[10])),
-                model_metadata: JSON.parse(String(params[11])),
+                scorecard_json: JSON.parse(String(params[10])),
+                warnings: JSON.parse(String(params[11])),
+                model_metadata: JSON.parse(String(params[12])),
               },
             ],
         rowCount: routeState.upsertRowCount,
@@ -100,7 +151,18 @@ const {
     }
     return { rows: [], rowCount: 0 };
   });
-  return { queryMock, scoreTranscriptMock, sqlCalls, queryCalls, routeState };
+  return {
+    queryMock,
+    scoreTranscriptMock,
+    sqlCalls,
+    queryCalls,
+    routeState,
+    defaultScorecard,
+    bedrockConstructorConfigs,
+    openaiConstructorConfigs,
+    bedrockModelInstances,
+    openaiModelInstances,
+  };
 });
 
 vi.mock("../src/db/pool.js", () => ({
@@ -112,17 +174,53 @@ vi.mock("../src/grading/scoring.js", () => ({
 }));
 
 vi.mock("../src/grading/bedrock.js", () => ({
-  BedrockGradingModel: class FakeBedrockGradingModel {},
+  BedrockGradingModel: class FakeBedrockGradingModel {
+    constructor(config?: unknown) {
+      bedrockConstructorConfigs.push(config);
+      bedrockModelInstances.push(this);
+    }
+  },
+}));
+
+vi.mock("../src/grading/openai.js", () => ({
+  OpenAIGradingModel: class FakeOpenAIGradingModel {
+    constructor(config?: unknown) {
+      openaiConstructorConfigs.push(config);
+      openaiModelInstances.push(this);
+    }
+  },
 }));
 
 const FAKE_LK = { host: "wss://example", apiKey: "key", apiSecret: "secret" };
 const previousBackendToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+const previousProvider = process.env.PUDDLE_GRADING_MODEL_PROVIDER;
+const previousModelId = process.env.PUDDLE_GRADING_MODEL_ID;
+const previousReasoningEffort = process.env.PUDDLE_GRADING_OPENAI_REASONING_EFFORT;
+const previousVerbosity = process.env.PUDDLE_GRADING_OPENAI_VERBOSITY;
+const previousAwsRegion = process.env.AWS_REGION;
+
+function restoreEnvValue(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
 
 describe("grading session recommendations", () => {
   beforeEach(() => {
     delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    delete process.env.PUDDLE_GRADING_MODEL_PROVIDER;
+    delete process.env.PUDDLE_GRADING_MODEL_ID;
+    delete process.env.PUDDLE_GRADING_OPENAI_REASONING_EFFORT;
+    delete process.env.PUDDLE_GRADING_OPENAI_VERBOSITY;
+    delete process.env.AWS_REGION;
     sqlCalls.length = 0;
     queryCalls.length = 0;
+    bedrockConstructorConfigs.length = 0;
+    openaiConstructorConfigs.length = 0;
+    bedrockModelInstances.length = 0;
+    openaiModelInstances.length = 0;
     routeState.sessionRows = [
       {
         session_id: "sess_1",
@@ -170,16 +268,18 @@ describe("grading session recommendations", () => {
           rationale: "Shows ownership.",
         },
       ],
+      scorecard: defaultScorecard,
       warnings: [],
     });
   });
 
   afterEach(() => {
-    if (previousBackendToken === undefined) {
-      delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
-    } else {
-      process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousBackendToken;
-    }
+    restoreEnvValue("PUDDLE_BACKEND_INTERNAL_TOKEN", previousBackendToken);
+    restoreEnvValue("PUDDLE_GRADING_MODEL_PROVIDER", previousProvider);
+    restoreEnvValue("PUDDLE_GRADING_MODEL_ID", previousModelId);
+    restoreEnvValue("PUDDLE_GRADING_OPENAI_REASONING_EFFORT", previousReasoningEffort);
+    restoreEnvValue("PUDDLE_GRADING_OPENAI_VERBOSITY", previousVerbosity);
+    restoreEnvValue("AWS_REGION", previousAwsRegion);
   });
 
   it("loads a session transcript and active rubric before scoring", async () => {
@@ -199,10 +299,22 @@ describe("grading session recommendations", () => {
       expect(sqlCalls.some((sql) => sql.includes("role_rubric_versions"))).toBe(true);
       expect(sqlCalls.some((sql) => sql.includes("interview_recommendations"))).toBe(true);
       expect(scoreTranscriptMock).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           rubric: routeState.rubricRows[0].rubric,
           transcriptTurns: routeState.transcriptRows,
-        },
+          gradingGuide: expect.stringContaining("Missing question neutral default"),
+          calibrationExamples: expect.arrayContaining([
+            expect.objectContaining({ id: "example_a" }),
+          ]),
+          dimensionScoreAnchors: expect.objectContaining({
+            problem_solving: expect.objectContaining({
+              "1": expect.any(Array),
+              "2": expect.any(Array),
+              "3": expect.any(Array),
+              "4": expect.any(Array),
+            }),
+          }),
+        }),
         expect.any(Object),
       );
     } finally {
@@ -230,8 +342,19 @@ describe("grading session recommendations", () => {
         recommendation: "advance",
         confidence: 0.87,
         warnings: [],
-        model_metadata: { provider: "bedrock", parser: "grading-scoring-v1" },
+        scorecard_json: defaultScorecard,
+        model_metadata: {
+          provider: "bedrock",
+          region: "us-east-1",
+          modelId: "us.anthropic.claude-opus-4-8",
+          parser: "grading-scorecard-v1",
+        },
       });
+      expect(bedrockConstructorConfigs).toEqual([
+        { region: "us-east-1", modelId: "us.anthropic.claude-opus-4-8" },
+      ]);
+      expect(openaiConstructorConfigs).toEqual([]);
+      expect(scoreTranscriptMock.mock.calls[0]?.[1]).toBe(bedrockModelInstances[0]);
       const insertCall = queryCalls.find((call) => call.sql.includes("INSERT INTO interview_recommendations"));
       expect(insertCall?.params[6]).toBe("advance");
       expect(insertCall?.params[8]).toBe(JSON.stringify([
@@ -250,6 +373,52 @@ describe("grading session recommendations", () => {
           rationale: "Shows ownership.",
         },
       ]));
+      expect(insertCall?.params[10]).toBe(JSON.stringify(defaultScorecard));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("uses OpenAI provider env controls and stores OpenAI model metadata", async () => {
+    process.env.PUDDLE_GRADING_MODEL_PROVIDER = "openai";
+    process.env.PUDDLE_GRADING_MODEL_ID = "gpt-prod-grader";
+    process.env.PUDDLE_GRADING_OPENAI_REASONING_EFFORT = "medium";
+    process.env.PUDDLE_GRADING_OPENAI_VERBOSITY = "high";
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(openaiConstructorConfigs).toEqual([
+        {
+          modelId: "gpt-prod-grader",
+          reasoningEffort: "medium",
+          verbosity: "high",
+        },
+      ]);
+      expect(bedrockConstructorConfigs).toEqual([]);
+      expect(scoreTranscriptMock.mock.calls[0]?.[1]).toBe(openaiModelInstances[0]);
+      expect(res.json().recommendation.model_metadata).toEqual({
+        provider: "openai",
+        modelId: "gpt-prod-grader",
+        reasoningEffort: "medium",
+        verbosity: "high",
+        parser: "grading-scorecard-v1",
+      });
+      const insertCall = queryCalls.find((call) => call.sql.includes("INSERT INTO interview_recommendations"));
+      expect(JSON.parse(String(insertCall?.params[12]))).toEqual({
+        provider: "openai",
+        modelId: "gpt-prod-grader",
+        reasoningEffort: "medium",
+        verbosity: "high",
+        parser: "grading-scorecard-v1",
+      });
     } finally {
       await app.close();
     }
@@ -422,6 +591,22 @@ describe("grading session recommendations", () => {
           rationale: "Specific high-impact migration.",
         },
       ],
+      scorecard: {
+        ...defaultScorecard,
+        dimensionScores: [
+          {
+            category: "problem_solving",
+            score: 4,
+            notes: "Specific high-impact migration.",
+            evidenceQuotes: ["cut runtime by 90%"],
+          },
+        ],
+        finalScores: {
+          dimensions: [{ category: "problem_solving", score: 4 }],
+          totalScore: 4,
+          maxScore: 4,
+        },
+      },
       warnings: [],
     });
     const app = buildServer(FAKE_LK);

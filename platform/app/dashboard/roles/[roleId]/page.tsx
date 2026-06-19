@@ -37,7 +37,7 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
-      <header className="min-w-0 rounded-md border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <header className="puddle-dashboard-hero-card min-w-0 overflow-hidden rounded-md border border-cyan-200 bg-white/94 px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -71,8 +71,8 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
           <SectionPanel title="Send interviews" eyebrow="Next step">
             <p className="text-sm leading-6 text-slate-600">
-              Bulk and single-candidate interview sending will use real Ashby applications for this role. Calendar
-              booking support should replace immediate scheduling when Cal integration ships.
+              Use the dashboard top bar to create a hosted Puddle room, then copy the candidate link from the interviewer
+              pre-call room.
             </p>
           </SectionPanel>
         </aside>

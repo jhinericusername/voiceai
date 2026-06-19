@@ -16,7 +16,7 @@ export function SetupProgressSummary({
       action={<StatusPill status={lastSyncAt ? "Synced" : "Sync pending"} />}
     >
       <div className="grid gap-4 md:grid-cols-2">
-        <div>
+        <div className="puddle-dashboard-card rounded-md border border-cyan-100 bg-cyan-50/40 px-3 py-3">
           <div className="text-sm font-semibold text-slate-950">
             {selectedJobCount} selected {selectedJobCount === 1 ? "role" : "roles"}
           </div>
@@ -24,7 +24,7 @@ export function SetupProgressSummary({
             Puddle uses selected Ashby roles to organize interview sending, scheduling, and review queues.
           </p>
         </div>
-        <div>
+        <div className="puddle-dashboard-card rounded-md border border-slate-200 bg-white/88 px-3 py-3">
           <div className="text-sm font-semibold text-slate-950">Last candidate sync</div>
           <p className="mt-1 text-sm leading-6 text-slate-600">
             {lastSyncAt ? formatDateTime(lastSyncAt) : "Run the active candidate sync from Ashby setup."}
@@ -70,9 +70,11 @@ export function RolesPipelineFoundation({
           {states.map((state) => {
             const Icon = state.icon;
             return (
-              <div key={state.title} className="rounded-md border border-slate-200 bg-slate-50 px-4 py-4">
+              <div key={state.title} className="puddle-dashboard-card rounded-md border border-slate-200 bg-white/88 px-4 py-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                  <Icon className="h-4 w-4 text-cyan-700" aria-hidden="true" />
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-cyan-200 bg-cyan-50 text-cyan-700">
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                  </span>
                   {state.title}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{state.detail}</p>
@@ -104,7 +106,7 @@ export function CandidateApplicationsFoundation({
       eyebrow="Applications"
       action={<StatusPill status={lastSyncAt ? "Synced from Ashby" : "Sync pending"} />}
     >
-      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="puddle-dashboard-card flex min-w-0 flex-col gap-4 rounded-md border border-slate-200 bg-white/88 px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <p className="text-sm leading-6 text-slate-600">
             This page will show synced Ashby applications for the roles selected during onboarding.
@@ -136,25 +138,27 @@ export function ReviewRolePickerFoundation({
       action={<StatusPill status="Role picker required" />}
     >
       <div className="space-y-4">
-        <p className="max-w-3xl text-sm leading-6 text-slate-600">
-          Choose a role before reviewing interviews. FDE, MLE, and GTM Engineer reviews stay separate because each
-          role uses its own rubric and decision criteria.
-        </p>
-        <label className="grid max-w-md gap-1.5 text-sm font-semibold text-slate-700">
-          Role
-          <select
-            defaultValue=""
-            disabled={selectedJobCount === 0}
-            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-          >
-            <option value="">{selectedJobCount > 0 ? "Choose a role" : "No selected roles yet"}</option>
-            {roleOptions.map((roleLabel, index) => (
-              <option key={roleLabel} value={`selected-role-${index + 1}`}>
-                {roleLabel}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="puddle-dashboard-card grid gap-4 rounded-md border border-cyan-100 bg-cyan-50/40 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,380px)] lg:items-end">
+          <p className="max-w-3xl text-sm leading-6 text-slate-600">
+            Choose a role before reviewing interviews. FDE, MLE, and GTM Engineer reviews stay separate because each
+            role uses its own rubric and decision criteria.
+          </p>
+          <label className="grid gap-1.5 text-sm font-semibold text-slate-700">
+            Role
+            <select
+              defaultValue=""
+              disabled={selectedJobCount === 0}
+              className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+            >
+              <option value="">{selectedJobCount > 0 ? "Choose a role" : "No selected roles yet"}</option>
+              {roleOptions.map((roleLabel, index) => (
+                <option key={roleLabel} value={`selected-role-${index + 1}`}>
+                  {roleLabel}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {selectedJobCount === 0 ? (
           <EmptyState
             title="No selected Ashby roles yet"
@@ -175,8 +179,10 @@ export function OperationalPlaceholderPage({
 }) {
   return (
     <SectionPanel title={title} eyebrow="Puddle">
-      <div className="flex min-w-0 items-start gap-3">
-        <UsersIcon className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" aria-hidden="true" />
+      <div className="puddle-dashboard-card flex min-w-0 items-start gap-3 rounded-md border border-slate-200 bg-white/88 px-3 py-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-cyan-200 bg-cyan-50 text-cyan-700">
+          <UsersIcon className="h-5 w-5" aria-hidden="true" />
+        </span>
         <p className="text-sm leading-6 text-slate-600">{detail}</p>
       </div>
     </SectionPanel>

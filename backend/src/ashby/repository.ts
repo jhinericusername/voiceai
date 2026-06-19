@@ -312,6 +312,97 @@ export function activeApplicationForJobStatement(input: {
   };
 }
 
+const ACTIVE_PIPELINE_STAGE_SQL =
+  "COALESCE(" +
+  "NULLIF(a.raw_payload->'currentInterviewStage'->>'title', ''), " +
+  "NULLIF(a.raw_payload->'currentInterviewStage'->>'name', ''), " +
+  "NULLIF(a.raw_payload->'stage'->>'title', ''), " +
+  "NULLIF(a.raw_payload->'stage'->>'name', ''), " +
+  "NULLIF(a.current_stage, ''), " +
+  "'(No stage)'" +
+  ")";
+
+const ACTIVE_PIPELINE_STAGE_ORDER_SQL =
+  "CASE WHEN (a.raw_payload->'currentInterviewStage'->>'orderInInterviewPlan') ~ '^[0-9]+$' " +
+  "THEN (a.raw_payload->'currentInterviewStage'->>'orderInInterviewPlan')::int ELSE NULL END";
+
+export function activePipelineRolesStatement(input: {
+  readonly integrationId: string;
+  readonly selectedJobIds: readonly string[];
+}): SqlStatement {
+  return {
+    sql:
+      "WITH selected_jobs AS (" +
+      "SELECT unnest($2::text[]) AS job_id" +
+      "), application_rows AS (" +
+      "SELECT a.job_id, " +
+      `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
+      `${ACTIVE_PIPELINE_STAGE_ORDER_SQL} AS stage_order, ` +
+      "COALESCE(NULLIF(a.raw_payload->'job'->>'name', ''), NULLIF(a.raw_payload->'job'->>'title', '')) AS job_name " +
+      "FROM ashby_applications a " +
+      "WHERE a.integration_id = $1 AND a.job_id = ANY($2::text[]) AND a.status = 'Active'" +
+      "), stage_counts AS (" +
+      "SELECT job_id, current_stage, MIN(stage_order) AS stage_order, COUNT(*)::int AS candidate_count " +
+      "FROM application_rows GROUP BY job_id, current_stage" +
+      "), stage_json AS (" +
+      "SELECT job_id, jsonb_agg(jsonb_build_object('name', current_stage, 'count', candidate_count) " +
+      "ORDER BY stage_order ASC NULLS LAST, current_stage ASC) AS stage_counts " +
+      "FROM stage_counts GROUP BY job_id" +
+      "), job_names AS (" +
+      "SELECT job_id, MAX(job_name) AS job_name FROM application_rows WHERE job_name IS NOT NULL GROUP BY job_id" +
+      ") SELECT sj.job_id, " +
+      "COALESCE(jn.job_name, 'Ashby role ' || left(sj.job_id, 8)) AS job_name, " +
+      "COALESCE(p.active_stage_names, '{}'::text[]) AS active_stage_names, " +
+      "p.active_stage_names IS NOT NULL AS active_stage_names_configured, " +
+      "COALESCE(st.stage_counts, '[]'::jsonb) AS stage_counts " +
+      "FROM selected_jobs sj " +
+      "LEFT JOIN role_grading_profiles p ON p.ashby_integration_id = $1 AND p.ashby_job_id = sj.job_id " +
+      "LEFT JOIN job_names jn ON jn.job_id = sj.job_id " +
+      "LEFT JOIN stage_json st ON st.job_id = sj.job_id " +
+      "ORDER BY job_name ASC",
+    params: [input.integrationId, [...input.selectedJobIds]],
+  };
+}
+
+export function activePipelineApplicationsStatement(input: {
+  readonly integrationId: string;
+  readonly selectedJobIds: readonly string[];
+  readonly limit: number;
+}): SqlStatement {
+  return {
+    sql:
+      "SELECT application_id, candidate_id, candidate_name, candidate_email, job_id, " +
+      `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
+      "source, status, ashby_updated_at, updated_at " +
+      "FROM ashby_applications a " +
+      "WHERE integration_id = $1 AND job_id = ANY($2::text[]) AND status = 'Active' " +
+      "ORDER BY COALESCE(ashby_updated_at, updated_at) DESC, updated_at DESC LIMIT $3",
+    params: [input.integrationId, [...input.selectedJobIds], input.limit],
+  };
+}
+
+export function roleActiveStagesUpdateStatement(input: {
+  readonly organizationId: string;
+  readonly integrationId: string;
+  readonly jobId: string;
+  readonly activeStageNames: readonly string[];
+  readonly reviewerEmail: string;
+}): SqlStatement {
+  return {
+    sql:
+      "UPDATE role_grading_profiles SET active_stage_names = $4, updated_by_email = $5, updated_at = now() " +
+      "WHERE organization_id = $1 AND ashby_integration_id = $2 AND ashby_job_id = $3 " +
+      "RETURNING ashby_job_id, active_stage_names",
+    params: [
+      input.organizationId,
+      input.integrationId,
+      input.jobId,
+      [...input.activeStageNames],
+      input.reviewerEmail,
+    ],
+  };
+}
+
 export function scoreUpsertStatement(input: ScoreInput & { readonly integrationId: string }): SqlStatement {
   assertScoreValue("problemSolving", input.problemSolving);
   assertScoreValue("agency", input.agency);

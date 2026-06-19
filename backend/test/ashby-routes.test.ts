@@ -914,7 +914,7 @@ describe("Ashby backend routes", () => {
     }
   });
 
-  it("does not return Ashby upstream errors when API key validation fails", async () => {
+  it("returns safe Ashby API status when API key validation fails", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const previousFetch = global.fetch;
     global.fetch = vi.fn(async () =>
@@ -942,10 +942,56 @@ describe("Ashby backend routes", () => {
       });
 
       expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({ error: "Unable to validate Ashby API key." });
+      expect(res.json()).toEqual({
+        error:
+          "Ashby rejected job.list (200). Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+      });
       expect(JSON.stringify(res.json())).not.toContain("secret tenant token");
       expect(JSON.stringify(res.json())).not.toContain("ashby-upstream-detail");
       expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("returns safe Ashby permission code when API key lacks endpoint access", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorInfo: { message: "missing_endpoint_permission" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/onboarding/api-key",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          reviewerEmail: "admin@usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error:
+          "Ashby rejected job.list (200): missing_endpoint_permission. Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+      });
+      expect(JSON.stringify(res.json())).not.toContain("ashby-secret");
       expect(connectMock).not.toHaveBeenCalled();
       expect(queryMock).not.toHaveBeenCalled();
       expect(clientQueryMock).not.toHaveBeenCalled();
@@ -1622,6 +1668,226 @@ describe("Ashby backend routes", () => {
       expect(global.fetch).not.toHaveBeenCalled();
     } finally {
       global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("returns active pipeline roles, Ashby stages, and filtered active candidates", async () => {
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            selected_job_ids: ["job_1", "job_2"],
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            last_sync_at: "2026-06-10T14:10:00.000Z",
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            job_id: "job_1",
+            job_name: "FDEM",
+            active_stage_names: [],
+            active_stage_names_configured: false,
+            stage_counts: [
+              { name: "Initial Screen", count: 2 },
+              { name: "Take Home", count: 1 },
+            ],
+          },
+          {
+            job_id: "job_2",
+            job_name: "GTM",
+            active_stage_names: [],
+            active_stage_names_configured: true,
+            stage_counts: [{ name: "Initial Screen", count: 1 }],
+          },
+        ],
+        rowCount: 2,
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            application_id: "app_1",
+            candidate_id: "cand_1",
+            candidate_name: "Maya Chen",
+            candidate_email: "maya@example.com",
+            job_id: "job_1",
+            current_stage: "Initial Screen",
+            source: "Referral",
+            ashby_updated_at: new Date("2026-06-10T14:09:00.000Z"),
+            updated_at: new Date("2026-06-10T14:09:30.000Z"),
+          },
+          {
+            application_id: "app_2",
+            candidate_id: "cand_2",
+            candidate_name: "Noor Patel",
+            candidate_email: "noor@example.com",
+            job_id: "job_1",
+            current_stage: "Take Home",
+            source: "Inbound",
+            ashby_updated_at: null,
+            updated_at: new Date("2026-06-10T14:08:00.000Z"),
+          },
+          {
+            application_id: "app_3",
+            candidate_id: "cand_3",
+            candidate_name: "Lena Park",
+            candidate_email: "lena@example.com",
+            job_id: "job_2",
+            current_stage: "Initial Screen",
+            source: null,
+            ashby_updated_at: "2026-06-10T14:07:00.000Z",
+            updated_at: null,
+          },
+        ],
+        rowCount: 3,
+      });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/active-pipeline",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          limit: 200,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        integrationId: "int_1",
+        lastSyncAt: "2026-06-10T14:10:00.000Z",
+        selectedJobCount: 2,
+        totalSyncedCandidates: 4,
+        activeCandidateCount: 2,
+        candidateRowCount: 3,
+        candidateRowsTruncated: true,
+        roles: [
+          {
+            jobId: "job_1",
+            name: "FDEM",
+            activeStageNames: ["Initial Screen"],
+            stageOptions: [
+              { name: "Initial Screen", count: 2 },
+              { name: "Take Home", count: 1 },
+            ],
+            activeCandidateCount: 2,
+            candidates: [
+              {
+                applicationId: "app_1",
+                candidateId: "cand_1",
+                candidateName: "Maya Chen",
+                candidateEmail: "maya@example.com",
+                jobId: "job_1",
+                currentStage: "Initial Screen",
+                source: "Referral",
+                updatedAt: "2026-06-10T14:09:00.000Z",
+              },
+              {
+                applicationId: "app_2",
+                candidateId: "cand_2",
+                candidateName: "Noor Patel",
+                candidateEmail: "noor@example.com",
+                jobId: "job_1",
+                currentStage: "Take Home",
+                source: "Inbound",
+                updatedAt: "2026-06-10T14:08:00.000Z",
+              },
+            ],
+          },
+          {
+            jobId: "job_2",
+            name: "GTM",
+            activeStageNames: [],
+            stageOptions: [{ name: "Initial Screen", count: 1 }],
+            activeCandidateCount: 0,
+            candidates: [
+              {
+                applicationId: "app_3",
+                candidateId: "cand_3",
+                candidateName: "Lena Park",
+                candidateEmail: "lena@example.com",
+                jobId: "job_2",
+                currentStage: "Initial Screen",
+                source: null,
+                updatedAt: "2026-06-10T14:07:00.000Z",
+              },
+            ],
+          },
+        ],
+      });
+      expect(queryMock).toHaveBeenCalledTimes(3);
+      expect(String(queryMock.mock.calls[1]?.[0])).toContain("ORDER BY stage_order ASC NULLS LAST");
+      expect(queryMock.mock.calls[2]?.[1]).toEqual(["int_1", ["job_1", "job_2"], 200]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("persists active stage selections for a selected Ashby role", async () => {
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            selected_job_ids: ["job_1"],
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            last_sync_at: "2026-06-10T14:10:00.000Z",
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ grading_profile_id: "profile_1" }], rowCount: 1 })
+      .mockResolvedValueOnce({
+        rows: [{ ashby_job_id: "job_1", active_stage_names: ["Initial Screen", "Take Home"] }],
+        rowCount: 1,
+      });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/active-stages",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          reviewerEmail: "admin@usepuddle.com",
+          jobId: "job_1",
+          activeStageNames: ["Initial Screen", "Take Home", "Initial Screen"],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        jobId: "job_1",
+        activeStageNames: ["Initial Screen", "Take Home"],
+      });
+      expect(queryMock).toHaveBeenCalledTimes(4);
+      expect(String(queryMock.mock.calls[1]?.[0])).toContain("UPDATE role_grading_profiles");
+      expect(queryMock.mock.calls[1]?.[1]).toEqual([
+        "org_1",
+        "int_1",
+        "job_1",
+        ["Initial Screen", "Take Home"],
+        "admin@usepuddle.com",
+      ]);
+      expect(String(queryMock.mock.calls[2]?.[0])).toContain("INSERT INTO role_grading_profiles");
+      expect(String(queryMock.mock.calls[3]?.[0])).toContain("UPDATE role_grading_profiles");
+    } finally {
       await app.close();
     }
   });

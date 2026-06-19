@@ -3,8 +3,11 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
+  type PutObjectCommandInput,
 } from "@aws-sdk/client-s3";
+import { Readable } from "node:stream";
 import { buildHistoricalFirefliesInventory } from "./historicalInventory.js";
 import { buildHistoricalImportPlan } from "./historicalImportPlan.js";
 import type { HistoricalFirefliesRecording } from "./historicalInventory.js";
@@ -44,6 +47,7 @@ export interface ExecuteHistoricalFirefliesImportInput {
   readonly orgId: string;
   readonly sourceBucket: string;
   readonly sourcePrefix: string;
+  readonly sourceRootPrefix?: string;
   readonly targetBucket: string;
   readonly sourceS3: S3LikeClient | S3Client;
   readonly targetS3: S3LikeClient | S3Client;
@@ -92,6 +96,8 @@ interface ExistingHistoricalSessionSource {
   readonly sourceMetadata: unknown;
 }
 
+const fallbackUploadChunkSize = 64 * 1024;
+
 export async function executeHistoricalFirefliesImport(
   input: ExecuteHistoricalFirefliesImportInput,
 ): Promise<ExecuteHistoricalFirefliesImportResult> {
@@ -105,7 +111,7 @@ export async function executeHistoricalFirefliesImport(
   const recordings = applyRecordingFilters(
     buildHistoricalFirefliesInventory(
       sourceObjects.map((object) => object.key),
-      input.sourcePrefix,
+      input.sourceRootPrefix ?? input.sourcePrefix,
     ),
     input,
   );
@@ -204,7 +210,7 @@ async function applyPlans(
   for (const plan of plans) {
     try {
       await preflightPlanSource(puddleDb, plan);
-      await copyPlanObjects(input.targetS3, plan, sourceSizes, counters);
+      await copyPlanObjects(input.sourceS3, input.targetS3, plan, sourceSizes, counters);
       copiedPlans.push(plan);
     } catch (error) {
       failures.push({
@@ -365,6 +371,7 @@ async function writePlan(puddleDb: PuddleDb, plan: HistoricalImportPlan): Promis
 }
 
 async function copyPlanObjects(
+  sourceS3: S3LikeClient | S3Client,
   targetS3: S3LikeClient | S3Client,
   plan: HistoricalImportPlan,
   sourceSizes: ReadonlyMap<string, number | null>,
@@ -376,15 +383,87 @@ async function copyPlanObjects(
       counters.skippedCopyCount += 1;
       continue;
     }
-    await targetS3.send(
-      new CopyObjectCommand({
-        Bucket: copy.targetBucket,
-        Key: copy.targetKey,
-        CopySource: `${copy.sourceBucket}/${encodeURIComponent(copy.sourceKey).replace(/%2F/g, "/")}`,
-      }),
-    );
+    try {
+      await targetS3.send(
+        new CopyObjectCommand({
+          Bucket: copy.targetBucket,
+          Key: copy.targetKey,
+          CopySource: `${copy.sourceBucket}/${encodeURIComponent(copy.sourceKey).replace(/%2F/g, "/")}`,
+        }),
+      );
+    } catch (error) {
+      if (!isCrossRegionVpcEndpointCopyError(error)) throw error;
+      await streamCopyObject(sourceS3, targetS3, copy, sourceSize);
+    }
     counters.copyCount += 1;
   }
+}
+
+async function streamCopyObject(
+  sourceS3: S3LikeClient | S3Client,
+  targetS3: S3LikeClient | S3Client,
+  copy: HistoricalImportPlan["copies"][number],
+  sourceSize: number | null,
+): Promise<void> {
+  const source = (await sourceS3.send(
+    new GetObjectCommand({
+      Bucket: copy.sourceBucket,
+      Key: copy.sourceKey,
+    }),
+  )) as { Body?: unknown };
+  if (!source.Body) {
+    throw new Error(`Source object ${copy.sourceKey} has no body`);
+  }
+  await targetS3.send(
+    new PutObjectCommand({
+      Bucket: copy.targetBucket,
+      Key: copy.targetKey,
+      Body: fallbackUploadBody(source.Body),
+      ...(sourceSize !== null ? { ContentLength: sourceSize } : {}),
+    }),
+  );
+}
+
+function fallbackUploadBody(body: unknown): PutObjectCommandInput["Body"] {
+  if (!isAsyncIterableBody(body)) {
+    return body as PutObjectCommandInput["Body"];
+  }
+  return Readable.from(bufferedUploadChunks(body, fallbackUploadChunkSize));
+}
+
+async function* bufferedUploadChunks(
+  body: AsyncIterable<Buffer | Uint8Array | string>,
+  targetChunkSize: number,
+): AsyncIterable<Buffer> {
+  let pending: Buffer[] = [];
+  let pendingBytes = 0;
+
+  for await (const chunk of body) {
+    pending.push(bufferChunk(chunk));
+    pendingBytes += pending[pending.length - 1]?.length ?? 0;
+
+    if (pendingBytes >= targetChunkSize) {
+      yield Buffer.concat(pending, pendingBytes);
+      pending = [];
+      pendingBytes = 0;
+    }
+  }
+
+  if (pendingBytes > 0) {
+    yield Buffer.concat(pending, pendingBytes);
+  }
+}
+
+function isAsyncIterableBody(
+  body: unknown,
+): body is AsyncIterable<Buffer | Uint8Array | string> {
+  return Boolean(body && typeof body === "object" && Symbol.asyncIterator in body);
+}
+
+function bufferChunk(chunk: Buffer | Uint8Array | string): Buffer {
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (typeof chunk === "string") return Buffer.from(chunk);
+  return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
 }
 
 async function targetHasSameSize(
@@ -586,6 +665,10 @@ function isNotFoundError(error: unknown): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isCrossRegionVpcEndpointCopyError(error: unknown): boolean {
+  return /VPC endpoints do not support cross-region requests/i.test(errorMessage(error));
 }
 
 function stringValue(value: unknown): string | null {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateLabeledInterviews,
+  type EvaluationProgressEvent,
   type LabeledInterviewCase,
 } from "../src/grading/evaluation/runner.js";
 import type { GradingModel } from "../src/grading/scoring.js";
@@ -90,6 +91,10 @@ describe("grading evaluation runner", () => {
 
     expect(model.prompts[0]).toContain("GRADING_GUIDE:");
     expect(model.prompts[0]).toContain("Missing question neutral default");
+    expect(model.prompts[0]).toContain("DIMENSION_SCORE_ANCHORS_JSON:");
+    expect(model.prompts[0]).toContain("Use DIMENSION_SCORE_ANCHORS_JSON as calibration examples");
+    expect(model.prompts[0]).toContain('"competitiveness"');
+    expect(model.prompts[0]).toContain('"4"');
     expect(model.prompts[0]).toContain("CALIBRATION_EXAMPLES_JSON:");
     expect(model.prompts[0]).toContain('"id": "example_a"');
     expect(model.prompts[0]).toContain('"id": "example_b"');
@@ -122,6 +127,107 @@ describe("grading evaluation runner", () => {
     ]);
     expect(report.cases[0]).not.toHaveProperty("humanComment");
     expect(report.cases[0]).not.toHaveProperty("transcriptTurns");
+  });
+
+  it("runs cases concurrently within a batch while preserving report order", async () => {
+    let resolveFirst!: (value: string) => void;
+    const firstResponse = new Promise<string>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const progress: EvaluationProgressEvent[] = [];
+    const model = new FakeModel([
+      firstResponse,
+      scoringOutput({
+        problem_solving: 2,
+        agency: 2,
+        competitiveness: 2,
+        curious: 2,
+      }),
+    ]);
+
+    const reportPromise = evaluateLabeledInterviews({
+      cases: [caseA, caseB],
+      rubric,
+      model,
+      options: {
+        batchSize: 2,
+        calibrationExampleLimit: 0,
+        progress(event) {
+          progress.push(event);
+        },
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(progress.map((event) => `${event.type}:${event.caseIndex}`)).toEqual([
+      "case_started:1",
+      "case_started:2",
+      "case_finished:2",
+    ]);
+
+    resolveFirst(
+      scoringOutput({
+        problem_solving: 4,
+        agency: 3,
+        competitiveness: 2,
+        curious: 1,
+      }),
+    );
+
+    const report = await reportPromise;
+
+    expect(report.cases.map((interviewCase) => interviewCase.sessionId)).toEqual([
+      "session-a",
+      "session-b",
+    ]);
+    expect(progress.at(-1)).toMatchObject({
+      type: "case_finished",
+      caseIndex: 1,
+      status: "succeeded",
+    });
+  });
+
+  it("uses injected calibration examples instead of the built-in examples", async () => {
+    const model = new FakeModel([
+      scoringOutput({
+        problem_solving: 4,
+        agency: 3,
+        competitiveness: 2,
+        curious: 1,
+      }),
+    ]);
+
+    await evaluateLabeledInterviews({
+      cases: [caseA],
+      rubric,
+      model,
+      options: {
+        batchSize: 1,
+        calibrationExampleLimit: 1,
+        calibrationExamples: [
+          {
+            id: "real_weave_example",
+            summary: "Real exported example",
+            scores: {
+              problem_solving: 3,
+              agency: 4,
+              competitiveness: 2,
+              curious: 4,
+            },
+            missingQuestions: {},
+            scriptedRisk: "unknown",
+            comment: "Human rationale from exported scorecard.",
+            totalScore: 13,
+            transcriptExcerpt: "CANDIDATE: I built the weird import pipeline.",
+          },
+        ],
+      },
+    });
+
+    expect(model.prompts[0]).toContain('"id": "real_weave_example"');
+    expect(model.prompts[0]).toContain("I built the weird import pipeline");
+    expect(model.prompts[0]).not.toContain('"id": "example_a"');
   });
 
   it("computes aggregate metrics across successful cases only", async () => {
@@ -188,6 +294,136 @@ describe("grading evaluation runner", () => {
       errorMessage: "Scoring failed.",
     });
     expect(report.cases[2]).not.toHaveProperty("comparison");
+  });
+
+  it("emits redacted progress events around each case", async () => {
+    const progress: EvaluationProgressEvent[] = [];
+    const model = new FakeModel([
+      scoringOutput({
+        problem_solving: 4,
+        agency: 3,
+        competitiveness: 2,
+        curious: 1,
+      }),
+      scoringOutput({
+        problem_solving: 2,
+        agency: 2,
+        competitiveness: 2,
+        curious: 2,
+      }),
+    ]);
+
+    await evaluateLabeledInterviews({
+      cases: [caseA, caseB],
+      rubric,
+      model,
+      options: {
+        batchSize: 1,
+        calibrationExampleLimit: 0,
+        progress(event) {
+          progress.push(event);
+        },
+      },
+    });
+
+    expect(progress).toEqual([
+      {
+        type: "case_started",
+        caseIndex: 1,
+        caseCount: 2,
+        sessionId: "session-a",
+        ashbyJobId: "job-1",
+        source: "markdown_scorecard",
+        modelCallCount: 0,
+      },
+      {
+        type: "case_finished",
+        caseIndex: 1,
+        caseCount: 2,
+        sessionId: "session-a",
+        ashbyJobId: "job-1",
+        source: "markdown_scorecard",
+        status: "succeeded",
+        elapsedMs: expect.any(Number),
+        modelCallCount: 1,
+      },
+      {
+        type: "case_started",
+        caseIndex: 2,
+        caseCount: 2,
+        sessionId: "session-b",
+        ashbyJobId: "job-1",
+        source: "markdown_scorecard",
+        modelCallCount: 1,
+      },
+      {
+        type: "case_finished",
+        caseIndex: 2,
+        caseCount: 2,
+        sessionId: "session-b",
+        ashbyJobId: "job-1",
+        source: "markdown_scorecard",
+        status: "succeeded",
+        elapsedMs: expect.any(Number),
+        modelCallCount: 2,
+      },
+    ]);
+    expect(JSON.stringify(progress)).not.toContain("UNIQUE_TRANSCRIPT_ALPHA");
+    expect(JSON.stringify(progress)).not.toContain("Ada");
+    expect(JSON.stringify(progress)).not.toContain("Human scorecard comment");
+  });
+
+  it("times out a stuck model call, redacts the failure, and continues to later cases", async () => {
+    const progress: EvaluationProgressEvent[] = [];
+    const model = new FakeModel([
+      new Promise<string>(() => {}),
+      scoringOutput({
+        problem_solving: 2,
+        agency: 2,
+        competitiveness: 2,
+        curious: 2,
+      }),
+    ]);
+
+    const report = await evaluateLabeledInterviews({
+      cases: [caseA, caseB],
+      rubric,
+      model,
+      options: {
+        batchSize: 1,
+        calibrationExampleLimit: 0,
+        modelCallTimeoutMs: 5,
+        progress(event) {
+          progress.push(event);
+        },
+      },
+    });
+
+    expect(report.modelCallCount).toBe(2);
+    expect(report.succeeded).toBe(1);
+    expect(report.failed).toBe(1);
+    expect(report.cases[0]).toMatchObject({
+      status: "failed",
+      sessionId: "session-a",
+      errorMessage: "Scoring failed.",
+    });
+    expect(report.cases[1]).toMatchObject({
+      status: "succeeded",
+      sessionId: "session-b",
+      predictedTotalScore: 8,
+    });
+    expect(progress.map((event) => event.type)).toEqual([
+      "case_started",
+      "case_finished",
+      "case_started",
+      "case_finished",
+    ]);
+    expect(progress[1]).toMatchObject({
+      type: "case_finished",
+      status: "failed",
+      modelCallCount: 1,
+    });
+    expect(JSON.stringify(report.cases)).not.toContain("UNIQUE_TRANSCRIPT_ALPHA");
   });
 
   it("keeps transcripts out of output by default and includes them only when requested", async () => {
@@ -269,6 +505,7 @@ describe("grading evaluation runner", () => {
               rationale: "invalid category",
             },
           ],
+          ...richScoringFields(caseA.humanScores),
           warnings: ["warning mentions UNIQUE_TRANSCRIPT_ALPHA"],
         }),
       ]),
@@ -307,6 +544,7 @@ describe("grading evaluation runner", () => {
               rationale: "extra model-controlled category",
             },
           ],
+          ...richScoringFields(caseA.humanScores),
           warnings: [],
         }),
       ]),
@@ -354,15 +592,34 @@ function scoringOutput(
       evidence_quotes: [transcriptQuote],
       rationale: `${category} rationale from ${transcriptQuote}`,
     })),
+    ...richScoringFields(scores),
     warnings: [],
   });
+}
+
+function richScoringFields(scores: LabeledInterviewCase["humanScores"]) {
+  const dimensions = Object.entries(scores).map(([category, score]) => ({ category, score }));
+  return {
+    missing_questions: [],
+    scripted_answer_detection: {
+      signals: [{ signal: "Scripted / rehearsed likelihood", rating: "Low" }],
+      summary: "Evaluation fixture summary.",
+      confidence: "5-10%",
+    },
+    final_scores: {
+      dimensions,
+      total_score: dimensions.reduce((sum, dimension) => sum + dimension.score, 0),
+      max_score: dimensions.length * 4,
+    },
+    comment: "Generated evaluation fixture comment.",
+  };
 }
 
 class FakeModel implements GradingModel {
   readonly prompts: string[] = [];
   private index = 0;
 
-  constructor(private readonly responses: readonly (string | Error)[]) {}
+  constructor(private readonly responses: readonly (string | Error | Promise<string>)[]) {}
 
   async complete(prompt: string): Promise<string> {
     this.prompts.push(prompt);
@@ -370,6 +627,9 @@ class FakeModel implements GradingModel {
     this.index += 1;
     if (response instanceof Error) {
       throw response;
+    }
+    if (response instanceof Promise) {
+      return response;
     }
     if (typeof response !== "string") {
       throw new Error("Unexpected fake model call.");

@@ -14,6 +14,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { DashboardCreateInterviewLauncher } from "./DashboardCreateInterviewLauncher";
 import { cx, secondaryButtonClass } from "./dashboard-ui";
 
 interface DashboardChromeProps {
@@ -53,7 +54,7 @@ function SearchAffordance() {
   return (
     <div
       aria-label="Candidate and application search"
-      className="flex min-h-9 w-full max-w-md items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+      className="puddle-search-affordance flex min-h-9 w-full max-w-md items-center justify-between gap-3 rounded-md border border-slate-200 bg-white/94 px-3 text-sm text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
     >
       <span className="inline-flex min-w-0 items-center gap-2 truncate">
         <SearchIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -70,15 +71,15 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
   const pathname = usePathname();
 
   return (
-    <div className="min-h-svh min-w-0 overflow-x-clip bg-white text-slate-950 lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
-      <aside className="hidden min-w-0 border-r border-slate-200 bg-slate-50/80 lg:block">
+    <div className="puddle-dashboard-shell h-svh min-w-0 overflow-hidden text-slate-950 lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
+      <aside className="puddle-dashboard-sidebar hidden min-w-0 border-r border-cyan-100/80 bg-white/72 lg:block">
         <div className="sticky top-0 flex h-svh min-h-0 flex-col">
-          <div className="shrink-0 border-b border-slate-200 px-5 py-5">
+          <div className="shrink-0 border-b border-cyan-100/80 px-5 py-5">
             <Link href="/dashboard/roles" className="flex items-center gap-3" aria-label="Puddle dashboard">
               <Image src="/puddle-symbol-black-nobg.png" alt="" width={36} height={36} className="h-9 w-9" />
               <div>
                 <div className="text-sm font-semibold text-slate-950">Puddle</div>
-                <div className="text-xs text-slate-500">Hiring workspace</div>
+                <div className="text-xs text-cyan-800">Hiring workspace</div>
               </div>
             </Link>
           </div>
@@ -93,20 +94,20 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cx(
-                    "flex min-h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition",
+                    "flex min-h-10 items-center gap-3 rounded-md border px-3 text-sm font-medium transition",
                     active
-                      ? "bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]"
-                      : "text-slate-600 hover:bg-white hover:text-slate-950",
+                      ? "border-cyan-200 bg-white text-slate-950 shadow-[0_12px_32px_rgba(8,145,178,0.08)]"
+                      : "border-transparent text-slate-600 hover:border-cyan-100 hover:bg-white/82 hover:text-slate-950",
                   )}
                 >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <Icon className={cx("h-4 w-4 shrink-0", active ? "text-cyan-700" : "text-slate-500")} aria-hidden="true" />
                   <span className="truncate">{item.label}</span>
                 </Link>
               );
             })}
           </nav>
 
-          <div className="shrink-0 border-t border-slate-200 px-5 pb-6 pt-4">
+          <div className="shrink-0 border-t border-cyan-100/80 px-5 pb-6 pt-4">
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Signed in</div>
             <div className="mt-2 truncate text-sm font-semibold text-slate-950">{displayName}</div>
             <div className="truncate text-xs text-slate-500">{email}</div>
@@ -117,8 +118,8 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
         </div>
       </aside>
 
-      <div className="min-w-0 overflow-x-clip">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className="flex h-svh min-w-0 flex-col overflow-hidden">
+        <header className="puddle-dashboard-topbar z-30 shrink-0 border-b border-cyan-100/80 bg-white/86">
           <div className="flex flex-col gap-3 px-4 py-3 sm:px-5">
             <div className="flex items-center justify-between gap-3 lg:hidden">
               <Link href="/dashboard/roles" className="flex items-center gap-2" aria-label="Puddle dashboard">
@@ -141,7 +142,10 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
                 </div>
               </div>
 
-              <SearchAffordance />
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-end">
+                <DashboardCreateInterviewLauncher />
+                <SearchAffordance />
+              </div>
             </div>
 
             <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 pt-2 lg:hidden" aria-label="Dashboard">
@@ -154,10 +158,10 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
                     href={item.href}
                     aria-current={active ? "page" : undefined}
                     className={cx(
-                      "inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm font-medium transition",
+                      "inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-md border px-3 text-sm font-medium transition",
                       active
-                        ? "bg-slate-950 !text-white"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
+                        ? "border-slate-950 bg-slate-950 !text-white shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
+                        : "border-transparent text-slate-600 hover:border-cyan-100 hover:bg-white/82 hover:text-slate-950",
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -169,7 +173,7 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
           </div>
         </header>
 
-        <main className="min-w-0 overflow-x-clip px-4 py-5 sm:px-5">{children}</main>
+        <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-hidden px-4 py-5 sm:px-5">{children}</main>
       </div>
     </div>
   );

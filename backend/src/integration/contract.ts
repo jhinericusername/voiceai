@@ -8,6 +8,7 @@ export interface CreateSessionRequest {
   readonly scriptVersion: string;
   readonly scheduledAt: string;
   readonly inviteTtlSeconds?: number;
+  readonly sourceMetadata?: Record<string, unknown>;
 }
 
 export interface CreateSessionResponse {
@@ -39,6 +40,14 @@ export function validateCreateSessionRequest(
     (!Number.isFinite(body.inviteTtlSeconds) || body.inviteTtlSeconds < 60)
   ) {
     return { ok: false, reason: "inviteTtlSeconds must be at least 60 seconds" };
+  }
+  if (
+    body.sourceMetadata !== undefined &&
+    (body.sourceMetadata === null ||
+      typeof body.sourceMetadata !== "object" ||
+      Array.isArray(body.sourceMetadata))
+  ) {
+    return { ok: false, reason: "sourceMetadata must be an object when provided" };
   }
   return { ok: true };
 }

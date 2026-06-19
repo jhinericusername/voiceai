@@ -12,6 +12,20 @@ function stringValue(value) {
   return typeof value === "string" ? value : "";
 }
 
+function safeBackendError(payload, fallback) {
+  const error = stringValue(objectValue(payload).error).trim();
+  if (!error || error.length > 300) {
+    return fallback;
+  }
+
+  const safePrefixes = [
+    "Ashby rejected ",
+    "No Ashby jobs were returned.",
+    "Unable to validate Ashby API key.",
+  ];
+  return safePrefixes.some((prefix) => error.startsWith(prefix)) ? error : fallback;
+}
+
 async function requestBody(request, readBody) {
   if (!readBody || !request) {
     return {};
@@ -69,11 +83,12 @@ async function proxyAshbyOnboarding(request, context, config) {
   }
 
   if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
     context.logger?.warn?.(config.logMessage, {
       status: response.status,
       backendPath: config.backendPath,
     });
-    return responseJson({ error: config.backendError }, response.status);
+    return responseJson({ error: safeBackendError(payload, config.backendError) }, response.status);
   }
 
   const payload = await response.json().catch(() => ({}));

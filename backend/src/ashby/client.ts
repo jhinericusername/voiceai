@@ -13,6 +13,26 @@ interface AshbyListResponse {
   readonly nextCursor?: string | null;
 }
 
+export class AshbyApiError extends Error {
+  readonly endpoint: string;
+  readonly status: number | null;
+  readonly ashbyMessage: string | null;
+
+  constructor(input: {
+    readonly endpoint: string;
+    readonly status: number | null;
+    readonly ashbyMessage: string | null;
+  }) {
+    const detail = input.ashbyMessage ? `: ${input.ashbyMessage}` : "";
+    const status = input.status === null ? "" : ` with ${input.status}`;
+    super(`Ashby ${input.endpoint} failed${status}${detail}`);
+    this.name = "AshbyApiError";
+    this.endpoint = input.endpoint;
+    this.status = input.status;
+    this.ashbyMessage = input.ashbyMessage;
+  }
+}
+
 function authHeader(apiKey: string): string {
   return `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}`;
 }
@@ -37,14 +57,65 @@ function ashbyErrorMessage(payload: AshbyListResponse): string {
   );
 }
 
+function safePublicAshbyMessage(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const text = value.trim();
+  if (!text || text.length > 120) {
+    return null;
+  }
+
+  // Ashby permission errors are usually compact codes. Do not surface free-form
+  // text that might include tenant-specific or credential-adjacent detail.
+  if (!/^[a-z0-9_.:-]+$/i.test(text)) {
+    return null;
+  }
+
+  return text;
+}
+
+export function ashbyApiErrorLogFields(error: unknown): {
+  readonly ashbyEndpoint?: string;
+  readonly ashbyStatus?: number;
+  readonly ashbyMessage?: string;
+} {
+  if (!(error instanceof AshbyApiError)) {
+    return {};
+  }
+
+  const ashbyMessage = safePublicAshbyMessage(error.ashbyMessage);
+  return {
+    ashbyEndpoint: error.endpoint,
+    ...(error.status === null ? {} : { ashbyStatus: error.status }),
+    ...(ashbyMessage ? { ashbyMessage } : {}),
+  };
+}
+
+export function ashbyApiKeyValidationErrorMessage(error: unknown): string {
+  if (!(error instanceof AshbyApiError)) {
+    return "Unable to validate Ashby API key.";
+  }
+
+  const status = error.status === null ? "" : ` (${error.status})`;
+  const message = safePublicAshbyMessage(error.ashbyMessage);
+  const detail = message ? `: ${message}` : "";
+  return `Ashby rejected ${error.endpoint}${status}${detail}. Confirm the API key belongs to the correct Ashby workspace and can read jobs.`;
+}
+
+async function ashbyPayload(response: Response): Promise<AshbyListResponse> {
+  return (await response.json().catch(() => ({}))) as AshbyListResponse;
+}
+
 export function syncedApplicationFromAshby(input: {
   readonly integrationId: string;
   readonly application: Record<string, unknown>;
 }): SyncedAshbyApplication | null {
   const candidate = objectValue(input.application.candidate);
   const job = objectValue(input.application.job);
-  const currentStage =
-    objectValue(input.application.currentInterviewStage) ?? objectValue(input.application.stage);
+  const currentInterviewStage = objectValue(input.application.currentInterviewStage);
+  const legacyStage = objectValue(input.application.stage);
   const source = objectValue(input.application.source);
   const applicationId = stringValue(input.application.id);
   const candidateId = stringValue(candidate?.id);
@@ -64,7 +135,11 @@ export function syncedApplicationFromAshby(input: {
     candidateName,
     candidateEmail: stringValue(candidate?.primaryEmailAddress) ?? stringValue(candidate?.email),
     jobId,
-    currentStage: stringValue(currentStage?.name),
+    currentStage:
+      stringValue(currentInterviewStage?.title) ??
+      stringValue(currentInterviewStage?.name) ??
+      stringValue(legacyStage?.title) ??
+      stringValue(legacyStage?.name),
     source: stringValue(source?.title) ?? stringValue(source?.name),
     status: stringValue(input.application.status) ?? "Active",
     ashbyUpdatedAt: stringValue(input.application.updatedAt),
@@ -114,18 +189,26 @@ export async function listJobs(input: {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        status: "Open",
+        status: ["Open"],
         ...(cursor ? { cursor } : {}),
       }),
     });
 
+    const payload = await ashbyPayload(response);
     if (!response.ok) {
-      throw new Error(`Ashby job.list failed with ${response.status}`);
+      throw new AshbyApiError({
+        endpoint: "job.list",
+        status: response.status,
+        ashbyMessage: ashbyErrorMessage(payload),
+      });
     }
 
-    const payload = (await response.json()) as AshbyListResponse;
     if (payload.success === false) {
-      throw new Error(`Ashby job.list failed: ${ashbyErrorMessage(payload)}`);
+      throw new AshbyApiError({
+        endpoint: "job.list",
+        status: response.status,
+        ashbyMessage: ashbyErrorMessage(payload),
+      });
     }
 
     for (const result of payload.results ?? []) {
@@ -180,13 +263,21 @@ export async function listActiveApplicationsForJob(input: {
       }),
     });
 
+    const payload = await ashbyPayload(response);
     if (!response.ok) {
-      throw new Error(`Ashby application.list failed with ${response.status}`);
+      throw new AshbyApiError({
+        endpoint: "application.list",
+        status: response.status,
+        ashbyMessage: ashbyErrorMessage(payload),
+      });
     }
 
-    const payload = (await response.json()) as AshbyListResponse;
     if (payload.success === false) {
-      throw new Error(`Ashby application.list failed: ${ashbyErrorMessage(payload)}`);
+      throw new AshbyApiError({
+        endpoint: "application.list",
+        status: response.status,
+        ashbyMessage: ashbyErrorMessage(payload),
+      });
     }
 
     for (const application of payload.results ?? []) {

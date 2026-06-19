@@ -6,6 +6,9 @@ export interface SessionInput {
   readonly candidateEmail: string;
   readonly scriptVersion: string;
   readonly scheduledAt: string;
+  readonly externalSource?: string | null;
+  readonly externalId?: string | null;
+  readonly sourceMetadata?: Record<string, unknown> | null;
 }
 
 export interface SessionRecord extends SessionInput {
@@ -20,8 +23,9 @@ export function createSessionInsert(record: SessionRecord): SqlStatement {
   return {
     sql:
       "INSERT INTO sessions " +
-      "(session_id, org_id, candidate_email, script_version, status, scheduled_at) " +
-      "VALUES ($1, $2, $3, $4, $5, $6)",
+      "(session_id, org_id, candidate_email, script_version, status, scheduled_at, " +
+      "external_source, external_id, source_metadata) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)",
     params: [
       record.sessionId,
       record.orgId,
@@ -29,6 +33,9 @@ export function createSessionInsert(record: SessionRecord): SqlStatement {
       record.scriptVersion,
       record.status,
       record.scheduledAt,
+      record.externalSource ?? null,
+      record.externalId ?? null,
+      JSON.stringify(record.sourceMetadata ?? {}),
     ],
   };
 }

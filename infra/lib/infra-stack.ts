@@ -10,8 +10,17 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 import { PuddleEnvConfig } from './config';
+import {
+  FIREFLIES_INGESTION_QUEUE_SUFFIX,
+  WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
+  WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME,
+  WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+  WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN,
+  WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+} from './fireflies-ingestion-source-stack';
 
 export interface InfraStackProps extends cdk.StackProps {
   config: PuddleEnvConfig;
@@ -21,6 +30,7 @@ interface RuntimeSecrets {
   livekitApiKey: secretsmanager.ISecret;
   livekitApiSecret: secretsmanager.ISecret;
   anthropicApiKey: secretsmanager.ISecret;
+  openaiApiKey: secretsmanager.ISecret;
   deepgramApiKey: secretsmanager.ISecret;
   cartesiaApiKey: secretsmanager.ISecret;
   geminiApiKey: secretsmanager.ISecret;
@@ -57,6 +67,8 @@ interface BackendDeployment {
   service: ecs.FargateService;
   taskDefinition: ecs.FargateTaskDefinition;
   migrationTaskDefinition: ecs.FargateTaskDefinition;
+  firefliesIngestionWorkerService: ecs.FargateService;
+  firefliesIngestionWorkerTaskDefinition: ecs.FargateTaskDefinition;
   loadBalancer: elbv2.ApplicationLoadBalancer;
   listener: elbv2.ApplicationListener;
 }
@@ -78,10 +90,16 @@ interface DevTunnelDeployment {
   instance: ec2.Instance;
 }
 
+interface FirefliesIngestionQueueReference {
+  queue: sqs.IQueue;
+  queueUrl: string;
+}
+
 const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   livekitApiKey: 'livekit/api-key',
   livekitApiSecret: 'livekit/api-secret',
   anthropicApiKey: 'providers/anthropic-api-key',
+  openaiApiKey: 'providers/openai-api-key',
   deepgramApiKey: 'providers/deepgram-api-key',
   cartesiaApiKey: 'providers/cartesia-api-key',
   geminiApiKey: 'providers/gemini-api-key',
@@ -96,13 +114,7 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
 };
 
 const DATABASE_PASSWORD_EXCLUDE_CHARS = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\';
-const WEAVE_HISTORICAL_RECORDINGS_BUCKET_NAME =
-  'weave-fireflies-prod-851725544921-us-west-2';
-const WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION = 'us-west-2';
-const WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT = '851725544921';
-const WEAVE_HISTORICAL_RECORDINGS_PREFIX = 'raw/fireflies/';
-const WEAVE_HISTORICAL_RECORDINGS_KMS_KEY_ARN =
-  'arn:aws:kms:us-west-2:851725544921:key/34ca088f-7a67-4cd8-b3a3-ba52cbfe4a73';
+const WEAVE_WORKOS_ORG_ID = 'org_01KV4FF7KX24B76H7Q57QVB5CT';
 
 interface HistoricalRecordingsSource {
   bucket: s3.IBucket;
@@ -138,6 +150,9 @@ export class InfraStack extends cdk.Stack {
     const repositories = this.createRepositories();
     const runtimeSecrets = this.createRuntimeSecrets(removalPolicy, artifactsBucket);
     const logGroups = this.createLogGroups(logRetention, removalPolicy);
+    const firefliesIngestionQueue = this.cfg.backend.deployService
+      ? this.importFirefliesIngestionQueue()
+      : undefined;
 
     const vpc = this.createVpc();
     const securityGroups = this.createSecurityGroups(vpc);
@@ -154,6 +169,7 @@ export class InfraStack extends cdk.Stack {
       artifactsBucket,
       weaveHistoricalRecordings,
       database,
+      firefliesIngestionQueue?.queue,
     );
     const githubCiRole = this.createGithubCiRole(repositories, webBuckets);
     const backendDeployment = this.createBackendDeployment({
@@ -167,6 +183,7 @@ export class InfraStack extends cdk.Stack {
       database,
       artifactsBucket,
       weaveHistoricalRecordingsBucket: weaveHistoricalRecordings.bucket,
+      firefliesIngestionQueue,
     });
     const agentDeployment = this.createAgentDeployment({
       vpc,
@@ -209,6 +226,7 @@ export class InfraStack extends cdk.Stack {
       agentDeployment,
       platformDeployment,
       devTunnelDeployment,
+      firefliesIngestionQueue,
     });
   }
 
@@ -669,6 +687,33 @@ export class InfraStack extends cdk.Stack {
     return { bucket, encryptionKey };
   }
 
+  private importFirefliesIngestionQueue(): FirefliesIngestionQueueReference {
+    const queueArn = this.firefliesIngestionQueueArn();
+    return {
+      queue: sqs.Queue.fromQueueArn(this, 'FirefliesIngestionQueue', queueArn),
+      queueUrl: this.firefliesIngestionQueueUrl(),
+    };
+  }
+
+  private firefliesIngestionQueueArn(): string {
+    return [
+      'arn',
+      cdk.Aws.PARTITION,
+      'sqs',
+      WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
+      WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
+      this.name(FIREFLIES_INGESTION_QUEUE_SUFFIX),
+    ].join(':');
+  }
+
+  private firefliesIngestionQueueUrl(): string {
+    return [
+      `https://sqs.${WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION}.${cdk.Aws.URL_SUFFIX}`,
+      WEAVE_HISTORICAL_RECORDINGS_BUCKET_ACCOUNT,
+      this.name(FIREFLIES_INGESTION_QUEUE_SUFFIX),
+    ].join('/');
+  }
+
   private createWebBuckets(
     accessLogsBucket: s3.IBucket,
     removalPolicy: cdk.RemovalPolicy,
@@ -790,6 +835,11 @@ export class InfraStack extends cdk.Stack {
       anthropicApiKey: this.createSecret(
         'AnthropicApiKey',
         RUNTIME_SECRET_PATHS.anthropicApiKey,
+        removalPolicy,
+      ),
+      openaiApiKey: this.createSecret(
+        'OpenaiApiKey',
+        RUNTIME_SECRET_PATHS.openaiApiKey,
         removalPolicy,
       ),
       deepgramApiKey: this.createSecret(
@@ -930,6 +980,7 @@ export class InfraStack extends cdk.Stack {
     artifactsBucket: s3.IBucket,
     weaveHistoricalRecordings: HistoricalRecordingsSource,
     database: rds.DatabaseInstance | undefined,
+    firefliesIngestionQueue: sqs.IQueue | undefined,
   ): RuntimeRoles {
     const backendTaskRole = this.createTaskRole(
       'BackendTaskRole',
@@ -965,12 +1016,14 @@ export class InfraStack extends cdk.Stack {
     artifactsBucket.grantReadWrite(agentTaskRole);
     artifactsBucket.grantRead(platformTaskRole);
     this.grantHistoricalRecordingsRead(backendTaskRole, weaveHistoricalRecordings);
+    firefliesIngestionQueue?.grantConsumeMessages(backendTaskRole);
 
     grantSecretsRead(backendExecutionRole, [
       runtimeSecrets.livekitApiKey,
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.backendInternalToken,
       runtimeSecrets.ashbyIntegrationSecretKey,
+      runtimeSecrets.openaiApiKey,
       ...(runtimeSecrets.livekitEgressS3Credentials
         ? [runtimeSecrets.livekitEgressS3Credentials]
         : []),
@@ -1081,6 +1134,7 @@ export class InfraStack extends cdk.Stack {
     database?: rds.DatabaseInstance;
     artifactsBucket: s3.IBucket;
     weaveHistoricalRecordingsBucket: s3.IBucket;
+    firefliesIngestionQueue?: FirefliesIngestionQueueReference;
   }): BackendDeployment | undefined {
     if (!this.cfg.backend.deployService) {
       return undefined;
@@ -1094,6 +1148,9 @@ export class InfraStack extends cdk.Stack {
     const liveKitUrl = this.cfg.liveKit.url;
     if (!liveKitUrl) {
       throw new Error('Backend service deployment requires liveKitUrl.');
+    }
+    if (!params.firefliesIngestionQueue) {
+      throw new Error('Backend service deployment requires a Fireflies ingestion queue.');
     }
 
     const backendImage = ecs.ContainerImage.fromEcrRepository(
@@ -1148,6 +1205,10 @@ export class InfraStack extends cdk.Stack {
         params.weaveHistoricalRecordingsBucket.bucketName,
       WEAVE_HISTORICAL_RECORDINGS_REGION: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
       WEAVE_HISTORICAL_RECORDINGS_PREFIX: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+      PUDDLE_GRADING_MODEL_PROVIDER: 'openai',
+      PUDDLE_GRADING_MODEL_ID: 'gpt-5.5',
+      PUDDLE_GRADING_OPENAI_REASONING_EFFORT: 'high',
+      PUDDLE_GRADING_OPENAI_VERBOSITY: 'low',
     };
     const containerSecrets = {
       LIVEKIT_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.livekitApiKey),
@@ -1160,6 +1221,7 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_INTEGRATION_SECRET_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.ashbyIntegrationSecretKey,
       ),
+      OPENAI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.openaiApiKey),
       ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
         ? {
             PUDDLE_EGRESS_S3_ACCESS_KEY_ID: ecs.Secret.fromSecretsManager(
@@ -1241,6 +1303,42 @@ export class InfraStack extends cdk.Stack {
       }),
     });
 
+    const firefliesIngestionWorkerTaskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      'FirefliesIngestionWorkerTaskDefinition',
+      {
+        family: this.name('fireflies-ingestion-worker'),
+        cpu: this.cfg.backend.cpu,
+        memoryLimitMiB: this.cfg.backend.memoryMiB,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+        taskRole: params.runtimeRoles.backendTaskRole,
+        executionRole: params.runtimeRoles.backendExecutionRole,
+      },
+    );
+    firefliesIngestionWorkerTaskDefinition.addContainer(
+      'FirefliesIngestionWorkerContainer',
+      {
+        containerName: 'fireflies-ingestion-worker',
+        image: backendImage,
+        command: ['node', 'dist/weave/fireflies/live-ingestion-worker.js'],
+        environment: {
+          ...containerEnvironment,
+          PUDDLE_ARTIFACTS_BUCKET: params.artifactsBucket.bucketName,
+          PUDDLE_ARTIFACTS_REGION: cdk.Stack.of(this).region,
+          FIREFLIES_INGESTION_QUEUE_URL: params.firefliesIngestionQueue.queueUrl,
+          FIREFLIES_INGESTION_ORG_ID: WEAVE_WORKOS_ORG_ID,
+        },
+        secrets: containerSecrets,
+        logging: ecs.LogDrivers.awsLogs({
+          logGroup: params.logGroups.backend,
+          streamPrefix: 'fireflies-ingestion',
+        }),
+      },
+    );
+
     const loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'BackendLoadBalancer', {
       vpc: params.vpc,
       internetFacing: false,
@@ -1287,10 +1385,33 @@ export class InfraStack extends cdk.Stack {
       },
     });
 
+    const firefliesIngestionWorkerService = new ecs.FargateService(
+      this,
+      'FirefliesIngestionWorkerService',
+      {
+        cluster: params.cluster,
+        serviceName: this.name('fireflies-ingestion-worker-service'),
+        taskDefinition: firefliesIngestionWorkerTaskDefinition,
+        desiredCount: this.cfg.backend.desiredCount,
+        assignPublicIp: false,
+        securityGroups: [params.securityGroups.backendTasks],
+        vpcSubnets: {
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+        },
+        circuitBreaker: {
+          rollback: true,
+        },
+        minHealthyPercent: 100,
+        maxHealthyPercent: 200,
+      },
+    );
+
     return {
       service,
       taskDefinition,
       migrationTaskDefinition,
+      firefliesIngestionWorkerService,
+      firefliesIngestionWorkerTaskDefinition,
       loadBalancer,
       listener,
     };
@@ -1642,6 +1763,7 @@ export class InfraStack extends cdk.Stack {
     agentDeployment?: AgentDeployment;
     platformDeployment?: PlatformDeployment;
     devTunnelDeployment?: DevTunnelDeployment;
+    firefliesIngestionQueue?: FirefliesIngestionQueueReference;
   }): void {
     new cdk.CfnOutput(this, 'EnvironmentName', {
       value: this.cfg.envName,
@@ -1758,6 +1880,13 @@ export class InfraStack extends cdk.Stack {
       new cdk.CfnOutput(this, 'BackendMigrationTaskDefinitionArn', {
         value: values.backendDeployment.migrationTaskDefinition.taskDefinitionArn,
       });
+      new cdk.CfnOutput(this, 'FirefliesIngestionWorkerServiceName', {
+        value: values.backendDeployment.firefliesIngestionWorkerService.serviceName,
+      });
+      new cdk.CfnOutput(this, 'FirefliesIngestionWorkerTaskDefinitionArn', {
+        value:
+          values.backendDeployment.firefliesIngestionWorkerTaskDefinition.taskDefinitionArn,
+      });
       new cdk.CfnOutput(this, 'BackendLoadBalancerDnsName', {
         value: values.backendDeployment.loadBalancer.loadBalancerDnsName,
       });
@@ -1793,6 +1922,12 @@ export class InfraStack extends cdk.Stack {
     if (values.devTunnelDeployment) {
       new cdk.CfnOutput(this, 'DevTunnelInstanceId', {
         value: values.devTunnelDeployment.instance.instanceId,
+      });
+    }
+
+    if (values.firefliesIngestionQueue) {
+      new cdk.CfnOutput(this, 'FirefliesIngestionQueueUrl', {
+        value: values.firefliesIngestionQueue.queueUrl,
       });
     }
   }

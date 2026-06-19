@@ -42,6 +42,7 @@ export interface RecommendationInput {
   readonly confidence: number;
   readonly categoryScores: unknown;
   readonly evidence: unknown;
+  readonly scorecardJson: unknown;
   readonly warnings: unknown;
   readonly modelMetadata: unknown;
 }

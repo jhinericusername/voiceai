@@ -24,6 +24,25 @@ describe("integration contract", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("allows optional source metadata on platform-created sessions", () => {
+    const result = validateCreateSessionRequest({
+      orgId: "org1",
+      candidateEmail: "c@example.com",
+      scriptVersion: "pilot-v1",
+      scheduledAt: "2026-05-21T15:00:00Z",
+      sourceMetadata: {
+        ashby: {
+          selected: {
+            applicationId: "app_1",
+            candidateId: "cand_1",
+            jobId: "job_1",
+          },
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects a create-session request missing required fields", () => {
     const result = validateCreateSessionRequest({
       orgId: "org1",

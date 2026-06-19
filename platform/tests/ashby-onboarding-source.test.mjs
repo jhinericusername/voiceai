@@ -30,6 +30,10 @@ const wizardSource = await readFile(
   new URL("../app/dashboard/AshbyOnboardingWizard.tsx", import.meta.url),
   "utf8",
 ).catch(() => "");
+const setupOnlyScreenSource = await readFile(
+  new URL("../app/dashboard/AshbySetupOnlyScreen.tsx", import.meta.url),
+  "utf8",
+).catch(() => "");
 const dashboardLayoutSource = await readFile(new URL("../app/dashboard/layout.tsx", import.meta.url), "utf8");
 const dashboardSource = await readFile(new URL("../app/dashboard/page.tsx", import.meta.url), "utf8");
 const deployPlatformScript = await readFile(
@@ -211,6 +215,27 @@ for (const routeCase of onboardingHandlers) {
     assert.doesNotMatch(JSON.stringify(harness.warnCalls), /secret stack/);
   });
 }
+
+test("Ashby API key onboarding forwards allowlisted backend validation diagnostics", async () => {
+  const harness = behaviorHarness({
+    backendResponse: Response.json(
+      {
+        error:
+          "Ashby rejected job.list (403): missing_endpoint_permission. Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+      },
+      { status: 400 },
+    ),
+  });
+
+  const routeCase = onboardingHandlers[0];
+  const response = await routeCase.handler(routeCase.request(), harness.context);
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error:
+      "Ashby rejected job.list (403): missing_endpoint_permission. Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+  });
+});
 
 test("Ashby onboarding API routes are authenticated and derive company identity server-side", () => {
   for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
@@ -418,7 +443,12 @@ test("dashboard home redirects to roles because setup gating lives in layout", (
 
 test("dashboard layout keeps an admin reconnect path through the setup screen", () => {
   assert.match(dashboardLayoutSource, /canManageAshbyOnboarding/);
-  assert.match(dashboardLayoutSource, /AshbySetupOnlyScreen state=\{ashbyState\} canManageSetup=\{canManageSetup\}/);
+  assert.match(dashboardLayoutSource, /AshbySetupOnlyScreen/);
+  assert.match(dashboardLayoutSource, /canManageSetup=\{canManageSetup\}/);
+  assert.match(dashboardLayoutSource, /displayName=\{displayName\}/);
+  assert.match(dashboardLayoutSource, /email=\{user\.email\}/);
+  assert.match(setupOnlyScreenSource, /href="\/logout"/);
+  assert.match(setupOnlyScreenSource, /Sign out/);
   assert.match(wizardSource, /Replace Ashby key|Reconnect Ashby/);
   assert.match(wizardSource, /Replacing the key resets webhook verification/);
 });

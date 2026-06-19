@@ -6,6 +6,8 @@ Org: org_01KV4FF7KX24B76H7Q57QVB5CT
 
 No model scoring was run. No database writes were run. No transcript text, candidate emails, or secret values were printed or recorded.
 
+The final repository query used only confirmed selected Ashby links from `sessions.source_metadata.ashby.selected`. Ranked `matchCandidates` were intentionally excluded from the evaluation label source to avoid pairing a transcript with an unselected candidate evaluation.
+
 ## Setup
 
 Local `.env.local` did not contain the split `DATABASE_*` or `WEAVE_DATABASE_*` variables required by the backend Postgres pool.
@@ -88,7 +90,7 @@ Result:
 
 ## Notes
 
-- The harness sees Weave `candidate_evaluations` through historical Fireflies/Puddle session links.
+- The harness sees Weave `candidate_evaluations` through selected historical Fireflies/Puddle session links.
 - The current Puddle-side `ashby_candidate_scores` path returned 0 rows for this org in the dry-run; available labels came from Weave candidate evaluations.
 - At `--limit 100`, 96 cases were evaluatable immediately and 4 were skipped for missing transcripts.
 - Dry-run output remained transcript-safe by default.
