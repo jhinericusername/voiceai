@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ashbyApiErrorLogFields,
+  ashbyApiKeyValidationErrorMessage,
   listActiveApplicationsForJob,
   listJobs,
   syncedApplicationFromAshby,
@@ -298,7 +300,7 @@ describe("Ashby API client", () => {
         jobId: "job_1",
         fetchImpl: fakeFetch as typeof fetch,
       }),
-    ).rejects.toThrow("Ashby application.list failed: Invalid API key");
+    ).rejects.toThrow("Ashby application.list failed with 200: Invalid API key");
   });
 
   it("lists only open jobs with the Ashby API key for onboarding", async () => {
@@ -438,6 +440,52 @@ describe("Ashby API client", () => {
 
     await expect(listJobs({ apiKey: "ashby-key", fetchImpl })).rejects.toThrow(
       /missing_endpoint_permission/,
+    );
+  });
+
+  it("formats safe Ashby validation diagnostics without exposing free-form upstream text", async () => {
+    const permissionFetch = vi.fn(async () =>
+      new Response(JSON.stringify({ success: false, errorInfo: { message: "missing_endpoint_permission" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+    const secretFetch = vi.fn(async () =>
+      new Response(JSON.stringify({ success: false, errorInfo: { message: "secret tenant token detail" } }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      }),
+    ) as unknown as typeof fetch;
+
+    let permissionError: unknown;
+    try {
+      await listJobs({ apiKey: "ashby-key", fetchImpl: permissionFetch });
+    } catch (error) {
+      permissionError = error;
+    }
+
+    expect(ashbyApiErrorLogFields(permissionError)).toEqual({
+      ashbyEndpoint: "job.list",
+      ashbyStatus: 200,
+      ashbyMessage: "missing_endpoint_permission",
+    });
+    expect(ashbyApiKeyValidationErrorMessage(permissionError)).toBe(
+      "Ashby rejected job.list (200): missing_endpoint_permission. Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+    );
+
+    let secretError: unknown;
+    try {
+      await listJobs({ apiKey: "ashby-key", fetchImpl: secretFetch });
+    } catch (error) {
+      secretError = error;
+    }
+
+    expect(ashbyApiErrorLogFields(secretError)).toEqual({
+      ashbyEndpoint: "job.list",
+      ashbyStatus: 403,
+    });
+    expect(ashbyApiKeyValidationErrorMessage(secretError)).toBe(
+      "Ashby rejected job.list (403). Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
     );
   });
 });

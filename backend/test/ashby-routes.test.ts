@@ -914,7 +914,7 @@ describe("Ashby backend routes", () => {
     }
   });
 
-  it("does not return Ashby upstream errors when API key validation fails", async () => {
+  it("returns safe Ashby API status when API key validation fails", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const previousFetch = global.fetch;
     global.fetch = vi.fn(async () =>
@@ -942,10 +942,56 @@ describe("Ashby backend routes", () => {
       });
 
       expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({ error: "Unable to validate Ashby API key." });
+      expect(res.json()).toEqual({
+        error:
+          "Ashby rejected job.list (200). Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+      });
       expect(JSON.stringify(res.json())).not.toContain("secret tenant token");
       expect(JSON.stringify(res.json())).not.toContain("ashby-upstream-detail");
       expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(connectMock).not.toHaveBeenCalled();
+      expect(queryMock).not.toHaveBeenCalled();
+      expect(clientQueryMock).not.toHaveBeenCalled();
+      expect(releaseMock).not.toHaveBeenCalled();
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("returns safe Ashby permission code when API key lacks endpoint access", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorInfo: { message: "missing_endpoint_permission" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/onboarding/api-key",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          reviewerEmail: "admin@usepuddle.com",
+          ashbyApiKey: "ashby-secret",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error:
+          "Ashby rejected job.list (200): missing_endpoint_permission. Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+      });
+      expect(JSON.stringify(res.json())).not.toContain("ashby-secret");
       expect(connectMock).not.toHaveBeenCalled();
       expect(queryMock).not.toHaveBeenCalled();
       expect(clientQueryMock).not.toHaveBeenCalled();

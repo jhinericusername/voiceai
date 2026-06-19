@@ -8,7 +8,13 @@ import {
   generateIntegrationSecret,
   integrationSecretKeyFromEnv,
 } from "./crypto.js";
-import { listActiveApplicationsForJob, listJobs, syncedApplicationFromAshby } from "./client.js";
+import {
+  ashbyApiErrorLogFields,
+  ashbyApiKeyValidationErrorMessage,
+  listActiveApplicationsForJob,
+  listJobs,
+  syncedApplicationFromAshby,
+} from "./client.js";
 import {
   activeApplicationForJobStatement,
   activeApplicationUpsertStatement,
@@ -420,11 +426,15 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         jobs = await listJobs({ apiKey });
       } catch (error) {
         request.log.warn(
-          { ...safeErrorLogFields(error), emailDomain: identity.emailDomain },
+          {
+            ...safeErrorLogFields(error),
+            ...ashbyApiErrorLogFields(error),
+            emailDomain: identity.emailDomain,
+          },
           "failed to validate Ashby API key",
         );
         return reply.code(400).send({
-          error: "Unable to validate Ashby API key.",
+          error: ashbyApiKeyValidationErrorMessage(error),
         });
       }
 

@@ -216,6 +216,27 @@ for (const routeCase of onboardingHandlers) {
   });
 }
 
+test("Ashby API key onboarding forwards allowlisted backend validation diagnostics", async () => {
+  const harness = behaviorHarness({
+    backendResponse: Response.json(
+      {
+        error:
+          "Ashby rejected job.list (403): missing_endpoint_permission. Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+      },
+      { status: 400 },
+    ),
+  });
+
+  const routeCase = onboardingHandlers[0];
+  const response = await routeCase.handler(routeCase.request(), harness.context);
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error:
+      "Ashby rejected job.list (403): missing_endpoint_permission. Confirm the API key belongs to the correct Ashby workspace and can read jobs.",
+  });
+});
+
 test("Ashby onboarding API routes are authenticated and derive company identity server-side", () => {
   for (const source of [apiKeyRoute, jobsRoute, syncRoute]) {
     assert.match(source, /withAuth/);
