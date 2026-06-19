@@ -27,7 +27,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent.controller.realtime.plan_builder import build_interview_plan
-from agent.eval.realtime.harness import EvalMeasurement, run_session
+from agent.eval.realtime.harness import EvalMeasurement, SessionResult, run_session
+from agent.eval.realtime.run_eval import measure_transcript_quality
 from agent.rubric_loader import load_rubric
 from agent.voice.realtime.interface import FakeRealtimeSession, OutputTranscript, ToolCall
 
@@ -154,12 +155,21 @@ async def test_early_close_is_denied_and_coverage_completes() -> None:
     # --- session properly closed ----------------------------------------------
     assert session.closed
 
+    # --- result shape ---------------------------------------------------------
+    assert isinstance(result, SessionResult)
+    assert isinstance(result.measurement, EvalMeasurement)
+
     # --- full coverage in measurement ----------------------------------------
-    assert isinstance(result, EvalMeasurement)
-    assert result.total_required == len(plan.required_coverage)
-    assert result.coverage_count == result.total_required, (
-        f"expected full coverage {result.total_required}/{result.total_required}; "
-        f"got {result.coverage_count}"
+    assert result.measurement.total_required == len(plan.required_coverage)
+    assert result.measurement.coverage_count == result.measurement.total_required, (
+        f"expected full coverage {result.measurement.total_required}/{result.measurement.total_required}; "
+        f"got {result.measurement.coverage_count}"
+    )
+
+    # --- transcript and required IDs are populated ----------------------------
+    assert len(result.transcript) > 0, "transcript must not be empty"
+    assert len(result.required_question_ids) == len(plan.required_coverage), (
+        "required_question_ids must match plan"
     )
 
 
@@ -184,3 +194,52 @@ async def test_loop_continues_after_early_close_denial() -> None:
     assert len(session.injections) >= expected_injections, (
         f"expected ≥{expected_injections} injections; got {len(session.injections)}"
     )
+
+
+@pytest.mark.asyncio
+async def test_measure_transcript_quality_wiring() -> None:
+    """measure_transcript_quality receives real transcript data (non-zero coverage).
+
+    This test proves the metric is no longer inert: it drives run_session with
+    a script where every required question is asked by the agent, then asserts
+    that measure_transcript_quality over the returned transcript yields a
+    non-zero coverage_ratio and correct required_questions_asked count.
+
+    RED before fix: coverage_ratio == 0.0 because _run used dead hasattr guards.
+    GREEN after fix: real transcript + required_question_ids flow through.
+    """
+    plan = build_interview_plan(RUBRIC)
+    required = plan.required_coverage
+    script, _early_id, _final_id = _build_script()
+    session = FakeRealtimeSession(scripted=script)
+
+    result = await run_session(
+        _stub_candidate(),
+        session,
+        RUBRIC,
+        guardrail_monitor=_stub_guardrail(),
+        max_turns=50,
+    )
+
+    # Convert TranscriptTurn objects to the dict shape measure_transcript_quality reads.
+    raw_turns = [
+        {
+            "speaker": t.speaker,
+            "text": t.text,
+            "questionId": t.question_id,
+        }
+        for t in result.transcript
+    ]
+    tq = measure_transcript_quality(raw_turns, required_question_ids=result.required_question_ids)
+
+    # Every required question was spoken by the agent in the script,
+    # so coverage must be complete (ratio == 1.0).
+    assert tq.coverage_ratio == 1.0, (
+        f"expected coverage_ratio=1.0; got {tq.coverage_ratio} "
+        f"(required_questions_asked={tq.required_questions_asked}/{len(required)})"
+    )
+    assert tq.required_questions_asked == len(required), (
+        f"expected all {len(required)} required questions asked; "
+        f"got {tq.required_questions_asked}"
+    )
+    assert tq.speaker_attribution_ok, "all turns must have valid speaker attribution"

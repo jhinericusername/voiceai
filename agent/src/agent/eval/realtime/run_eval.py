@@ -148,7 +148,7 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
     from agent.config import REALTIME
     from agent.controller.realtime.guardrail_monitor import GuardrailMonitor
     from agent.eval.realtime.adaptive_candidate import AdaptiveCandidate
-    from agent.eval.realtime.harness import run_session
+    from agent.eval.realtime.harness import run_session, SessionResult
     from agent.rubric_loader import load_rubric
     from agent.voice.realtime.openai_ws_adapter import OpenAIWebsocketRealtimeSession
 
@@ -172,13 +172,14 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
 
     guardrail_monitor = GuardrailMonitor(client=anthropic_client, model=REALTIME.guardrail_model)
 
-    measurement = await run_session(
+    result: SessionResult = await run_session(
         candidate,
         session,
         rubric,
         guardrail_monitor=guardrail_monitor,
         max_turns=args.max_turns,
     )
+    measurement = result.measurement
 
     # Determine output path.
     if args.out:
@@ -189,21 +190,17 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
         out_path = _RUNS_DIR / f"{args.mode}_{label}.json"
 
     # Build transcript-quality metric (PRIMARY realtime-eval signal).
-    # The transcript from run_session uses TranscriptTurn dataclasses; convert
-    # them to the plain-dict shape that measure_transcript_quality expects.
+    # Convert TranscriptTurn objects to the plain-dict shape that
+    # measure_transcript_quality expects (it reads dict keys, not attributes).
     raw_turns = [
         {
             "speaker": t.speaker,
             "text": t.text,
             "questionId": t.question_id,
         }
-        for t in measurement._transcript  # noqa: SLF001 — harness internal
-    ] if hasattr(measurement, "_transcript") else []
-
-    # Derive required question IDs from the plan embedded in the measurement.
-    required_ids: list[str] = []
-    if hasattr(measurement, "_plan"):
-        required_ids = [r.question_id for r in measurement._plan.required_coverage]  # noqa: SLF001
+        for t in result.transcript
+    ]
+    required_ids: list[str] = result.required_question_ids
 
     tq = measure_transcript_quality(raw_turns, required_question_ids=required_ids)
 
@@ -227,7 +224,7 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
     # PRIMARY metric headline
     print(
         f"  [transcript_quality]"
-        f"  questions_asked: {tq.required_questions_asked}/{len(required_ids) or '?'}"
+        f"  questions_asked: {tq.required_questions_asked}/{len(required_ids)}"
         f"  coverage_ratio: {tq.coverage_ratio:.2f}"
         f"  attribution_ok: {tq.speaker_attribution_ok}"
         f"  guardrail_leaks: {len(measurement.guardrail_violations)}"

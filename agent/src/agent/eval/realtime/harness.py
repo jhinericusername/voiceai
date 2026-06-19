@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import time
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
@@ -50,6 +51,28 @@ class EvalMeasurement(BaseModel):
     per_question_similarity: dict[str, float]  # question_id -> best difflib ratio
     guardrail_violations: list[str]
     duration_seconds: float
+
+
+@dataclass(frozen=True)
+class SessionResult:
+    """Return value of ``run_session``.
+
+    Bundles the structural ``EvalMeasurement`` with the raw transcript turns
+    and the ordered list of required question IDs so callers can compute
+    downstream metrics (e.g. ``measure_transcript_quality``) without
+    re-deriving those values from private harness state.
+
+    Attributes:
+        measurement: Structural eval result (coverage, order, similarity, …).
+        transcript: All diarized turns (agent + candidate) from the session,
+            in emission order.
+        required_question_ids: Ordered list of question IDs that the interview
+            plan required the agent to ask.
+    """
+
+    measurement: EvalMeasurement
+    transcript: list[TranscriptTurn] = field(default_factory=list)
+    required_question_ids: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -128,14 +151,20 @@ async def run_session(
     *,
     guardrail_monitor: Any,
     max_turns: int,
-) -> EvalMeasurement:
-    """Drive a full interview and return the ``EvalMeasurement``.
+) -> SessionResult:
+    """Drive a full interview and return a :class:`SessionResult`.
 
     The session MUST be configured for TEXT output modality (not audio-only).
     Routes all tool calls through ``ControlBus`` so early ``close_interview``
     calls are denied and uncovered questions are re-issued (COVERAGE_BACKSTOP).
     Coverage is only complete — and close accepted — once every required question
     has been spoken and answered.
+
+    Returns:
+        A :class:`SessionResult` containing:
+        - ``measurement``: structural ``EvalMeasurement`` (coverage, order, …).
+        - ``transcript``: all diarized turns in emission order.
+        - ``required_question_ids``: ordered IDs from the interview plan.
     """
     from agent.voice.realtime.interface import OutputTranscript, ToolCall
 
@@ -225,4 +254,10 @@ async def run_session(
     duration = time.monotonic() - start
     await session.aclose()
 
-    return measure(transcript, plan, guardrail_events, duration)
+    measurement = measure(transcript, plan, guardrail_events, duration)
+    required_question_ids = [rq.question_id for rq in plan.required_coverage]
+    return SessionResult(
+        measurement=measurement,
+        transcript=transcript,
+        required_question_ids=required_question_ids,
+    )
