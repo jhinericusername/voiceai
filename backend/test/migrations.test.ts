@@ -215,6 +215,23 @@ describe("database migrations", () => {
     expect(migration).toContain("USING GIN (active_stage_names)");
   });
 
+  it("keeps active Ashby stage filters nullable after the initial filter migration", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const activeStagesIndex = files.indexOf("016_role_active_stage_filters.sql");
+    const nullableIndex = files.indexOf("017_role_active_stage_filters_nullable.sql");
+
+    expect(activeStagesIndex).toBeGreaterThanOrEqual(0);
+    expect(nullableIndex).toBeGreaterThan(activeStagesIndex);
+
+    const migration = readFileSync(
+      join(migrationsDir, "017_role_active_stage_filters_nullable.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("ALTER TABLE role_grading_profiles");
+    expect(migration).toContain("ALTER COLUMN active_stage_names DROP DEFAULT");
+    expect(migration).toContain("ALTER COLUMN active_stage_names DROP NOT NULL");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 
