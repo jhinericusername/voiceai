@@ -1032,6 +1032,7 @@ export class InfraStack extends cdk.Stack {
       runtimeSecrets.livekitApiKey,
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.anthropicApiKey,
+      runtimeSecrets.openaiApiKey,
       runtimeSecrets.deepgramApiKey,
       runtimeSecrets.cartesiaApiKey,
       runtimeSecrets.geminiApiKey,
@@ -1464,6 +1465,12 @@ export class InfraStack extends cdk.Stack {
       ),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.anthropicApiKey,
+      ),
+      // The realtime interviewer uses OpenAI gpt-realtime, so the agent
+      // container needs OPENAI_API_KEY (it crashes on RealtimeModel init
+      // without it). Mirror the backend grant below.
+      OPENAI_API_KEY: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.openaiApiKey,
       ),
       DEEPGRAM_API_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.deepgramApiKey,
