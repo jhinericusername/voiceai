@@ -367,15 +367,22 @@ export function registerCandidateInviteRoutes(
       });
 
       if (hasInterviewerJoined) {
-        await persistOpsEvent(pool, {
-          sessionId: invite.session_id,
-          eventType: "ai_interviewer_auto_dispatch_skipped",
-          payload: {
-            reason: "human_interviewer_joined",
-            invite_id: invite.invite_id,
-            room,
-          },
-        });
+        try {
+          await persistOpsEvent(pool, {
+            sessionId: invite.session_id,
+            eventType: "ai_interviewer_auto_dispatch_skipped",
+            payload: {
+              reason: "human_interviewer_joined",
+              invite_id: invite.invite_id,
+              room,
+            },
+          });
+        } catch (error) {
+          request.log.error(
+            { err: error, sessionId: invite.session_id, inviteId: invite.invite_id, room },
+            "failed to record AI interviewer auto-dispatch skip",
+          );
+        }
       }
 
       return reply.code(200).send({
