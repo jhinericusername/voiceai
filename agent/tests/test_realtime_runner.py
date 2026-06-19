@@ -1,13 +1,14 @@
 """Integration tests for the RealtimeInterviewRunner orchestration core.
 
 Drives a scripted event list through the runner over a FakeRealtimeSession,
-with stubbed Scorer / GuardrailMonitor / ProbeGenerator, and asserts the
-coverage, scoring-checkpoint, guardrail-correction, and early-close-denial
+with stubbed GuardrailMonitor / ProbeGenerator, and asserts the
+coverage, guardrail-correction, and early-close-denial
 behaviours the runner is responsible for.
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -19,7 +20,6 @@ from agent.controller.realtime.guardrail_monitor import GuardrailVerdict
 from agent.controller.realtime.runner import RealtimeInterviewRunner
 from agent.domain.types import Assessment
 from agent.rubric_loader import load_rubric
-from agent.scoring.io_types import CategoryAssessment, ScorerOutput
 from agent.voice.realtime.interface import (
     FakeRealtimeSession,
     InputTranscript,
@@ -28,28 +28,6 @@ from agent.voice.realtime.interface import (
 )
 
 RUBRIC = load_rubric(Path(__file__).parents[2] / "rubric" / "pilot-v1.yaml")
-
-
-def _confident_scorer() -> MagicMock:
-    """Scorer stub: every category comes back high-confidence (no steering)."""
-
-    def _score(scorer_input):  # noqa: ANN001, ANN202
-        return ScorerOutput(
-            assessments=[
-                CategoryAssessment(
-                    category=cat,
-                    provisional_score=3,
-                    confidence=0.95,
-                    evidence_quotes=["q"],
-                    missing_or_ambiguous=[],
-                )
-                for cat in scorer_input.target_categories
-            ]
-        )
-
-    scorer = MagicMock()
-    scorer.score.side_effect = _score
-    return scorer
 
 
 def _no_violation_guardrail() -> MagicMock:
@@ -276,9 +254,6 @@ def _iter_take(it: object, n: int) -> list:  # noqa: ANN001
     for _ in range(n):
         out.append(next(it))  # type: ignore[call-overload]
     return out
-
-
-import asyncio  # noqa: E402
 
 
 def test_candidate_turn_does_not_score_or_steer(tmp_path: Path) -> None:
