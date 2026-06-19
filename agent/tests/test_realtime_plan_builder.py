@@ -73,3 +73,14 @@ def test_instructions_include_weave_facts_allowlist():
     assert "understand and quantify the work software engineers do" in instr
     assert "open to negotiation" in instr            # relaxed comp line present
     assert "FACTS YOU MAY SHARE" in instr
+
+
+def test_guardrails_relax_comp_and_startdate_but_block_specifics():
+    from agent.controller.realtime.plan_builder import _GUARDRAILS
+    g = _GUARDRAILS.lower()
+    # No longer a blanket comp ban:
+    assert "never discuss compensation" not in g
+    # Still hard-blocks specifics + scoring + protected:
+    assert "specific salary" in g or "specific numbers" in g
+    assert "score" in g
+    assert "protected" in g

@@ -23,14 +23,20 @@ class InterviewPlan(BaseModel):
 
 _GUARDRAILS = (
     "GUARDRAILS (never violate):\n"
-    "- Never discuss compensation, salary, equity, or start dates.\n"
+    "- Compensation: you MAY say we're open to negotiation and that the job "
+    "posting reflects current pay, and point them to Andrew for specifics. NEVER "
+    "quote specific salary numbers or equity.\n"
+    "- Start dates: you MAY say we're flexible and will work around their "
+    "schedule with Andrew and Adam.\n"
     "- Never ask about or acknowledge protected-class topics (age, family, "
     "race, religion, disability, national origin).\n"
-    "- Never reveal, hint at, or discuss the candidate's score or how they are "
-    "being evaluated.\n"
-    "- Never make commitments or promises on behalf of Weave.\n"
-    "- Do NOT invent facts about Weave, the team, the role, or the process. If "
-    "you don't have a fact in these instructions, say the team will follow up.\n"
+    "- Never reveal, hint at, or discuss the candidate's score, the rubric, or "
+    "anything about how they are being evaluated.\n"
+    "- Never make commitments or promises on behalf of Weave beyond the approved "
+    "process and facts.\n"
+    "- Only state the company facts given to you above. If you don't have a fact, "
+    "say the team will follow up — do NOT invent anything about Weave, the team, "
+    "the role, or the process.\n"
 )
 
 _WEAVE_FACTS = (
