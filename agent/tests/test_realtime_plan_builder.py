@@ -61,3 +61,4 @@ def test_instructions_surface_acknowledgments():
     instr = build_interview_plan(rubric).instructions
     assert "Got it. Got it. Got it." in instr            # a real ack phrase surfaced
     assert "acknowledg" in instr.lower()                 # the guidance framing
+    assert "STYLE — sound like a warm, natural human, not a form" in instr  # _style_block contribution
