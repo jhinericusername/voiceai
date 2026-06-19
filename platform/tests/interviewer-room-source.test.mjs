@@ -23,6 +23,8 @@ const interviewerJoinRoute = await source(
 );
 const aiControlRoute = await source("../app/api/dashboard/interviews/[sessionId]/ai-control/route.ts");
 
+const interviewerConnectedRoutePath = "../app/api/dashboard/interviews/[sessionId]/interviewer-connected/route.ts";
+
 test("create interview API returns an interviewer join URL for host launch", () => {
   assert.match(createInterviewRoute, /interviewerJoinUrl/);
   assert.match(
@@ -31,8 +33,10 @@ test("create interview API returns an interviewer join URL for host launch", () 
   );
 });
 
-test("interviewer platform routes require completed dashboard access", () => {
-  for (const routeSource of [candidateInviteRoute, interviewerJoinRoute, aiControlRoute]) {
+test("interviewer platform routes require completed dashboard access", async () => {
+  const interviewerConnectedRoute = await requiredSource(interviewerConnectedRoutePath);
+
+  for (const routeSource of [candidateInviteRoute, interviewerJoinRoute, interviewerConnectedRoute, aiControlRoute]) {
     assert.match(routeSource, /requireAshbyReadyDashboardApiAccess/);
     assert.match(routeSource, /dashboardApiReadinessContext/);
     assert.match(routeSource, /backendHeaders\(\)/);
@@ -49,13 +53,18 @@ test("candidate invite route mints a candidate URL through the backend", () => {
   assert.match(candidateInviteRoute, /candidateInviteUrl/);
 });
 
-test("interviewer join and AI control routes call the role-specific backend surfaces", () => {
+test("interviewer join, connected acknowledgement, and AI control routes call the role-specific backend surfaces", async () => {
+  const interviewerConnectedRoute = await requiredSource(interviewerConnectedRoutePath);
+
   assert.match(interviewerJoinRoute, /interviewer\/join/);
+  assert.match(interviewerConnectedRoute, /interviewer\/connected/);
   assert.match(aiControlRoute, /ai-control/);
   assert.match(aiControlRoute, /action/);
 });
 
-test("interviewer platform routes fail closed on malformed backend success payloads", () => {
+test("interviewer platform routes fail closed on malformed backend success payloads", async () => {
+  const interviewerConnectedRoute = await requiredSource(interviewerConnectedRoutePath);
+
   assert.match(candidateInviteRoute, /Candidate invite response was malformed\./);
   assert.match(candidateInviteRoute, /isCandidateInviteResponse\(payload\)/);
   assert.match(candidateInviteRoute, /typeof \w+\.invitePath === "string"/);
@@ -69,6 +78,12 @@ test("interviewer platform routes fail closed on malformed backend success paylo
   assert.match(interviewerJoinRoute, /has\(value\.aiInterviewerState\)/);
   for (const field of ["sessionId", "room", "liveKitUrl", "token", "aiInterviewerState"]) {
     assert.match(interviewerJoinRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
+  }
+
+  assert.match(interviewerConnectedRoute, /Interviewer connected response was malformed\./);
+  assert.match(interviewerConnectedRoute, /isInterviewerConnectedResponse\(payload\)/);
+  for (const field of ["sessionId", "room"]) {
+    assert.match(interviewerConnectedRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
   }
 
   assert.match(aiControlRoute, /AI interviewer control response was malformed\./);
@@ -132,6 +147,7 @@ test("interviewer join client exposes host invite, join, and AI controls without
     "Create new link",
     "Retry",
     "interviewer-join",
+    "interviewer-connected",
     "Start AI",
     "Stop AI",
     "Resume AI",
@@ -165,6 +181,19 @@ test("interviewer join client exposes host invite, join, and AI controls without
   );
   assert.match(clientSource, /room\.localParticipant\.publishTrack\(audioTrack\)/);
   assert.match(clientSource, /room\.localParticipant\.publishTrack\(videoTrack\)/);
+  const publishIndex = clientSource.indexOf("await Promise.all([\n        room.localParticipant.publishTrack");
+  const liveStageIndex = clientSource.indexOf("setStage(\"live\")", publishIndex);
+  const postPublishSource = clientSource.slice(
+    publishIndex,
+    liveStageIndex + "setStage(\"live\")".length,
+  );
+  assert.match(postPublishSource, /interviewer-connected/);
+  assert.match(postPublishSource, /isInterviewerConnectedResponse\(\w+\)/);
+  assert.ok(
+    postPublishSource.indexOf("interviewer-connected") <
+      postPublishSource.indexOf("setStage(\"live\")"),
+    "connected acknowledgement should happen before the live stage is set",
+  );
   assert.match(clientSource, /\.attach\(video\)/);
   assert.match(clientSource, /\.detach\(video\)/);
   assert.match(clientSource, /track\.attach\(\)/);

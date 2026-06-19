@@ -29,6 +29,11 @@ interface InterviewerJoinResponse {
   readonly aiInterviewerState: AiInterviewerState;
 }
 
+interface InterviewerConnectedResponse {
+  readonly sessionId: string;
+  readonly room: string;
+}
+
 interface AiControlResponse {
   readonly sessionId: string;
   readonly aiInterviewerState: AiInterviewerState;
@@ -43,6 +48,7 @@ type InviteStatus = "idle" | "loading" | "ready" | "error";
 type CopyStatus = "idle" | "copied" | "failed";
 
 const AI_INTERVIEWER_STATES = new Set<AiInterviewerState>(["not_started", "running", "stopped"]);
+const HOST_ROOM_OPEN_ERROR = "The host room could not be opened. Refresh and try again.";
 
 const AI_CONTROL_BY_STATE: Record<
   AiInterviewerState,
@@ -359,15 +365,36 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
         room.localParticipant.publishTrack(videoTrack),
       ]);
 
+      setRoomStatus("Acknowledging host presence");
+      const connectedResponse = await fetch(`/api/dashboard/interviews/${encodedSessionId}/interviewer-connected`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+      const connectedPayload = await parseJsonResponse(connectedResponse);
+
+      if (!connectedResponse.ok) {
+        throw new InterviewerConnectedAcknowledgementError(
+          errorFromPayload(connectedPayload, "Interviewer presence could not be acknowledged."),
+        );
+      }
+
+      if (!isInterviewerConnectedResponse(connectedPayload)) {
+        throw new InterviewerConnectedAcknowledgementError("Interviewer connected response was malformed.");
+      }
+
       setElapsedSeconds(0);
       setCandidateDelayed(false);
       setRoomStatus("Connected");
       setStage("live");
-    } catch {
+    } catch (error) {
       cleanupRoom();
       setStage("waiting");
       setRoomStatus("Not connected");
-      setRoomError("The host room could not be opened. Refresh and try again.");
+      setRoomError(
+        error instanceof InterviewerConnectedAcknowledgementError ? error.message : HOST_ROOM_OPEN_ERROR,
+      );
     } finally {
       setIsJoining(false);
     }
@@ -1178,6 +1205,10 @@ function isInterviewerJoinResponse(value: unknown): value is InterviewerJoinResp
   );
 }
 
+function isInterviewerConnectedResponse(value: unknown): value is InterviewerConnectedResponse {
+  return isRecord(value) && typeof value.sessionId === "string" && typeof value.room === "string";
+}
+
 function isAiControlResponse(value: unknown): value is AiControlResponse {
   return (
     isRecord(value) &&
@@ -1217,4 +1248,11 @@ function formatInviteExpiry(inviteExpiresAt: string): string {
     hour: "numeric",
     minute: "2-digit",
   })}`;
+}
+
+class InterviewerConnectedAcknowledgementError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InterviewerConnectedAcknowledgementError";
+  }
 }

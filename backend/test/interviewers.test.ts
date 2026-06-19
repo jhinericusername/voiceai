@@ -459,7 +459,7 @@ describe("interviewer internal routes", () => {
     await app.close();
   });
 
-  it("prepares interviewer join room without dispatching the AI agent", async () => {
+  it("prepares interviewer join room without dispatching the AI agent or recording human presence", async () => {
     queryMock.mockImplementation(async (sql: string) => {
       if (sql.includes("FROM sessions")) {
         return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
@@ -511,7 +511,49 @@ describe("interviewer internal routes", () => {
       String(sql).includes("INSERT INTO events") &&
       String(params?.[2] ?? "").includes("interviewer_joined"),
     );
-    expect(eventCall).toBeDefined();
+    expect(eventCall).toBeUndefined();
+    await app.close();
+  });
+
+  it("records interviewer human presence only after the room connected acknowledgement", async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM sessions")) {
+        return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
+      }
+      if (sql.includes("SELECT entry_hash")) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const app = Fastify();
+    registerInterviewerRoutes(app, FAKE_LK);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/internal/interviews/sess1/interviewer/connected",
+      payload: {
+        orgId: "org1",
+        interviewerEmail: "interviewer@example.com",
+        interviewerUserId: "user1",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      sessionId: "sess1",
+      room: "interview-sess1",
+    });
+    expect(ensureRoomReadyMock).not.toHaveBeenCalled();
+    expect(insertedEventPayloads()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "interviewer_joined",
+          interviewer_email: "interviewer@example.com",
+          interviewer_user_id: "user1",
+          room: "interview-sess1",
+        }),
+      ]),
+    );
     await app.close();
   });
 

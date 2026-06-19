@@ -39,6 +39,7 @@ const dashboardActionRoutes = await Promise.all(
     "../app/api/interviews/route.ts",
     "../app/api/dashboard/interviews/[sessionId]/candidate-invite/route.ts",
     "../app/api/dashboard/interviews/[sessionId]/interviewer-join/route.ts",
+    "../app/api/dashboard/interviews/[sessionId]/interviewer-connected/route.ts",
     "../app/api/dashboard/interviews/[sessionId]/ai-control/route.ts",
   ].map(async (path) => ({
     path,

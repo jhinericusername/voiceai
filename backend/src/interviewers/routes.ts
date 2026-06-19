@@ -257,6 +257,59 @@ export function registerInterviewerRoutes(
         interviewerEmail: validation.body.interviewerEmail,
       });
 
+      return reply.code(200).send({
+        sessionId,
+        room,
+        liveKitUrl: liveKitConfig.host,
+        token,
+        aiInterviewerState,
+      });
+    },
+  );
+
+  app.post<{ Params: InterviewerParams; Body: unknown }>(
+    "/internal/interviews/:sessionId/interviewer/connected",
+    async (request, reply) => {
+      const sessionId = request.params.sessionId?.trim();
+      if (!sessionId) {
+        return reply.code(400).send({ error: "missing session id" });
+      }
+
+      const validation = validateBaseBody(request.body);
+      if (!validation.ok) {
+        return reply.code(400).send({ error: validation.reason });
+      }
+
+      const pool = getPool();
+      const session = await loadSession(pool, sessionId, validation.body.orgId);
+      if (!session) {
+        return reply.code(404).send({ error: "interview not found" });
+      }
+      if (isTerminalSession(session)) {
+        return reply.code(410).send(terminalSessionReply());
+      }
+
+      let room = session.room_name?.trim() ?? "";
+      if (!room) {
+        try {
+          const readiness = await ensureRoomReady(
+            liveKitConfig,
+            sessionId,
+            buildWorkerDispatchMetadata(sessionRecord(session)),
+            { hadPreviousRoom: false, dispatchAgent: false },
+          );
+          room = readiness.room;
+        } catch (error) {
+          request.log.error({ err: error, sessionId }, "interviewer room acknowledgement readiness failed");
+          return reply.code(503).send({
+            error: "interview room could not be prepared; please try again shortly",
+          });
+        }
+
+        const roomStmt = sessionRoomUpdateStatement(sessionId, room);
+        await pool.query(roomStmt.sql, [...roomStmt.params]);
+      }
+
       await persistOpsEvent(pool, {
         sessionId,
         eventType: "interviewer_joined",
@@ -270,9 +323,6 @@ export function registerInterviewerRoutes(
       return reply.code(200).send({
         sessionId,
         room,
-        liveKitUrl: liveKitConfig.host,
-        token,
-        aiInterviewerState,
       });
     },
   );
