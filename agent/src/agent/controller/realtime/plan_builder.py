@@ -78,6 +78,22 @@ def _persona(rubric: Rubric) -> str:
     )
 
 
+def _style_block(rubric: Rubric) -> str:
+    style = rubric.style
+    if not style or not style.acknowledgments:
+        return ""
+    acks = " / ".join(f'"{a}"' for a in style.acknowledgments)
+    block = (
+        "STYLE — sound like a warm, natural human, not a form:\n"
+        "- Between answers, before you probe or move on, use a brief natural "
+        "acknowledgment. Vary it; draw on these: " + acks + ".\n"
+    )
+    if style.thinking_fillers:
+        fillers = " / ".join(f'"{f}"' for f in style.thinking_fillers)
+        block += f"- If the candidate needs a moment, it's fine to say: {fillers}.\n"
+    return block
+
+
 def _opener_text(rubric: Rubric) -> str:
     o = rubric.opener
     if not o:
@@ -140,6 +156,7 @@ def build_interview_plan(rubric: Rubric) -> InterviewPlan:
             None,
             [
                 _persona(rubric),
+                _style_block(rubric),
                 (f"OPENER (say first, then let them respond):\n{opener}" if opener else ""),
                 f"QUESTIONS (ask in this order, verbatim):\n{question_blocks}",
                 f"CLOSER (only after all questions are covered):\n{closer}",
