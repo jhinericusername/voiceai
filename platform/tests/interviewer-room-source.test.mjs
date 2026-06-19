@@ -55,7 +55,9 @@ test("interviewer platform routes fail closed on malformed backend success paylo
 
   assert.match(interviewerJoinRoute, /Interviewer join response was malformed\./);
   assert.match(interviewerJoinRoute, /isInterviewerJoinResponse\(payload\)/);
-  for (const field of ["sessionId", "room", "liveKitUrl", "token"]) {
+  assert.match(interviewerJoinRoute, /not_started/);
+  assert.match(interviewerJoinRoute, /has\(value\.aiInterviewerState\)/);
+  for (const field of ["sessionId", "room", "liveKitUrl", "token", "aiInterviewerState"]) {
     assert.match(interviewerJoinRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
   }
 

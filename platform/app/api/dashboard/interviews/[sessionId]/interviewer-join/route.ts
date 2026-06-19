@@ -5,6 +5,8 @@ import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
 export const dynamic = "force-dynamic";
 
+const JOIN_AI_INTERVIEWER_STATES = new Set(["not_started"]);
+
 interface RouteContext {
   readonly params: Promise<{
     readonly sessionId: string;
@@ -16,6 +18,7 @@ interface InterviewerJoinResponse {
   readonly room: string;
   readonly liveKitUrl: string;
   readonly token: string;
+  readonly aiInterviewerState: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -28,7 +31,9 @@ function isInterviewerJoinResponse(value: unknown): value is InterviewerJoinResp
     typeof value.sessionId === "string" &&
     typeof value.room === "string" &&
     typeof value.liveKitUrl === "string" &&
-    typeof value.token === "string"
+    typeof value.token === "string" &&
+    typeof value.aiInterviewerState === "string" &&
+    JOIN_AI_INTERVIEWER_STATES.has(value.aiInterviewerState)
   );
 }
 
