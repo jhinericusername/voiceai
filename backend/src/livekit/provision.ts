@@ -150,6 +150,47 @@ export async function ensureRoomReady(
   };
 }
 
+// Stops the Puddle interviewer agent for a session. Two steps, both required:
+//   1) delete the agent dispatch(es) — ensureRoomReady only dispatches when
+//      none exists, so a lingering dispatch would make a later "resume" a no-op;
+//   2) remove the live agent participant so the running worker actually
+//      disconnects (deleting the dispatch alone does not evict a connected job).
+// Best-effort: callers log failures but do not fail the request (the stop intent
+// is already recorded, and the empty-room timeout is a backstop).
+export async function stopInterviewerAgent(
+  config: LiveKitConfig,
+  sessionId: string,
+): Promise<{ readonly deletedDispatches: number; readonly removedParticipants: number }> {
+  const apiUrl = liveKitApiUrl(config.host);
+  const rooms = new RoomServiceClient(apiUrl, config.apiKey, config.apiSecret);
+  const dispatch = new AgentDispatchClient(apiUrl, config.apiKey, config.apiSecret);
+  const room = roomName(sessionId);
+
+  let deletedDispatches = 0;
+  const dispatches = await dispatch.listDispatch(room);
+  for (const entry of dispatches) {
+    const id = (entry as { id?: string }).id;
+    if (id && dispatchMatchesPuddleInterviewer(entry)) {
+      await dispatch.deleteDispatch(id, room);
+      deletedDispatches += 1;
+    }
+  }
+
+  // ParticipantInfo_Kind.AGENT === 4 in the LiveKit protocol enum (stable wire
+  // value). Comparing the numeric kind avoids depending on an enum export.
+  const AGENT_KIND = 4;
+  let removedParticipants = 0;
+  const participants = await rooms.listParticipants(room);
+  for (const participant of participants) {
+    if (Number((participant as { kind?: number }).kind) === AGENT_KIND) {
+      await rooms.removeParticipant(room, participant.identity);
+      removedParticipants += 1;
+    }
+  }
+
+  return { deletedDispatches, removedParticipants };
+}
+
 // Legacy explicit provisioning wrapper for callers that still need it.
 export async function provisionRoom(
   config: LiveKitConfig,

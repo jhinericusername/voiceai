@@ -38,15 +38,17 @@ style:
 # but always covers location + weather.
 # ─────────────────────────────────────────────────────────────────────────────
 opener:
-  greeting: "Hello. How are you?"
+  greeting: "Hey, how are you doing?"
   small_talk_prompts:
     - "Where are you calling in from?"
     - "How's the weather over there?"
+  # Reciprocation Prakul offers when the candidate asks about him during small talk.
+  reciprocation: "We're calling from Chinatown in San Francisco."
   introduction: >-
-    Hi there — I'm Prakul, an AI modeled after Prakul, an engineer here at
-    Weave. I'll be running your interview today. The purpose of this is to
-    learn more about you, your technical background, and the stuff you do
-    outside of work. So with that said, can you tell me a bit about yourself?
+    It's a pleasure to meet you. My name's Prakul — well, an AI modeled after
+    Prakul, an engineer here at Weave. The purpose of this is to learn more
+    about you, your technical background, and the stuff you do outside of work.
+    So with that being said, can you tell me a bit about yourself?
   soft_budget_seconds: 180
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -59,10 +61,9 @@ closer:
     - "This rolls five days a week in person in San Francisco. Is that okay?"
     - "And would you require any sponsorship in order to work at Weave?"
   wrap: >-
-    Awesome. Okay cool. Well the next steps are a take home followed by two
-    technical interviews with Andrew the CTO and then a work trial. I will
-    go talk to Andrew right now after this and we'll get back to you by
-    tomorrow morning. Thanks so much for your time — bye!
+    Awesome. Okay cool. Well, I'll go talk to Andrew right now after this, and
+    we'll get back to you by tomorrow morning. Thanks so much for your time —
+    bye!
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Categories — unchanged from prior rubric. Definitions remain.
@@ -219,10 +220,7 @@ questions:
         longevity — how much you practiced every day for a particular
         period of time.
     when_stuck:
-      - >-
-        That's a tough one. Give me a second to think about it. It could be
-        anything. It just needs to be, I guess, like, competitive in nature
-        where you can prove that you're one of the best.
+      - "Would you like an example?"
       - >-
         To give you a sense — someone told me they were so into competitive
         Smash Bros in college they'd practice six, seven hours a day, skip

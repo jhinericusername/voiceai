@@ -92,9 +92,27 @@ _SELF_MANAGEMENT = (
 
 
 def _question_block(q: Question) -> str:
-    lines = [f"[{q.question_id}] {q.verbatim_text}"]
-    if q.pre_question and q.pre_question.ask:
-        lines.append(f"  framing (ask first): {q.pre_question.ask} {q.pre_question.branch_no}".rstrip())
+    lines = [f"[{q.question_id}]"]
+    if q.transition_in:
+        lines.append(f'  lead in naturally, e.g.: "{q.transition_in}"')
+    pre = q.pre_question
+    if pre and pre.ask:
+        # Gated question (e.g. Q2's YC framing): ask the gating question FIRST,
+        # wait for the answer, THEN — on "no" — say the framing flowing straight
+        # into the real question. The framing must come BEFORE the question, not
+        # after it.
+        lines.append(f'  STEP 1 — ask this, then STOP and wait: "{pre.ask}"')
+        if pre.branch_no:
+            branch_no = " ".join(pre.branch_no.split())
+            lines.append(
+                "  STEP 2 — WHATEVER they answer (yes or no), always give the framing "
+                "and flow STRAIGHT into the question, as ONE continuous turn: "
+                f'"{branch_no} {q.verbatim_text}"'
+            )
+        else:
+            lines.append(f'  STEP 2 — then ask: "{q.verbatim_text}"')
+    else:
+        lines.append(f'  ask verbatim: "{q.verbatim_text}"')
     if q.target_evidence:
         lines.append("  a complete answer covers: " + "; ".join(q.target_evidence))
         lines.append(
@@ -137,12 +155,47 @@ def _style_block(rubric: Rubric) -> str:
     return block
 
 
-def _opener_text(rubric: Rubric) -> str:
+def _opener_block(rubric: Rubric) -> str:
+    """Render the opener as a warm, natural, turn-by-turn small-talk exchange.
+
+    The opener is NOT a monologue — it's a back-and-forth. Each numbered beat is
+    its own turn: the agent says it, STOPS, and waits. Between beats the agent
+    reacts naturally to whatever the candidate said (including answering if they
+    ask a question back), then moves to the next beat.
+    """
     o = rubric.opener
     if not o:
         return ""
-    parts = [o.greeting, *o.small_talk_prompts, o.introduction]
-    return " ".join(p for p in parts if p)
+    recip = (
+        f' If they ask where you\'re calling from or turn a question back on you, '
+        f'answer briefly and warmly — e.g. "{o.reciprocation.strip()}"'
+        if o.reciprocation
+        else ""
+    )
+    lines = [
+        "OPENER — a warm bit of small talk, delivered as SEPARATE turns. After "
+        "EACH numbered beat you STOP and wait for the candidate. When they answer, "
+        "react naturally and briefly (a few words — acknowledge, mirror their "
+        "energy) BEFORE you move to the next beat. Never stack beats into one "
+        "speech, and never rush past their reply." + recip,
+    ]
+    n = 1
+    lines.append(
+        f'  {n}) Greet them: "{o.greeting}"  → wait. Only say how YOU are doing if '
+        "they actually ask you back; otherwise just acknowledge them warmly and go on."
+    )
+    n += 1
+    for prompt in o.small_talk_prompts:
+        if prompt:
+            lines.append(f'  {n}) "{prompt}"  → wait, then react warmly to their answer.')
+            n += 1
+    if o.introduction:
+        intro = " ".join(o.introduction.split())
+        lines.append(
+            f'  {n}) Then introduce yourself and hand off: "{intro}"  → wait for '
+            "their answer before you start the first question."
+        )
+    return "\n".join(lines)
 
 
 def _closer_text(rubric: Rubric) -> str:
@@ -151,6 +204,32 @@ def _closer_text(rubric: Rubric) -> str:
         return "That's everything I wanted to cover. Thank you for your time."
     parts = [c.logistics_lead_in, *c.logistics_questions, c.wrap]
     return " ".join(p for p in parts if p)
+
+
+def _closer_block(rubric: Rubric) -> str:
+    """Render the closer as a turn-structured script.
+
+    Each logistics question is a SEPARATE turn the agent must wait on, instead
+    of firing both questions and the goodbye in one breath (same fix as the
+    opener).
+    """
+    c = rubric.closer
+    if not c or not c.wrap:
+        return (
+            "CLOSER (only after all questions are covered):\n"
+            "  That's everything I wanted to cover. Thank you for your time."
+        )
+    lines = [
+        "CLOSER — only after every question is covered. Deliver as SEPARATE turns:"
+    ]
+    if c.logistics_lead_in:
+        lines.append(f'  Lead in: "{c.logistics_lead_in}"')
+    for q in c.logistics_questions:
+        if q:
+            lines.append(f'  Ask this, then STOP and wait for their answer: "{q}"')
+    wrap = " ".join(c.wrap.split())
+    lines.append(f'  Then wrap up and say goodbye: "{wrap}"')
+    return "\n".join(lines)
 
 
 def _tool_schemas() -> list[dict]:
@@ -200,7 +279,7 @@ def build_interview_plan(rubric: Rubric, *, include_tools: bool = True) -> Inter
     purely from the prompt (a structured gpt-realtime session) — no tools are
     registered there, so instructing the model to call them would only confuse it.
     """
-    opener = _opener_text(rubric)
+    opener = _opener_block(rubric)
     closer = _closer_text(rubric)
     question_blocks = "\n".join(_question_block(q) for q in rubric.questions)
     flow_protocol = _TOOL_USAGE if include_tools else _SELF_MANAGEMENT
@@ -210,9 +289,9 @@ def build_interview_plan(rubric: Rubric, *, include_tools: bool = True) -> Inter
             [
                 _persona(rubric),
                 _style_block(rubric),
-                (f"OPENER (say first, then let them respond):\n{opener}" if opener else ""),
+                opener,
                 f"QUESTIONS (ask in this order, verbatim):\n{question_blocks}",
-                f"CLOSER (only after all questions are covered):\n{closer}",
+                _closer_block(rubric),
                 _WEAVE_FACTS,
                 _GUARDRAILS,
                 flow_protocol,

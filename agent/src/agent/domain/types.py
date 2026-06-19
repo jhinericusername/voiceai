@@ -120,6 +120,7 @@ class Opener(BaseModel):
 
     greeting: str = ""
     small_talk_prompts: list[str] = Field(default_factory=list)
+    reciprocation: str = ""
     introduction: str = ""
     soft_budget_seconds: int = 180
 

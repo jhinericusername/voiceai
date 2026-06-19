@@ -5,7 +5,7 @@ import { persistOpsEvent } from "../events/repository.js";
 import { generateInviteToken } from "../invites/tokens.js";
 import { invitePath } from "../invites/repository.js";
 import { buildInterviewerJoinToken } from "../livekit/token.js";
-import { ensureRoomReady, type LiveKitConfig } from "../livekit/provision.js";
+import { ensureRoomReady, stopInterviewerAgent, type LiveKitConfig } from "../livekit/provision.js";
 import {
   buildWorkerDispatchMetadata,
   sessionRoomUpdateStatement,
@@ -392,6 +392,16 @@ export function registerInterviewerRoutes(
           return reply.code(503).send({
             error: "AI interviewer could not be started; please try again shortly",
           });
+        }
+      } else if (requestedState === "stopped") {
+        // Actually stop the agent: delete the dispatch + evict the agent
+        // participant. Best-effort — the stop intent is already persisted, so a
+        // cleanup failure must not fail the request (the agent may have already
+        // left, and the empty-room timeout is a backstop).
+        try {
+          await stopInterviewerAgent(liveKitConfig, sessionId);
+        } catch (error) {
+          request.log.error({ err: error, sessionId }, "ai interviewer stop failed");
         }
       }
 

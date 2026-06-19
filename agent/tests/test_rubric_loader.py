@@ -36,8 +36,9 @@ def test_style_and_opener_and_closer_present() -> None:
     assert rubric.style.interviewer_name == "Prakul"
     assert "Got it. Got it. Got it." in rubric.style.acknowledgments
     assert rubric.opener is not None
-    assert rubric.opener.greeting == "Hello. How are you?"
+    assert rubric.opener.greeting == "Hey, how are you doing?"
     assert "Weave" in rubric.opener.introduction
+    assert rubric.opener.reciprocation == "We're calling from Chinatown in San Francisco."
     assert rubric.closer is not None
     assert len(rubric.closer.logistics_questions) == 2
 

@@ -37,11 +37,14 @@ _INSTRUCTIONS_FALLBACK = "You are Puddle's realtime interviewer."
 _DEFAULT_RECONNECT_GRACE_SECONDS = 300.0
 _TRANSCRIPTION_MODEL = "gpt-4o-transcribe"
 
-# Semantic server-side VAD eagerness. "low" makes the model wait a little longer
-# before deciding the candidate has finished — better for an interview, where
-# candidates pause to think and we never want to talk over them. Bump to "medium"
-# if turns feel sluggish. (See _build_turn_detection.)
-_VAD_EAGERNESS = "low"
+# Semantic server-side VAD eagerness — the main turn-latency knob.
+#   "high"   = grabs the turn fastest (snappiest, but may cut off a pause)
+#   "medium" = balanced default
+#   "low"    = waits longest before replying (most patient, adds 1-2s latency)
+# Started at "low" and it felt laggy (3-4s to respond) → using "high" for max
+# snappiness. If it starts cutting off candidates mid-thought, step down to
+# "medium" (balanced) or "low" (most patient).
+_VAD_EAGERNESS = "high"
 
 # One-shot steering for the opening turn. The standing instructions already carry
 # the scripted opener; this just tells the model to deliver it now and then yield

@@ -856,6 +856,7 @@ function LivePanel({
   readonly onToggleMic: () => void;
 }) {
   const aiControl = AI_CONTROL_BY_STATE[aiInterviewerState];
+  const showAgentTile = aiInterviewerState !== "not_started";
 
   return (
     <div className="relative flex min-h-svh flex-col overflow-hidden bg-[#111214] text-white">
@@ -875,7 +876,13 @@ function LivePanel({
       </header>
 
       <main className="flex flex-1 items-center justify-center px-3 pb-32 pt-20 sm:px-5 md:pb-28">
-        <div className="grid h-[min(72svh,760px)] min-h-[460px] w-full max-w-[1500px] grid-rows-2 gap-3 md:grid-cols-2 md:grid-rows-1">
+        <div
+          className={`grid h-[min(72svh,760px)] min-h-[460px] w-full max-w-[1500px] gap-3 ${
+            showAgentTile
+              ? "grid-rows-3 md:grid-cols-3 md:grid-rows-1"
+              : "grid-rows-2 md:grid-cols-2 md:grid-rows-1"
+          }`}
+        >
           <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
             <video
               ref={remoteVideoRef}
@@ -911,6 +918,8 @@ function LivePanel({
               Candidate
             </div>
           </div>
+
+          {showAgentTile ? <AgentTile aiInterviewerState={aiInterviewerState} /> : null}
 
           <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
             <video
@@ -1000,6 +1009,88 @@ function LivePanel({
         </div>
       </footer>
     </div>
+  );
+}
+
+const AGENT_WAVE_BARS = [0, 0.18, 0.36, 0.12, 0.3, 0.06, 0.24];
+const AGENT_WAVE_KEYFRAMES =
+  "@keyframes puddleWave { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }";
+
+function AgentTile({ aiInterviewerState }: { readonly aiInterviewerState: AiInterviewerState }) {
+  const isStopped = aiInterviewerState === "stopped";
+
+  return (
+    <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#1b1c1f] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
+      <style>{AGENT_WAVE_KEYFRAMES}</style>
+
+      <div className="absolute inset-0 grid place-items-center px-6 text-center">
+        <div className="flex flex-col items-center">
+          <div
+            className={`relative grid h-28 w-28 place-items-center rounded-full ring-4 transition ${
+              isStopped ? "bg-[#2b2c2f] ring-[#3c4043]" : "bg-[#16305c] ring-[#1a73e8]/70"
+            }`}
+          >
+            {!isStopped ? (
+              <span
+                aria-hidden="true"
+                className="absolute inset-0 animate-ping rounded-full ring-2 ring-[#1a73e8]/40"
+              />
+            ) : null}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/puddle-symbol-white-nobg.svg"
+              alt="Puddle AI interviewer"
+              className={`h-14 w-14 transition ${isStopped ? "opacity-40" : "opacity-100"}`}
+            />
+          </div>
+
+          <div className="mt-5 flex h-9 items-end justify-center gap-1.5" aria-hidden="true">
+            {AGENT_WAVE_BARS.map((delay, index) => (
+              <span
+                key={index}
+                className="w-1.5 rounded-full"
+                style={{
+                  height: "100%",
+                  transformOrigin: "bottom",
+                  backgroundColor: isStopped ? "#5f6368" : "#8ab4f8",
+                  transform: isStopped ? "scaleY(0.18)" : undefined,
+                  animation: isStopped ? "none" : `puddleWave 1s ease-in-out ${delay}s infinite`,
+                }}
+              />
+            ))}
+          </div>
+
+          <div className="mt-4 text-lg font-medium text-[#f1f3f4]">Puddle AI</div>
+          <div className="mt-1 text-sm text-[#bdc1c6]">
+            {isStopped ? "Stopped — not listening" : "Listening"}
+          </div>
+        </div>
+      </div>
+
+      <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
+        AI interviewer
+      </div>
+      <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
+        Puddle AI
+      </div>
+
+      {isStopped ? (
+        <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full bg-[#ea4335] px-3 py-1.5 text-xs font-semibold text-white shadow-lg">
+          <DeafenIcon />
+          Deafened
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DeafenIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2">
+      <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+      <path d="m16 9 6 6" />
+      <path d="m22 9-6 6" />
+    </svg>
   );
 }
 
