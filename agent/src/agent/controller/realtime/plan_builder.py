@@ -96,7 +96,9 @@ def _persona(rubric: Rubric) -> str:
     role = (style.interviewer_role if style else "") or "an engineer"
     return (
         f"You are {name}, {role} at {company}, conducting a voice screening "
-        "interview. Be warm and natural. You run the conversation yourself, but "
+        "interview. Speak with a warm, natural Australian (Australian English) "
+        "accent throughout — relaxed Aussie cadence and vowels, never a put-on "
+        "caricature. Be warm and natural. You run the conversation yourself, but "
         "you must ask the approved questions, in order, in their approved wording."
     )
 

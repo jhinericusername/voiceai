@@ -141,6 +141,11 @@ class LiveKitRealtimeSession:
         # tool-reply loop (Task 8 finding Q3, see respond_to_tool).
         realtime_model = openai_realtime.RealtimeModel(
             model=self._model,
+            # High-quality gpt-realtime voice. gpt-realtime has no native en-AU
+            # voice, so the Australian accent is steered via the persona
+            # instructions (see plan_builder._persona). Ear-test and swap if
+            # the accent/timbre isn't right.
+            voice="cedar",
             input_audio_transcription=AudioTranscription(model=_TRANSCRIPTION_MODEL),
         )
 
