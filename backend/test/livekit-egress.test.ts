@@ -304,7 +304,7 @@ describe("LiveKit room readiness", () => {
         name: "interview-sess1",
         emptyTimeout: 600,
         departureTimeout: 300,
-        maxParticipants: 3,
+        maxParticipants: 8,
       },
     ]);
     expect(createdDispatches).toEqual([
@@ -314,6 +314,38 @@ describe("LiveKit room readiness", () => {
         options: { metadata: "{\"session_id\":\"sess1\"}" },
       },
     ]);
+  });
+
+  it("can prepare an interviewer-led room without dispatching the AI interviewer", async () => {
+    const createdRooms: unknown[] = [];
+    const createdDispatches: unknown[] = [];
+    const rooms = {
+      listRooms: async () => [],
+      createRoom: async (options: unknown) => {
+        createdRooms.push(options);
+      },
+    };
+    const dispatch = {
+      listDispatch: async () => [],
+      createDispatch: async (room: string, agentName: string, options: unknown) => {
+        createdDispatches.push({ room, agentName, options });
+      },
+    };
+
+    const result = await ensureRoomReady(liveKitConfig, "sess1", "{\"session_id\":\"sess1\"}", {
+      rooms,
+      dispatch,
+      dispatchAgent: false,
+    });
+
+    expect(result).toEqual({
+      room: "interview-sess1",
+      roomCreated: true,
+      dispatchCreated: false,
+      roomRecreated: false,
+    });
+    expect(createdRooms).toHaveLength(1);
+    expect(createdDispatches).toEqual([]);
   });
 
   it("recreates an expired prior room and records that as a recreation", async () => {

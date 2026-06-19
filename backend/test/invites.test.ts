@@ -11,7 +11,10 @@ import {
 } from "../src/invites/repository.js";
 import { consentInputFromCandidateJoin } from "../src/invites/routes.js";
 import { generateInviteToken, hashInviteToken } from "../src/invites/tokens.js";
-import { buildCandidateJoinToken } from "../src/livekit/token.js";
+import {
+  buildCandidateJoinToken,
+  buildInterviewerJoinToken,
+} from "../src/livekit/token.js";
 
 describe("candidate invite tokens", () => {
   it("generates opaque URL-safe tokens and hashes them before persistence", () => {
@@ -189,5 +192,53 @@ describe("candidate LiveKit tokens", () => {
     expect(claims.video?.roomJoin).toBe(true);
     expect(claims.video?.room).toBe("interview-sess1");
     expect(claims.name).toBe("candidate@example.com");
+  });
+
+  it("includes candidate participant metadata in the join token", async () => {
+    const token = await buildCandidateJoinToken(
+      { host: "wss://livekit.example", apiKey: "key", apiSecret: "secret" },
+      {
+        sessionId: "sess1",
+        room: "interview-sess1",
+        inviteId: "invite1",
+        candidateEmail: "candidate@example.com",
+        ttlSeconds: 60,
+      },
+    );
+    const verifier = new TokenVerifier("key", "secret");
+    const claims = await verifier.verify(token);
+
+    expect(JSON.parse(String(claims.metadata))).toEqual({
+      session_id: "sess1",
+      invite_id: "invite1",
+      participant_kind: "candidate",
+    });
+  });
+});
+
+describe("interviewer LiveKit tokens", () => {
+  it("scopes the join token to the interviewer room with interviewer metadata", async () => {
+    const token = await buildInterviewerJoinToken(
+      { host: "wss://livekit.example", apiKey: "key", apiSecret: "secret" },
+      {
+        sessionId: "sess1",
+        room: "interview-sess1",
+        interviewerUserId: "user_123",
+        interviewerEmail: "host@workweave.ai",
+        ttlSeconds: 60,
+      },
+    );
+    const verifier = new TokenVerifier("key", "secret");
+    const claims = await verifier.verify(token);
+
+    expect(claims.sub).toBe("interviewer-sess1-user_123");
+    expect(claims.video?.roomJoin).toBe(true);
+    expect(claims.video?.room).toBe("interview-sess1");
+    expect(claims.name).toBe("host@workweave.ai");
+    expect(JSON.parse(String(claims.metadata))).toEqual({
+      session_id: "sess1",
+      interviewer_user_id: "user_123",
+      participant_kind: "interviewer",
+    });
   });
 });
