@@ -106,6 +106,18 @@ test("role workspace exposes create-and-join launcher", async () => {
   assert.match(formSource, /\/api\/interviews/);
   assert.match(formSource, /interviewerJoinUrl/);
   assert.match(formSource, /router\.push/);
+  assert.match(formSource, /router\.push\(interviewerJoinUrl\);\s+return;/);
+  assert.doesNotMatch(formSource, /\} finally \{/);
+
+  const invalidResponseBlock = formSource.slice(
+    formSource.indexOf("if (!response.ok || !interviewerJoinUrl) {"),
+    formSource.indexOf("router.push(interviewerJoinUrl);"),
+  );
+  assert.match(invalidResponseBlock, /setIsSubmitting\(false\);/);
+
+  const catchIndex = formSource.indexOf("} catch {");
+  const catchBlock = formSource.slice(catchIndex, formSource.indexOf("\n  }\n\n  return", catchIndex));
+  assert.match(catchBlock, /setIsSubmitting\(false\);/);
 });
 
 test("interviewer join client exposes host invite, join, and AI controls without candidate notices", async () => {

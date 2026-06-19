@@ -47,13 +47,14 @@ export function CreateAndJoinInterviewForm({ roleLabel }: CreateAndJoinInterview
             ? payload.error
             : "Could not create the hosted interview room. Try again.",
         );
+        setIsSubmitting(false);
         return;
       }
 
       router.push(interviewerJoinUrl);
+      return;
     } catch {
       setStatusMessage("Could not create the hosted interview room. Try again.");
-    } finally {
       setIsSubmitting(false);
     }
   }
