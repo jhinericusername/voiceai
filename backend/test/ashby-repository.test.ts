@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   activeApplicationForJobStatement,
   activeApplicationUpsertStatement,
+  activePipelineApplicationsStatement,
+  activePipelineRolesStatement,
   inactiveCandidateApplicationsStatement,
   integrationApiKeyUpsertStatement,
   integrationByIdStatement,
@@ -15,6 +17,7 @@ import {
   markIntegrationSyncedStatement,
   normalizeEmailDomain,
   recentScreensStatement,
+  roleActiveStagesUpdateStatement,
   scoreUpsertStatement,
   searchActiveApplicationsStatement,
   staleActiveApplicationsStatement,
@@ -255,6 +258,50 @@ describe("Ashby repository statements", () => {
     expect(stmt.sql).toContain("job_id = $3");
     expect(stmt.sql).toContain("status = 'Active'");
     expect(stmt.params).toEqual(["int_1", "app_1", "job_1"]);
+  });
+
+  it("builds active pipeline role stages in Ashby's interview-plan order", () => {
+    const roles = activePipelineRolesStatement({
+      integrationId: "int_1",
+      selectedJobIds: ["job_1", "job_2"],
+    });
+
+    expect(roles.sql).toContain("role_grading_profiles");
+    expect(roles.sql).toContain("active_stage_names");
+    expect(roles.sql).toContain("active_stage_names_configured");
+    expect(roles.sql).toContain("p.active_stage_names IS NOT NULL");
+    expect(roles.sql).toContain("currentInterviewStage");
+    expect(roles.sql).toContain("orderInInterviewPlan");
+    expect(roles.sql).toContain("~ '^[0-9]+$'");
+    expect(roles.sql).toContain("ELSE NULL END");
+    expect(roles.sql).toContain("MIN(stage_order)");
+    expect(roles.sql).toContain("ORDER BY stage_order ASC NULLS LAST, current_stage ASC");
+    expect(roles.sql).not.toContain("ORDER BY candidate_count DESC");
+    expect(roles.params).toEqual(["int_1", ["job_1", "job_2"]]);
+
+    const applications = activePipelineApplicationsStatement({
+      integrationId: "int_1",
+      selectedJobIds: ["job_1", "job_2"],
+      limit: 200,
+    });
+
+    expect(applications.sql).toContain("status = 'Active'");
+    expect(applications.sql).toContain("currentInterviewStage");
+    expect(applications.params).toEqual(["int_1", ["job_1", "job_2"], 200]);
+  });
+
+  it("builds per-role active stage updates", () => {
+    const stmt = roleActiveStagesUpdateStatement({
+      organizationId: "org_1",
+      integrationId: "int_1",
+      jobId: "job_1",
+      activeStageNames: ["Initial Screen"],
+      reviewerEmail: "admin@usepuddle.com",
+    });
+
+    expect(stmt.sql).toContain("UPDATE role_grading_profiles");
+    expect(stmt.sql).toContain("active_stage_names = $4");
+    expect(stmt.params).toEqual(["org_1", "int_1", "job_1", ["Initial Screen"], "admin@usepuddle.com"]);
   });
 
   it("marks candidate applications inactive within an integration", () => {

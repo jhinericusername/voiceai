@@ -290,6 +290,51 @@ describe("buildServer", () => {
     }
   });
 
+  it("persists Ashby source metadata for platform-created interview sessions", async () => {
+    const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    const app = buildServer(FAKE_LK);
+    try {
+      const sourceMetadata = {
+        ashby: {
+          selected: {
+            applicationId: "app_1",
+            candidateId: "cand_1",
+            candidateName: "Maya Chen",
+            jobId: "job_1",
+            currentStage: "Initial Screen",
+          },
+        },
+      };
+      const res = await app.inject({
+        method: "POST",
+        url: "/integration/sessions",
+        headers: { "content-type": "application/json" },
+        payload: {
+          orgId: "org1",
+          candidateEmail: "maya@example.com",
+          scriptVersion: "pilot-v1",
+          scheduledAt: "2026-05-21T15:00:00Z",
+          sourceMetadata,
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(queryMock).toHaveBeenCalledTimes(2);
+      expect(String(queryMock.mock.calls[0]?.[0])).toContain("source_metadata");
+      expect((queryMock.mock.calls[0]?.[1] as unknown[]).at(-1)).toBe(
+        JSON.stringify(sourceMetadata),
+      );
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+      } else {
+        process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousToken;
+      }
+      await app.close();
+    }
+  });
+
   it("registers the streaming finalization route and rejects invalid completion reasons", async () => {
     const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
     delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;

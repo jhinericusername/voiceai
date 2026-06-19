@@ -43,8 +43,8 @@ export function syncedApplicationFromAshby(input: {
 }): SyncedAshbyApplication | null {
   const candidate = objectValue(input.application.candidate);
   const job = objectValue(input.application.job);
-  const currentStage =
-    objectValue(input.application.currentInterviewStage) ?? objectValue(input.application.stage);
+  const currentInterviewStage = objectValue(input.application.currentInterviewStage);
+  const legacyStage = objectValue(input.application.stage);
   const source = objectValue(input.application.source);
   const applicationId = stringValue(input.application.id);
   const candidateId = stringValue(candidate?.id);
@@ -64,7 +64,11 @@ export function syncedApplicationFromAshby(input: {
     candidateName,
     candidateEmail: stringValue(candidate?.primaryEmailAddress) ?? stringValue(candidate?.email),
     jobId,
-    currentStage: stringValue(currentStage?.name),
+    currentStage:
+      stringValue(currentInterviewStage?.title) ??
+      stringValue(currentInterviewStage?.name) ??
+      stringValue(legacyStage?.title) ??
+      stringValue(legacyStage?.name),
     source: stringValue(source?.title) ?? stringValue(source?.name),
     status: stringValue(input.application.status) ?? "Active",
     ashbyUpdatedAt: stringValue(input.application.updatedAt),

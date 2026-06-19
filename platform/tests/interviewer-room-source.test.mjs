@@ -27,6 +27,11 @@ const interviewerConnectedRoutePath = "../app/api/dashboard/interviews/[sessionI
 
 test("create interview API returns an interviewer join URL for host launch", () => {
   assert.match(createInterviewRoute, /interviewerJoinUrl/);
+  assert.match(createInterviewRoute, /sourceMetadata/);
+  assert.match(createInterviewRoute, /ashby/);
+  assert.match(createInterviewRoute, /selected/);
+  assert.match(createInterviewRoute, /applicationId/);
+  assert.match(createInterviewRoute, /jobId/);
   assert.match(
     createInterviewRoute,
     /\/dashboard\/interviews\/\$\{encodeURIComponent\(createdSession\.sessionId\)\}\/join/,

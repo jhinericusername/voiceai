@@ -196,6 +196,25 @@ describe("database migrations", () => {
     expect(migration).toContain("interview_ai_control_state_requested_at_idx");
   });
 
+  it("adds per-role active Ashby stage filters after interviewer AI control state", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const aiControlIndex = files.indexOf("015_interviewer_ai_control_state.sql");
+    const activeStagesIndex = files.indexOf("016_role_active_stage_filters.sql");
+
+    expect(aiControlIndex).toBeGreaterThanOrEqual(0);
+    expect(activeStagesIndex).toBeGreaterThan(aiControlIndex);
+
+    const migration = readFileSync(
+      join(migrationsDir, "016_role_active_stage_filters.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("ALTER TABLE role_grading_profiles");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS active_stage_names TEXT[]");
+    expect(migration).not.toContain("active_stage_names TEXT[] NOT NULL DEFAULT '{}'");
+    expect(migration).toContain("role_grading_profiles_active_stage_names_idx");
+    expect(migration).toContain("USING GIN (active_stage_names)");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 

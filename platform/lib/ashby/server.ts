@@ -40,6 +40,42 @@ export interface RecentScreen {
   readonly status: string;
 }
 
+export interface AshbyActivePipelineStage {
+  readonly name: string;
+  readonly count: number;
+}
+
+export interface AshbyActivePipelineCandidate {
+  readonly applicationId: string;
+  readonly candidateId: string;
+  readonly candidateName: string;
+  readonly candidateEmail: string | null;
+  readonly jobId: string;
+  readonly currentStage: string;
+  readonly source: string | null;
+  readonly updatedAt: string | null;
+}
+
+export interface AshbyActivePipelineRole {
+  readonly jobId: string;
+  readonly name: string;
+  readonly activeStageNames: readonly string[];
+  readonly stageOptions: readonly AshbyActivePipelineStage[];
+  readonly activeCandidateCount: number;
+  readonly candidates: readonly AshbyActivePipelineCandidate[];
+}
+
+export interface AshbyActivePipeline {
+  readonly integrationId: string;
+  readonly lastSyncAt: string | null;
+  readonly selectedJobCount: number;
+  readonly totalSyncedCandidates: number;
+  readonly activeCandidateCount: number;
+  readonly candidateRowCount: number;
+  readonly candidateRowsTruncated: boolean;
+  readonly roles: readonly AshbyActivePipelineRole[];
+}
+
 export function companyIdentityFromUser(input: {
   readonly email: string | null | undefined;
   readonly organizationId?: string | null;
@@ -95,4 +131,11 @@ export async function getRecentAshbyScreens(identity: CompanyIdentityPayload): P
   });
 
   return payload.screens;
+}
+
+export async function getAshbyActivePipeline(identity: CompanyIdentityPayload): Promise<AshbyActivePipeline> {
+  return postBackend<AshbyActivePipeline>("/integrations/ashby/active-pipeline", {
+    ...identity,
+    limit: 1000,
+  });
 }

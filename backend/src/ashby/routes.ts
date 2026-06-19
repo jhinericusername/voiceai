@@ -12,6 +12,8 @@ import { listActiveApplicationsForJob, listJobs, syncedApplicationFromAshby } fr
 import {
   activeApplicationForJobStatement,
   activeApplicationUpsertStatement,
+  activePipelineApplicationsStatement,
+  activePipelineRolesStatement,
   inactiveCandidateApplicationsStatement,
   integrationByIdForUpdateStatement,
   integrationApiKeyUpsertStatement,
@@ -25,6 +27,7 @@ import {
   markIntegrationPingStatement,
   normalizeEmailDomain,
   recentScreensStatement,
+  roleActiveStagesUpdateStatement,
   scoreUpsertStatement,
   searchActiveApplicationsStatement,
   staleActiveApplicationsStatement,
@@ -64,6 +67,43 @@ interface SetupRow {
 interface WebhookEventRow {
   readonly inserted?: unknown;
   readonly processed_at?: unknown;
+}
+
+interface ActivePipelineRoleRow {
+  readonly job_id?: unknown;
+  readonly job_name?: unknown;
+  readonly active_stage_names?: unknown;
+  readonly active_stage_names_configured?: unknown;
+  readonly stage_counts?: unknown;
+}
+
+interface ActivePipelineApplicationRow {
+  readonly application_id?: unknown;
+  readonly candidate_id?: unknown;
+  readonly candidate_name?: unknown;
+  readonly candidate_email?: unknown;
+  readonly job_id?: unknown;
+  readonly current_stage?: unknown;
+  readonly source?: unknown;
+  readonly status?: unknown;
+  readonly ashby_updated_at?: unknown;
+  readonly updated_at?: unknown;
+}
+
+interface ActivePipelineStageCount {
+  readonly name: string;
+  readonly count: number;
+}
+
+interface ActivePipelineCandidate {
+  readonly applicationId: string;
+  readonly candidateId: string;
+  readonly candidateName: string;
+  readonly candidateEmail: string | null;
+  readonly jobId: string;
+  readonly currentStage: string;
+  readonly source: string | null;
+  readonly updatedAt: string | null;
 }
 
 const ACTIVE_APPLICATION_ACTIONS = new Set([
@@ -207,6 +247,130 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function uniqueTrimmedStringArray(value: unknown, maxItems = 20): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const names: string[] = [];
+  for (const item of value) {
+    const text = stringValue(item);
+    if (!text || text.length > 120) {
+      return null;
+    }
+    if (!names.includes(text)) {
+      names.push(text);
+    }
+    if (names.length > maxItems) {
+      return null;
+    }
+  }
+  return names;
+}
+
+function isoStringValue(value: unknown): string | null {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  return stringValue(value);
+}
+
+function intValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.trunc(value));
+  }
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    return Math.max(0, Math.trunc(Number(value)));
+  }
+  return null;
+}
+
+function jsonArrayValue(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function stageCountsFrom(value: unknown): ActivePipelineStageCount[] {
+  return jsonArrayValue(value)
+    .map((item) => {
+      const obj = objectValue(item);
+      const name = stringValue(obj?.name);
+      const count = intValue(obj?.count);
+      return name && count !== null ? { name, count } : null;
+    })
+    .filter((item): item is ActivePipelineStageCount => item !== null);
+}
+
+function activeStageNamesForRole(input: {
+  readonly configured: readonly string[];
+  readonly configuredExplicitly: boolean;
+  readonly stageOptions: readonly ActivePipelineStageCount[];
+}): string[] {
+  if (input.configuredExplicitly) {
+    return [...input.configured];
+  }
+
+  return input.stageOptions.some((stage) => stage.name === "Initial Screen")
+    ? ["Initial Screen"]
+    : [];
+}
+
+function stageOptionsWithActiveStages(input: {
+  readonly stageOptions: readonly ActivePipelineStageCount[];
+  readonly activeStageNames: readonly string[];
+}): ActivePipelineStageCount[] {
+  const byName = new Map(input.stageOptions.map((stage) => [stage.name, stage]));
+  for (const stageName of input.activeStageNames) {
+    if (!byName.has(stageName)) {
+      byName.set(stageName, { name: stageName, count: 0 });
+    }
+  }
+  return [...byName.values()];
+}
+
+function activeCandidateCountFromStages(input: {
+  readonly stageOptions: readonly ActivePipelineStageCount[];
+  readonly activeStageNames: readonly string[];
+}): number {
+  const activeStageSet = new Set(input.activeStageNames);
+  return input.stageOptions.reduce(
+    (total, stage) => total + (activeStageSet.has(stage.name) ? stage.count : 0),
+    0,
+  );
+}
+
+function pipelineCandidateFromRow(row: ActivePipelineApplicationRow): ActivePipelineCandidate | null {
+  const applicationId = stringValue(row.application_id);
+  const candidateId = stringValue(row.candidate_id);
+  const candidateName = stringValue(row.candidate_name);
+  const jobId = stringValue(row.job_id);
+  const currentStage = stringValue(row.current_stage);
+  if (!applicationId || !candidateId || !candidateName || !jobId || !currentStage) {
+    return null;
+  }
+
+  return {
+    applicationId,
+    candidateId,
+    candidateName,
+    candidateEmail: stringValue(row.candidate_email),
+    jobId,
+    currentStage,
+    source: stringValue(row.source),
+    updatedAt: isoStringValue(row.ashby_updated_at) ?? isoStringValue(row.updated_at),
+  };
 }
 
 async function integrationForWebhook(input: {
@@ -694,6 +858,145 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return reply.send({ ok: true, syncedCount });
     },
   );
+
+  app.post("/integrations/ashby/active-pipeline", async (request, reply) => {
+    const identity = companyIdentity(request.body);
+    const body = objectValue(request.body);
+    if (!identity) {
+      return reply.code(400).send({ error: "organizationId and valid emailDomain are required" });
+    }
+
+    const integration = await integrationForIdentity(identity);
+    const integrationId = integrationIdFrom(integration);
+    if (!integrationId) {
+      return reply.code(404).send({ error: "Ashby integration is not configured" });
+    }
+    if (!integrationReadyForUse(integration)) {
+      return incompleteSetup(reply);
+    }
+
+    const jobIds = selectedJobIds(integration?.selected_job_ids);
+    if (jobIds.length === 0) {
+      return reply.send({
+        integrationId,
+        lastSyncAt: integration?.last_sync_at ?? null,
+        selectedJobCount: 0,
+        totalSyncedCandidates: 0,
+        activeCandidateCount: 0,
+        candidateRowCount: 0,
+        candidateRowsTruncated: false,
+        roles: [],
+      });
+    }
+
+    const roleStmt = activePipelineRolesStatement({
+      integrationId,
+      selectedJobIds: jobIds,
+    });
+    const applicationsStmt = activePipelineApplicationsStatement({
+      integrationId,
+      selectedJobIds: jobIds,
+      limit: limitValue(body?.limit, 500, 1000),
+    });
+    const [roleResult, applicationsResult] = await Promise.all([
+      getPool().query<ActivePipelineRoleRow>(roleStmt.sql, [...roleStmt.params]),
+      getPool().query<ActivePipelineApplicationRow>(applicationsStmt.sql, [...applicationsStmt.params]),
+    ]);
+
+    const candidates = applicationsResult.rows
+      .map((row) => pipelineCandidateFromRow(row))
+      .filter((candidate): candidate is ActivePipelineCandidate => candidate !== null);
+
+    const roles = roleResult.rows.map((row) => {
+      const jobId = stringValue(row.job_id) ?? "";
+      const stageCounts = stageCountsFrom(row.stage_counts);
+      const activeStageNames = activeStageNamesForRole({
+        configured: stringArray(row.active_stage_names),
+        configuredExplicitly: row.active_stage_names_configured === true,
+        stageOptions: stageCounts,
+      });
+      const stageOptions = stageOptionsWithActiveStages({ stageOptions: stageCounts, activeStageNames });
+      const roleCandidates = candidates.filter((candidate) => candidate.jobId === jobId);
+      return {
+        jobId,
+        name: stringValue(row.job_name) ?? `Ashby role ${jobId.slice(0, 8)}`,
+        activeStageNames,
+        stageOptions,
+        activeCandidateCount: activeCandidateCountFromStages({ stageOptions, activeStageNames }),
+        candidates: roleCandidates,
+      };
+    });
+    const totalSyncedCandidates = roles.reduce(
+      (total, role) => total + role.stageOptions.reduce((sum, stage) => sum + stage.count, 0),
+      0,
+    );
+    const activeCandidateCount = roles.reduce((total, role) => total + role.activeCandidateCount, 0);
+    const candidateRowCount = candidates.length;
+
+    return reply.send({
+      integrationId,
+      lastSyncAt: integration?.last_sync_at ?? null,
+      selectedJobCount: jobIds.length,
+      totalSyncedCandidates,
+      activeCandidateCount,
+      candidateRowCount,
+      candidateRowsTruncated: candidateRowCount < totalSyncedCandidates,
+      roles,
+    });
+  });
+
+  app.post("/integrations/ashby/active-stages", async (request, reply) => {
+    const identity = companyIdentity(request.body);
+    const body = objectValue(request.body);
+    const reviewerEmail = stringValue(body?.reviewerEmail);
+    const jobId = stringValue(body?.jobId);
+    const activeStageNames = uniqueTrimmedStringArray(body?.activeStageNames);
+    if (!identity || !reviewerEmail || !jobId || !activeStageNames) {
+      return reply.code(400).send({
+        error: "organizationId, emailDomain, reviewerEmail, jobId, and activeStageNames are required",
+      });
+    }
+
+    const integration = await integrationForIdentity(identity);
+    const integrationId = integrationIdFrom(integration);
+    if (!integrationId) {
+      return reply.code(404).send({ error: "Ashby integration is not configured" });
+    }
+    if (!integrationReadyForUse(integration)) {
+      return incompleteSetup(reply);
+    }
+
+    const jobIds = new Set(selectedJobIds(integration?.selected_job_ids));
+    if (!jobIds.has(jobId)) {
+      return reply.code(404).send({ error: "Ashby role is not selected for this integration" });
+    }
+
+    const stmt = roleActiveStagesUpdateStatement({
+      organizationId: identity.organizationId,
+      integrationId,
+      jobId,
+      activeStageNames,
+      reviewerEmail,
+    });
+    let result = await getPool().query(stmt.sql, [...stmt.params]);
+    if (result.rows.length === 0) {
+      const profile = gradingProfileUpsertStatement({
+        profileId: randomUUID(),
+        organizationId: identity.organizationId,
+        ashbyIntegrationId: integrationId,
+        ashbyJobId: jobId,
+        actorEmail: reviewerEmail,
+      });
+      await getPool().query(profile.sql, [...profile.params]);
+      result = await getPool().query(stmt.sql, [...stmt.params]);
+    }
+
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: "Ashby role stage settings could not be updated" });
+    }
+
+    return reply.send({ jobId, activeStageNames });
+  });
 
   app.post("/integrations/ashby/applications/search", async (request, reply) => {
     const identity = companyIdentity(request.body);

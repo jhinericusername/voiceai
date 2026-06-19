@@ -1,15 +1,21 @@
-import { companyIdentityFromUser, getAshbyCompanyState } from "@/lib/ashby/server";
-import { RolesPipelineFoundation } from "../AshbyFirstDashboardSections";
-import { selectedAshbyJobCount } from "../ashby-dashboard-state";
+import { companyIdentityFromUser, getAshbyActivePipeline } from "@/lib/ashby/server";
+import { canManageAshbyOnboarding } from "@/lib/auth/ashby-onboarding-admin";
 import { requireDashboardUser } from "../auth";
+import { ActivePipelineDashboard } from "./ActivePipelineDashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function RolesPage() {
   const session = await requireDashboardUser("/dashboard/roles");
-  const state = await getAshbyCompanyState(
+  const pipeline = await getAshbyActivePipeline(
     companyIdentityFromUser({ email: session.user.email, organizationId: session.organizationId }),
   );
 
-  return <RolesPipelineFoundation selectedJobCount={selectedAshbyJobCount(state)} lastSyncAt={state.lastSyncAt} />;
+  return (
+    <ActivePipelineDashboard
+      pipeline={pipeline}
+      view="roles"
+      canManageActiveStages={canManageAshbyOnboarding(session)}
+    />
+  );
 }
