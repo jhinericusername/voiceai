@@ -1,7 +1,7 @@
 """Integration tests for the RealtimeInterviewRunner orchestration core.
 
 Drives a scripted event list through the runner over a FakeRealtimeSession,
-with stubbed GuardrailMonitor / ProbeGenerator, and asserts the
+with a stubbed GuardrailMonitor, and asserts the
 coverage, guardrail-correction, and early-close-denial
 behaviours the runner is responsible for.
 """
@@ -38,12 +38,6 @@ def _no_violation_guardrail() -> MagicMock:
     return monitor
 
 
-def _stub_probe_generator() -> MagicMock:
-    probe = MagicMock()
-    probe.generate.return_value = "Tell me a bit more about that."
-    return probe
-
-
 def _clock() -> object:
     """A deterministic, ever-advancing monotonic clock substitute."""
     return iter(float(i) for i in range(0, 100_000, 5)).__next__
@@ -53,7 +47,6 @@ def _runner(session: FakeRealtimeSession, event_log: EventLog) -> RealtimeInterv
     return RealtimeInterviewRunner(
         rubric=RUBRIC,
         session=session,
-        probe_generator=_stub_probe_generator(),
         guardrail_monitor=_no_violation_guardrail(),
         event_log=event_log,
         clock_now=_clock(),
@@ -153,7 +146,6 @@ async def test_guardrail_violation_injects_correction_and_records_event(
     runner = RealtimeInterviewRunner(
         rubric=RUBRIC,
         session=session,
-        probe_generator=_stub_probe_generator(),
         guardrail_monitor=guardrail,
         event_log=event_log,
         clock_now=_clock(),
@@ -234,7 +226,6 @@ async def test_session_cap_forces_wrap_up_and_ends_run(
     runner = RealtimeInterviewRunner(
         rubric=RUBRIC,
         session=session,
-        probe_generator=_stub_probe_generator(),
         guardrail_monitor=_no_violation_guardrail(),
         event_log=event_log,
         clock_now=_clock(),
@@ -254,6 +245,63 @@ def _iter_take(it: object, n: int) -> list:  # noqa: ANN001
     for _ in range(n):
         out.append(next(it))  # type: ignore[call-overload]
     return out
+
+
+def test_request_probe_returns_scripted_probes_in_order(tmp_path: Path) -> None:
+    """request_probe serves the current question's scripted probes in order, then
+    a neutral fallback — with no probe-generator/Anthropic call."""
+    # Pick the first question that has >=2 scripted probes.
+    q = next(q for q in RUBRIC.questions if len(q.scripted_probes) >= 2)
+    events = [
+        ToolCall(
+            call_id="adv",
+            name="advance_question",
+            arguments={"next_question_id": q.question_id},
+        ),
+        OutputTranscript(text=q.verbatim_text),
+        ToolCall(
+            call_id="p1",
+            name="request_probe",
+            arguments={"category": q.rubric_categories[0]},
+        ),
+        ToolCall(
+            call_id="p2",
+            name="request_probe",
+            arguments={"category": q.rubric_categories[0]},
+        ),
+        # Cover the question and close.
+        InputTranscript(text="My answer."),
+        *[
+            ev
+            for i, other_q in enumerate(RUBRIC.questions)
+            if other_q.question_id != q.question_id
+            for ev in (
+                ToolCall(
+                    call_id=f"adv{i}",
+                    name="advance_question",
+                    arguments={"next_question_id": other_q.question_id},
+                ),
+                OutputTranscript(text=other_q.verbatim_text),
+                InputTranscript(text=f"My answer to {other_q.question_id}."),
+            )
+        ],
+        ToolCall(call_id="close", name="close_interview", arguments={}),
+    ]
+    session = FakeRealtimeSession(events)
+    event_log = EventLog(session_id="s-probe", path=tmp_path / "e.jsonl")
+    runner = _runner(session, event_log)
+    asyncio.run(runner.run("s-probe"))
+
+    # The first request_probe (call_id="p1") should have spoken the 1st scripted probe.
+    p1_responses = [out for (cid, out) in session.tool_responses if cid == "p1"]
+    assert p1_responses == [q.scripted_probes[0]], (
+        f"Expected first probe={q.scripted_probes[0]!r}, got {p1_responses!r}"
+    )
+    # The second request_probe (call_id="p2") should advance the cursor to the 2nd probe.
+    p2_responses = [out for (cid, out) in session.tool_responses if cid == "p2"]
+    assert p2_responses == [q.scripted_probes[1]], (
+        f"Expected second probe={q.scripted_probes[1]!r}, got {p2_responses!r}"
+    )
 
 
 def test_candidate_turn_does_not_score_or_steer(tmp_path: Path) -> None:

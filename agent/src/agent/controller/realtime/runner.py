@@ -36,8 +36,7 @@ from agent.controller.realtime.guardrail_monitor import GuardrailMonitor
 from agent.controller.realtime.plan_builder import build_interview_plan
 from agent.controller.states import InterviewState
 from agent.controller.timing import InterviewClock
-from agent.domain.types import Assessment, Rubric, TranscriptTurn
-from agent.scoring.probe import ProbeGenerator
+from agent.domain.types import Assessment, Question, Rubric, TranscriptTurn
 from agent.scoring.rollup import roll_up_assessment
 from agent.voice.realtime.interface import (
     InputTranscript,
@@ -63,7 +62,6 @@ class RealtimeInterviewRunner:
         self,
         rubric: Rubric,
         session: RealtimeSession,
-        probe_generator: ProbeGenerator,
         guardrail_monitor: GuardrailMonitor,
         event_log: EventLog,
         clock_now: Callable[[], float],
@@ -74,10 +72,13 @@ class RealtimeInterviewRunner:
     ) -> None:
         self._rubric = rubric
         self._session = session
-        self._probe_generator = probe_generator
         self._guardrail_monitor = guardrail_monitor
         self._event_log = event_log
         self._clock_now = clock_now
+        self._questions: dict[str, Question] = {
+            q.question_id: q for q in rubric.questions
+        }
+        self._probe_cursor: dict[str, int] = {}
 
         self._plan = build_interview_plan(rubric)
         self._coverage = CoverageTracker(self._plan.required_coverage)
@@ -280,15 +281,18 @@ class RealtimeInterviewRunner:
     # Probe provider (wired into the ControlBus)
     # ------------------------------------------------------------------
 
-    def _probe_provider(self, _category: str) -> str:
-        """Return a neutral follow-up probe.
-
-        The live scorer is removed (Task 1); per-category assessments are no
-        longer available at probe time.  Task 2 will wire a proper probe
-        strategy; until then we degrade gracefully to the fallback line so the
-        interview never crashes on a request_probe tool call.
-        """
-        return _FALLBACK_PROBE
+    def _probe_provider(self, category: str) -> str:
+        """Serve the current question's scripted probes in order; neutral
+        fallback when the pool is exhausted. No model call."""
+        qid = self._current_question_id
+        question = self._questions.get(qid) if qid else None
+        if question is None or not question.scripted_probes:
+            return _FALLBACK_PROBE
+        idx = self._probe_cursor.get(qid, 0)
+        if idx >= len(question.scripted_probes):
+            return _FALLBACK_PROBE
+        self._probe_cursor[qid] = idx + 1
+        return question.scripted_probes[idx]
 
     # ------------------------------------------------------------------
     # Helpers

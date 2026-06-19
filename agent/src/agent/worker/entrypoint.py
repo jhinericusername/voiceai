@@ -269,7 +269,6 @@ async def _realtime_run_interview(
     runner = RealtimeInterviewRunner(
         rubric=rubric,
         session=voice,
-        probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
         guardrail_monitor=GuardrailMonitor(
             client=anthropic_client,
             model=REALTIME.guardrail_model,
