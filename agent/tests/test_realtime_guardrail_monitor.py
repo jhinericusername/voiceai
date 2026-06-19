@@ -68,3 +68,16 @@ def test_network_error_fails_open() -> None:
     assert verdict.violation is False
     assert verdict.kind == "none"
     assert verdict.correction == ""
+
+
+def test_classifier_prompt_allows_sanctioned_comp_startdate() -> None:
+    """The prompt tells the classifier that sanctioned comp/start-date talk is allowed."""
+    from agent.controller.realtime.guardrail_monitor import _SYSTEM_PROMPT
+
+    p = _SYSTEM_PROMPT.lower()
+    # The prompt must tell the classifier the sanctioned comp/start-date talk is allowed:
+    assert "open to negotiation" in p
+    assert "andrew" in p
+    # And still flag the hard stuff:
+    assert "specific salary" in p or "specific numbers" in p
+    assert "score" in p or "rubric" in p
