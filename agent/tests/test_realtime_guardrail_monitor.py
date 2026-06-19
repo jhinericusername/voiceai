@@ -78,6 +78,7 @@ def test_classifier_prompt_allows_sanctioned_comp_startdate() -> None:
     # The prompt must tell the classifier the sanctioned comp/start-date talk is allowed:
     assert "open to negotiation" in p
     assert "andrew" in p
+    assert "adam" in p
     # And still flag the hard stuff:
     assert "specific salary" in p or "specific numbers" in p
     assert "score" in p or "rubric" in p

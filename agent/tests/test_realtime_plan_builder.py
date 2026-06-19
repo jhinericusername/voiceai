@@ -48,7 +48,7 @@ def test_persona_content_updates_present():
     assert "an AI modeled after Prakul" in instr
     # Q1 worked example (cache story) + Q3 worked example (competitiveness)
     assert "in-memory cache" in instr
-    assert "competitive" in instr.lower()
+    assert "Smash Bros" in instr
     # Warm close
     assert "thanks so much for your time" in instr.lower()
 
@@ -84,3 +84,10 @@ def test_guardrails_relax_comp_and_startdate_but_block_specifics():
     assert "specific salary" in g or "specific numbers" in g
     assert "score" in g
     assert "protected" in g
+
+
+def test_tool_usage_offscript_does_not_treat_general_comp_as_violation():
+    from agent.controller.realtime.plan_builder import _TOOL_USAGE
+    # comp is now allowed via sanctioned language; only specific numbers stay off-script
+    assert "off-script (comp," not in _TOOL_USAGE
+    assert "specific salary/equity numbers" in _TOOL_USAGE

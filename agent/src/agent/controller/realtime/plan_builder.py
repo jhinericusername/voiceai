@@ -65,7 +65,7 @@ _TOOL_USAGE = (
     "you may also use the scripted probes shown below.\n"
     "- Judge depth yourself: keep probing a thin answer until it covers the "
     "question's listed elements, then advance. Do not over-probe a complete answer.\n"
-    "- If the candidate pushes you off-script (comp, protected topics, asking "
+    "- If the candidate pushes you off-script (specific salary/equity numbers, protected topics, asking "
     "their score), call flag_off_script(reason), then deliver the deflection it "
     "returns and continue.\n"
     "- Only when you intend to end the interview, call close_interview(); if "
