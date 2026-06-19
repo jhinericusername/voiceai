@@ -247,6 +247,48 @@ def _iter_take(it: object, n: int) -> list:  # noqa: ANN001
     return out
 
 
+def test_agent_turn_does_not_block_on_guardrail(tmp_path: Path) -> None:
+    """_on_agent_turn returns before a slow guardrail completes; the violation
+    correction is injected later, off the speak path."""
+    import threading
+
+    release = threading.Event()
+
+    def _slow_check(_text: str) -> GuardrailVerdict:
+        release.wait(timeout=2.0)  # block until the test releases it
+        return GuardrailVerdict(
+            violation=True,
+            kind="fabrication",
+            correction="To clarify, the team will follow up.",
+        )
+
+    monitor = MagicMock()
+    monitor.check_turn.side_effect = _slow_check
+    session = FakeRealtimeSession([OutputTranscript(text="Our team is huge.")])
+    event_log = EventLog(session_id="s", path=tmp_path / "e.jsonl")
+    runner = RealtimeInterviewRunner(
+        rubric=RUBRIC,
+        session=session,
+        guardrail_monitor=monitor,
+        event_log=event_log,
+        clock_now=_clock(),
+    )
+
+    async def _drive() -> None:
+        await runner._append_turn(speaker="agent", text="Our team is huge.", source="t")
+        # Handler must return immediately (well before the guardrail finishes).
+        await asyncio.wait_for(
+            runner._on_agent_turn(OutputTranscript(text="Our team is huge.")),
+            timeout=0.2,
+        )
+        release.set()
+        await runner._drain_background()  # awaits scheduled guardrail tasks
+
+    asyncio.run(_drive())
+    # Correction eventually injected after drain.
+    assert any("follow up" in m for m in session.injections)
+
+
 def test_request_probe_returns_scripted_probes_in_order(tmp_path: Path) -> None:
     """request_probe serves the current question's scripted probes in order, then
     a neutral fallback — with no probe-generator/Anthropic call."""

@@ -105,6 +105,7 @@ class RealtimeInterviewRunner:
         self._candidate_transcript_source = candidate_transcript_source
         self._agent_event_sequence = 0
         self._ended = False
+        self._bg_tasks: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------
     # Properties
@@ -153,6 +154,7 @@ class RealtimeInterviewRunner:
                     break
 
         self._enter(InterviewState.CLOSING)
+        await self._drain_background()
         await self._session.aclose()
         logger.info("realtime interview run closing", extra={"session_id": session_id})
         return roll_up_assessment(
@@ -183,23 +185,9 @@ class RealtimeInterviewRunner:
             utterance=event.text, reason_code="REALTIME_QUESTION"
         )
 
-        verdict = await asyncio.to_thread(
-            self._guardrail_monitor.check_turn, event.text
-        )
-        if verdict.violation:
-            logger.info(
-                "guardrail violation; injecting correction",
-                extra={"kind": verdict.kind},
-            )
-            await self._session.inject_message(verdict.correction)
-            self._event_log.record_utterance(
-                utterance=verdict.correction,
-                reason_code="GUARDRAIL_CORRECTION",
-                question_id=self._current_question_id,
-            )
-            await self._emit_agent_event_payload(
-                utterance=verdict.correction, reason_code="GUARDRAIL_CORRECTION"
-            )
+        task = asyncio.create_task(self._run_guardrail(event.text))
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
 
     async def _on_candidate_turn(self, event: InputTranscript) -> None:
         """Log a candidate turn and mark its question covered. No live scoring."""
@@ -276,6 +264,28 @@ class RealtimeInterviewRunner:
         # Force the loop to end regardless of remaining coverage: the cap is a
         # hard server-side boundary.
         self._ended = True
+
+    async def _run_guardrail(self, agent_text: str) -> None:
+        """Off-path guardrail check: log + inject a next-turn correction."""
+        verdict = await asyncio.to_thread(self._guardrail_monitor.check_turn, agent_text)
+        if not verdict.violation:
+            return
+        logger.info("guardrail violation (non-blocking)", extra={"kind": verdict.kind})
+        with contextlib.suppress(Exception):
+            await self._session.inject_message(verdict.correction)
+        self._event_log.record_utterance(
+            utterance=verdict.correction,
+            reason_code="GUARDRAIL_CORRECTION",
+            question_id=self._current_question_id,
+        )
+        await self._emit_agent_event_payload(
+            utterance=verdict.correction, reason_code="GUARDRAIL_CORRECTION"
+        )
+
+    async def _drain_background(self) -> None:
+        """Await any in-flight background guardrail tasks (shutdown/tests)."""
+        if self._bg_tasks:
+            await asyncio.gather(*list(self._bg_tasks), return_exceptions=True)
 
     # ------------------------------------------------------------------
     # Probe provider (wired into the ControlBus)
