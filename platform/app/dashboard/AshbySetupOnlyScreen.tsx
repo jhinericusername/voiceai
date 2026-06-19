@@ -1,14 +1,18 @@
 import Image from "next/image";
 import type { AshbyCompanyState } from "@/lib/ashby/server";
 import { AshbyOnboardingWizard } from "./AshbyOnboardingWizard";
-import { SectionPanel } from "./dashboard-ui";
+import { SectionPanel, secondaryButtonClass } from "./dashboard-ui";
 
 export function AshbySetupOnlyScreen({
   state,
   canManageSetup,
+  displayName,
+  email,
 }: {
   readonly state: AshbyCompanyState;
   readonly canManageSetup: boolean;
+  readonly displayName: string;
+  readonly email: string;
 }) {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
@@ -23,14 +27,23 @@ export function AshbySetupOnlyScreen({
               Finish Ashby setup before reviewing candidates, sending interviews, or opening imported recordings.
             </p>
           </div>
-          <Image
-            src="/puddle-mascot.svg"
-            alt="Puddle turtle mascot"
-            width={72}
-            height={72}
-            priority
-            className="hidden h-16 w-16 shrink-0 sm:block"
-          />
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="hidden min-w-0 text-right md:block">
+              <div className="max-w-44 truncate text-sm font-semibold text-slate-950">{displayName}</div>
+              <div className="max-w-44 truncate text-xs text-slate-500">{email}</div>
+            </div>
+            <a href="/logout" className={secondaryButtonClass}>
+              Sign out
+            </a>
+            <Image
+              src="/puddle-mascot.svg"
+              alt="Puddle turtle mascot"
+              width={72}
+              height={72}
+              priority
+              className="hidden h-16 w-16 shrink-0 lg:block"
+            />
+          </div>
         </header>
 
         {canManageSetup ? (
