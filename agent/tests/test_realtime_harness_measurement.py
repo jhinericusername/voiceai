@@ -14,6 +14,25 @@ from agent.eval.realtime.harness import measure
 
 
 # ---------------------------------------------------------------------------
+# Task 7: Transcript-quality metric (measure_transcript_quality)
+# ---------------------------------------------------------------------------
+
+
+def test_eval_measures_transcript_coverage_not_scores():
+    from agent.eval.realtime.run_eval import measure_transcript_quality  # new
+
+    turns = [
+        {"speaker": "agent", "text": "Q1 verbatim", "questionId": "q1"},
+        {"speaker": "candidate", "text": "answer", "questionId": "q1"},
+    ]
+    required = ["q1", "q2"]
+    result = measure_transcript_quality(turns, required_question_ids=required)
+    assert result.required_questions_asked == 1
+    assert result.coverage_ratio == 0.5
+    assert result.speaker_attribution_ok is True
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

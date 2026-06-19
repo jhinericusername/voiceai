@@ -24,7 +24,63 @@ import argparse
 import asyncio
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Transcript-quality metric (primary realtime-eval signal)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TranscriptQuality:
+    """Result of measuring transcript quality for one realtime eval run.
+
+    Attributes:
+        required_questions_asked: Count of required question IDs that appeared
+            in at least one agent turn.
+        coverage_ratio: required_questions_asked / len(required_question_ids).
+        speaker_attribution_ok: True iff every turn has a ``speaker`` value
+            that is either ``"agent"`` or ``"candidate"``.
+    """
+
+    required_questions_asked: int
+    coverage_ratio: float
+    speaker_attribution_ok: bool
+
+
+def measure_transcript_quality(
+    turns: list[dict],
+    required_question_ids: list[str],
+) -> TranscriptQuality:
+    """Measure transcript quality against the required question set.
+
+    This is the PRIMARY metric for the realtime eval — it replaces
+    live-score-fidelity as the top-level signal.  Offline scoring
+    (``agent.scoring.scorer.Scorer``) remains available for a separate
+    grading-quality run but is no longer reported here.
+
+    Args:
+        turns: List of turn dicts, each with at least ``"speaker"`` and
+            optionally ``"questionId"``.  Speaker values should be ``"agent"``
+            or ``"candidate"``.
+        required_question_ids: The full ordered list of question IDs that the
+            interview script requires the agent to ask.
+
+    Returns:
+        A frozen :class:`TranscriptQuality` dataclass with coverage counts,
+        coverage ratio, and speaker-attribution health.
+    """
+    asked = {t.get("questionId") for t in turns if t.get("speaker") == "agent"}
+    hit = sum(1 for qid in required_question_ids if qid in asked)
+    total = max(1, len(required_question_ids))
+    ok = all(t.get("speaker") in {"agent", "candidate"} for t in turns)
+    return TranscriptQuality(
+        required_questions_asked=hit,
+        coverage_ratio=hit / total,
+        speaker_attribution_ok=ok,
+    )
 
 _RUNS_DIR = Path(__file__).resolve().parent / "runs"
 
@@ -132,20 +188,56 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
         _RUNS_DIR.mkdir(parents=True, exist_ok=True)
         out_path = _RUNS_DIR / f"{args.mode}_{label}.json"
 
+    # Build transcript-quality metric (PRIMARY realtime-eval signal).
+    # The transcript from run_session uses TranscriptTurn dataclasses; convert
+    # them to the plain-dict shape that measure_transcript_quality expects.
+    raw_turns = [
+        {
+            "speaker": t.speaker,
+            "text": t.text,
+            "questionId": t.question_id,
+        }
+        for t in measurement._transcript  # noqa: SLF001 — harness internal
+    ] if hasattr(measurement, "_transcript") else []
+
+    # Derive required question IDs from the plan embedded in the measurement.
+    required_ids: list[str] = []
+    if hasattr(measurement, "_plan"):
+        required_ids = [r.question_id for r in measurement._plan.required_coverage]  # noqa: SLF001
+
+    tq = measure_transcript_quality(raw_turns, required_question_ids=required_ids)
+
     payload = {
         "mode": args.mode,
         "label": args.label or args.mode,
         "model": args.model,
         "max_turns": args.max_turns,
+        # PRIMARY: transcript-quality metric
+        "transcript_quality": {
+            "required_questions_asked": tq.required_questions_asked,
+            "coverage_ratio": tq.coverage_ratio,
+            "speaker_attribution_ok": tq.speaker_attribution_ok,
+            "guardrail_leak_count": len(measurement.guardrail_violations),
+        },
+        # SECONDARY: legacy structural measurement (retained for grading-quality analysis)
         "measurement": measurement.model_dump(),
     }
     out_path.write_text(json.dumps(payload, indent=2))
     print(f"EvalMeasurement written to {out_path}")
+    # PRIMARY metric headline
     print(
+        f"  [transcript_quality]"
+        f"  questions_asked: {tq.required_questions_asked}/{len(required_ids) or '?'}"
+        f"  coverage_ratio: {tq.coverage_ratio:.2f}"
+        f"  attribution_ok: {tq.speaker_attribution_ok}"
+        f"  guardrail_leaks: {len(measurement.guardrail_violations)}"
+    )
+    # SECONDARY legacy line (kept for diff visibility)
+    print(
+        f"  [legacy]"
         f"  coverage: {measurement.coverage_count}/{measurement.total_required}"
         f"  in_order: {measurement.in_order}"
         f"  duration: {measurement.duration_seconds:.1f}s"
-        f"  guardrail_violations: {len(measurement.guardrail_violations)}"
     )
 
 
