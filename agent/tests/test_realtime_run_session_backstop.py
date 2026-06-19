@@ -54,10 +54,6 @@ def _stub_guardrail(violation: bool = False, kind: str = "") -> Any:
     return m
 
 
-def _stub_scorer() -> Any:
-    return MagicMock()
-
-
 # ---------------------------------------------------------------------------
 # Build the scripted event sequence
 # ---------------------------------------------------------------------------
@@ -131,7 +127,6 @@ async def test_early_close_is_denied_and_coverage_completes() -> None:
         _stub_candidate(),
         session,
         RUBRIC,
-        scorer=_stub_scorer(),
         guardrail_monitor=_stub_guardrail(),
         max_turns=50,
     )
@@ -178,7 +173,6 @@ async def test_loop_continues_after_early_close_denial() -> None:
         _stub_candidate(),
         session,
         RUBRIC,
-        scorer=_stub_scorer(),
         guardrail_monitor=_stub_guardrail(),
         max_turns=50,
     )

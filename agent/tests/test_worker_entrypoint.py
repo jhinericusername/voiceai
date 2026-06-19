@@ -626,7 +626,6 @@ async def test_realtime_run_interview_builds_runner_and_finalizes(monkeypatch) -
             runner_init.update(kwargs)
             self.transcript: list[str] = []
             self.event_log = FakeEventLog()
-            self._score_checkpoint_sequence = 0
 
         async def run(self, session_id: str) -> object:
             assert session_id == "sess-rt"
@@ -669,7 +668,6 @@ async def test_realtime_run_interview_builds_runner_and_finalizes(monkeypatch) -
     assert runner_init["candidate_transcript_source"] == "realtime"
     assert runner_init["emit_transcript_turn"] == clients[0].post_transcript_turn
     assert runner_init["emit_agent_event"] == clients[0].post_agent_event
-    assert runner_init["emit_score_checkpoint"] == clients[0].post_score_checkpoint
 
     # Finalization was posted
     assert any(c.startswith("finalize:") for c in calls)

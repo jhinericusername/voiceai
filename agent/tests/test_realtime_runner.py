@@ -75,7 +75,6 @@ def _runner(session: FakeRealtimeSession, event_log: EventLog) -> RealtimeInterv
     return RealtimeInterviewRunner(
         rubric=RUBRIC,
         session=session,
-        scorer=_confident_scorer(),
         probe_generator=_stub_probe_generator(),
         guardrail_monitor=_no_violation_guardrail(),
         event_log=event_log,
@@ -110,15 +109,11 @@ async def test_happy_path_covers_all_questions_and_returns_assessment(
 
     assessment = await runner.run(session_id="s-happy")
 
-    # Returns a rolled-up Assessment.
+    # Returns a transcript-only Assessment (no live scoring; backend grades post-hoc).
     assert isinstance(assessment, Assessment)
     assert assessment.session_id == "s-happy"
-    assert {cs.category for cs in assessment.category_scores} == {
-        "problem_solving",
-        "agency",
-        "competitiveness",
-        "curious",
-    }
+    # category_scores are empty — scoring happens post-hoc in the backend.
+    assert assessment.category_scores == []
 
     # close_interview was accepted (session was closed) only after coverage.
     assert session.closed is True
@@ -126,9 +121,6 @@ async def test_happy_path_covers_all_questions_and_returns_assessment(
         ev for ev in event_log.events() if ev.reason_code == "CLOSING"
     ]
     assert closing, "expected a CLOSING event once all questions were covered"
-
-    # A score checkpoint per answered question (4).
-    assert runner.score_checkpoint_count == len(RUBRIC.questions)
 
     # The close tool response was the closer, not a coverage backstop verbatim.
     backstops = [
@@ -183,7 +175,6 @@ async def test_guardrail_violation_injects_correction_and_records_event(
     runner = RealtimeInterviewRunner(
         rubric=RUBRIC,
         session=session,
-        scorer=_confident_scorer(),
         probe_generator=_stub_probe_generator(),
         guardrail_monitor=guardrail,
         event_log=event_log,
@@ -265,7 +256,6 @@ async def test_session_cap_forces_wrap_up_and_ends_run(
     runner = RealtimeInterviewRunner(
         rubric=RUBRIC,
         session=session,
-        scorer=_confident_scorer(),
         probe_generator=_stub_probe_generator(),
         guardrail_monitor=_no_violation_guardrail(),
         event_log=event_log,
@@ -286,3 +276,41 @@ def _iter_take(it: object, n: int) -> list:  # noqa: ANN001
     for _ in range(n):
         out.append(next(it))  # type: ignore[call-overload]
     return out
+
+
+import asyncio  # noqa: E402
+
+
+def test_candidate_turn_does_not_score_or_steer(tmp_path: Path) -> None:
+    """A candidate answer is logged + marks coverage, with NO Anthropic scorer
+    call and NO steering injection."""
+    session = FakeRealtimeSession(_happy_script())
+    event_log = EventLog(session_id="s1", path=tmp_path / "e.jsonl")
+    runner = _runner(session, event_log)  # _runner no longer wires a scorer
+
+    assessment = asyncio.run(runner.run("s1"))
+
+    # Every candidate answer appears in the transcript.
+    candidate_turns = [t for t in runner.transcript if t.speaker == "candidate"]
+    expected_answers = [f"My answer to {q.question_id}." for q in RUBRIC.questions]
+    actual_texts = [t.text for t in candidate_turns]
+    assert actual_texts == expected_answers
+
+    # Coverage completed: interview reached a normal close (session closed, CLOSING logged).
+    assert session.closed is True
+    closing_events = [ev for ev in event_log.events() if ev.reason_code == "CLOSING"]
+    assert closing_events, "expected a CLOSING event once all questions were covered"
+
+    # No steering injections were made as a result of candidate turns.
+    # The no-violation guardrail injects nothing, so session.injections must be empty.
+    assert session.injections == [], (
+        f"Expected no injections from candidate-turn processing, got: {session.injections}"
+    )
+
+    # Assessment is a valid Assessment object.
+    assert isinstance(assessment, Assessment)
+
+    # After Task 1 the runner has no scorer — score_checkpoint_count is gone.
+    assert not hasattr(runner, "score_checkpoint_count"), (
+        "score_checkpoint_count property must be removed after Task 1"
+    )

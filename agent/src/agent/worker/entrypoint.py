@@ -269,7 +269,6 @@ async def _realtime_run_interview(
     runner = RealtimeInterviewRunner(
         rubric=rubric,
         session=voice,
-        scorer=Scorer(client=anthropic_client, rubric=rubric),
         probe_generator=ProbeGenerator(client=anthropic_client, rubric=rubric),
         guardrail_monitor=GuardrailMonitor(
             client=anthropic_client,
@@ -279,7 +278,6 @@ async def _realtime_run_interview(
         clock_now=time.monotonic,
         emit_transcript_turn=backend.post_transcript_turn,
         emit_agent_event=backend.post_agent_event,
-        emit_score_checkpoint=backend.post_score_checkpoint,
         candidate_transcript_source="realtime",
     )
     logger.info(

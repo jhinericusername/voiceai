@@ -126,7 +126,6 @@ async def run_session(
     session: RealtimeSession,
     rubric: Any,
     *,
-    scorer: Any,
     guardrail_monitor: Any,
     max_turns: int,
 ) -> EvalMeasurement:

@@ -94,7 +94,6 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
     from agent.eval.realtime.adaptive_candidate import AdaptiveCandidate
     from agent.eval.realtime.harness import run_session
     from agent.rubric_loader import load_rubric
-    from agent.scoring.scorer import Scorer
     from agent.voice.realtime.openai_ws_adapter import OpenAIWebsocketRealtimeSession
 
     # Rubric lives at <repo_root>/rubric/pilot-v1.yaml; run_eval.py is at
@@ -115,14 +114,12 @@ async def _run(args: argparse.Namespace) -> None:  # pragma: no cover
         output_modalities=["text"],
     )
 
-    scorer = Scorer(client=anthropic_client, rubric=rubric)
     guardrail_monitor = GuardrailMonitor(client=anthropic_client, model=REALTIME.guardrail_model)
 
     measurement = await run_session(
         candidate,
         session,
         rubric,
-        scorer=scorer,
         guardrail_monitor=guardrail_monitor,
         max_turns=args.max_turns,
     )

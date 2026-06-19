@@ -7,18 +7,16 @@ consumes the realtime event stream and steers *by exception*:
 - it logs every agent and candidate turn into the transcript + event log,
 - it runs the guardrail classifier off-loop on each agent turn and injects a
   correction when the turn violates a guardrail,
-- it scores each closed Q&A block off-loop and injects a steering nudge when
-  the model advanced past a still-low-confidence category,
 - it routes the four control tools (advance / probe / off-script / close)
   through the in-path `ControlBus`, which enforces verbatim coverage,
 - it owns coverage: each candidate answer marks the current question covered
   so the final question can be covered (the bus does not auto-mark on close),
-- it enforces a hard session time cap, and rolls the per-category assessments
-  up into a final `Assessment`.
+- it enforces a hard session time cap, and rolls the transcript into a
+  transcript-only `Assessment` (post-hoc scoring happens in the backend).
 
-Blocking work (the Anthropic scorer / guardrail / probe calls) runs in worker
-threads so the realtime audio event loop is never starved. Artifact emission
-is best-effort and never breaks the loop.
+Blocking work (the guardrail / probe calls) runs in worker threads so the
+realtime audio event loop is never starved. Artifact emission is best-effort
+and never breaks the loop.
 """
 
 from __future__ import annotations
@@ -28,7 +26,7 @@ import contextlib
 import logging
 from collections.abc import Callable
 
-from agent.config import MODELS, REALTIME, SCORING
+from agent.config import REALTIME, SCORING
 from agent.controller.emit import ArtifactEmitter, _emit_best_effort
 from agent.controller.event_log import EventLog
 from agent.controller.machine import InterviewStateMachine, InvalidTransition
@@ -36,14 +34,11 @@ from agent.controller.realtime.control_bus import ControlBus, ToolResult
 from agent.controller.realtime.coverage import CoverageTracker
 from agent.controller.realtime.guardrail_monitor import GuardrailMonitor
 from agent.controller.realtime.plan_builder import build_interview_plan
-from agent.controller.realtime.steering import decide_steering
 from agent.controller.states import InterviewState
 from agent.controller.timing import InterviewClock
-from agent.domain.types import Assessment, Question, Rubric, TranscriptTurn
-from agent.scoring.io_types import CategoryAssessment, ScorerInput
-from agent.scoring.probe import ProbeGenerator, ProbeRequest
+from agent.domain.types import Assessment, Rubric, TranscriptTurn
+from agent.scoring.probe import ProbeGenerator
 from agent.scoring.rollup import roll_up_assessment
-from agent.scoring.scorer import Scorer
 from agent.voice.realtime.interface import (
     InputTranscript,
     OutputTranscript,
@@ -68,7 +63,6 @@ class RealtimeInterviewRunner:
         self,
         rubric: Rubric,
         session: RealtimeSession,
-        scorer: Scorer,
         probe_generator: ProbeGenerator,
         guardrail_monitor: GuardrailMonitor,
         event_log: EventLog,
@@ -76,12 +70,10 @@ class RealtimeInterviewRunner:
         *,
         emit_transcript_turn: ArtifactEmitter | None = None,
         emit_agent_event: ArtifactEmitter | None = None,
-        emit_score_checkpoint: ArtifactEmitter | None = None,
         candidate_transcript_source: str = "realtime",
     ) -> None:
         self._rubric = rubric
         self._session = session
-        self._scorer = scorer
         self._probe_generator = probe_generator
         self._guardrail_monitor = guardrail_monitor
         self._event_log = event_log
@@ -103,22 +95,14 @@ class RealtimeInterviewRunner:
         self._state_machine = InterviewStateMachine(
             num_questions=len(rubric.questions)
         )
-        self._questions: dict[str, Question] = {
-            q.question_id: q for q in rubric.questions
-        }
-
         self._transcript: list[TranscriptTurn] = []
         self._turn_index = 0
         self._current_question_id: str | None = None
-        self._probes_used = 0
-        self._latest_assessments: dict[str, CategoryAssessment] = {}
 
         self._emit_transcript_turn = emit_transcript_turn or _noop_emit
         self._emit_agent_event = emit_agent_event or _noop_emit
-        self._emit_score_checkpoint = emit_score_checkpoint or _noop_emit
         self._candidate_transcript_source = candidate_transcript_source
         self._agent_event_sequence = 0
-        self._score_checkpoint_sequence = 0
         self._ended = False
 
     # ------------------------------------------------------------------
@@ -132,10 +116,6 @@ class RealtimeInterviewRunner:
     @property
     def event_log(self) -> EventLog:
         return self._event_log
-
-    @property
-    def score_checkpoint_count(self) -> int:
-        return self._score_checkpoint_sequence
 
     # ------------------------------------------------------------------
     # Run loop
@@ -177,7 +157,7 @@ class RealtimeInterviewRunner:
         return roll_up_assessment(
             session_id=session_id,
             script_version=self._rubric.script_version,
-            final_assessments=self._latest_assessments,
+            final_assessments={},
             integrity_flags=[],
             confidence_threshold=SCORING.confidence_threshold,
         )
@@ -221,64 +201,19 @@ class RealtimeInterviewRunner:
             )
 
     async def _on_candidate_turn(self, event: InputTranscript) -> None:
-        """Log a candidate turn, close its Q&A block, score, and maybe steer."""
+        """Log a candidate turn and mark its question covered. No live scoring."""
         await self._append_turn(
             speaker="candidate",
             text=event.text,
             source=self._candidate_transcript_source,
         )
-
         scored_question_id = self._current_question_id
         if scored_question_id is None:
-            # Candidate spoke before any question was asked (e.g. opener
-            # small-talk). Nothing to close or score.
+            # Candidate spoke before any question was asked (opener small-talk).
             return
-
-        # Runner-owned coverage signal: the bus does not auto-mark the
-        # last-asked question on close, so the final question would otherwise
-        # stay uncovered forever. Mark it here when its answer arrives.
+        # Runner-owned coverage signal: the bus does not auto-mark the last-asked
+        # question on close, so mark it here when its answer arrives.
         self._coverage.mark_covered(scored_question_id)
-
-        question = self._questions[scored_question_id]
-        targets = list(question.rubric_categories)
-        output = await asyncio.to_thread(
-            self._scorer.score,
-            ScorerInput(
-                script_version=self._rubric.script_version,
-                question_id=scored_question_id,
-                target_categories=targets,
-                transcript=list(self._transcript),
-            ),
-        )
-        for category, assessment in output.by_category().items():
-            self._latest_assessments[category] = assessment
-        await self._emit_score_checkpoint_payload(scored_question_id, output)
-
-        # If the model advanced to a new question while scoring ran, steering
-        # back is appropriate; if it is still on the same question, let it
-        # probe itself.
-        already_advanced = self._current_question_id != scored_question_id
-        steer = decide_steering(
-            scorer_output=output,
-            target_categories=targets,
-            probes_used=self._probes_used,
-            max_probes=question.max_probes,
-            already_advanced=already_advanced,
-        )
-        if steer is not None:
-            await self._session.inject_message(steer.text)
-            self._event_log.record_utterance(
-                utterance=steer.text,
-                reason_code="STEER",
-                question_id=scored_question_id,
-                category=steer.category,
-            )
-            await self._emit_agent_event_payload(
-                utterance=steer.text,
-                reason_code="STEER",
-                question_id=scored_question_id,
-                category=steer.category,
-            )
 
     async def _on_tool_call(self, event: ToolCall) -> None:
         """Dispatch a control tool through the bus and reply to the session."""
@@ -345,34 +280,15 @@ class RealtimeInterviewRunner:
     # Probe provider (wired into the ControlBus)
     # ------------------------------------------------------------------
 
-    def _probe_provider(self, category: str) -> str:
-        """Build a ProbeRequest from runner state and generate a probe.
+    def _probe_provider(self, _category: str) -> str:
+        """Return a neutral follow-up probe.
 
-        Falls back to a neutral follow-up when the category has not been
-        assessed yet (so a request_probe never crashes the interview).
+        The live scorer is removed (Task 1); per-category assessments are no
+        longer available at probe time.  Task 2 will wire a proper probe
+        strategy; until then we degrade gracefully to the fallback line so the
+        interview never crashes on a request_probe tool call.
         """
-        assessment = self._latest_assessments.get(category)
-        if assessment is None:
-            return _FALLBACK_PROBE
-        max_probes = (
-            self._questions[self._current_question_id].max_probes
-            if self._current_question_id in self._questions
-            else 2
-        )
-        try:
-            probe = self._probe_generator.generate(
-                ProbeRequest(
-                    category_assessment=assessment,
-                    transcript=list(self._transcript),
-                    probes_used=self._probes_used,
-                    max_probes=max_probes,
-                )
-            )
-        except ValueError:
-            # Probe budget exhausted — degrade to a neutral follow-up.
-            return _FALLBACK_PROBE
-        self._probes_used += 1
-        return probe
+        return _FALLBACK_PROBE
 
     # ------------------------------------------------------------------
     # Helpers
@@ -432,26 +348,3 @@ class RealtimeInterviewRunner:
         self._agent_event_sequence += 1
         await _emit_best_effort("agent_event", self._emit_agent_event, payload)
 
-    async def _emit_score_checkpoint_payload(
-        self, question_id: str, output: object
-    ) -> None:
-        """Best-effort emit one score_checkpoint artifact."""
-        payload = {
-            "sequence": self._score_checkpoint_sequence,
-            "questionId": question_id,
-            "model": MODELS.scorer_model,
-            "assessments": [
-                {
-                    "category": a.category,
-                    "provisionalScore": a.provisional_score,
-                    "confidence": a.confidence,
-                    "evidenceQuotes": a.evidence_quotes,
-                    "missingOrAmbiguous": a.missing_or_ambiguous,
-                }
-                for a in output.assessments  # type: ignore[attr-defined]
-            ],
-        }
-        self._score_checkpoint_sequence += 1
-        await _emit_best_effort(
-            "score_checkpoint", self._emit_score_checkpoint, payload
-        )
