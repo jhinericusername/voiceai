@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import Fastify from "fastify";
 import { TokenVerifier } from "livekit-server-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -143,6 +144,26 @@ describe("interviewer repository", () => {
     expect(stmt.sql).toContain("payload->>'event_type' = 'interviewer_joined'");
     expect(stmt.sql).toContain("LIMIT 1");
     expect(stmt.params).toEqual(["sess1"]);
+  });
+});
+
+describe("candidate auto-dispatch guard", () => {
+  it("uses interviewer join events as the durable human-present signal", () => {
+    const stmt = hasInterviewerJoinedStatement("sess-human");
+
+    expect(stmt.sql).toContain("interviewer_joined");
+    expect(stmt.sql).toContain("LIMIT 1");
+    expect(stmt.params).toEqual(["sess-human"]);
+  });
+});
+
+describe("candidate join source behavior", () => {
+  it("checks for interviewer joins before deciding to dispatch the AI interviewer", async () => {
+    const source = await readFile(new URL("../src/invites/routes.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("hasInterviewerJoinedStatement");
+    expect(source).toContain("dispatchAgent: !hasInterviewerJoined");
+    expect(source).toContain("ai_interviewer_auto_dispatch_skipped");
   });
 });
 
