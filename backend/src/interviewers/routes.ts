@@ -310,14 +310,16 @@ export function registerInterviewerRoutes(
         await pool.query(roomStmt.sql, [...roomStmt.params]);
       }
 
-      await persistOpsEvent(pool, {
-        sessionId,
-        eventType: "interviewer_joined",
-        payload: {
-          interviewer_email: validation.body.interviewerEmail,
-          interviewer_user_id: validation.body.interviewerUserId,
-          room,
-        },
+      await withInterviewerTransaction(pool, async (client) => {
+        await persistOpsEvent(client, {
+          sessionId,
+          eventType: "interviewer_joined",
+          payload: {
+            interviewer_email: validation.body.interviewerEmail,
+            interviewer_user_id: validation.body.interviewerUserId,
+            room,
+          },
+        });
       });
 
       return reply.code(200).send({

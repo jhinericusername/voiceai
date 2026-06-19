@@ -158,6 +158,15 @@ function insertedEventPayloads(): Array<Record<string, unknown>> {
   });
 }
 
+function clientInsertedEventPayloads(): Array<Record<string, unknown>> {
+  return clientQueryMock.mock.calls.flatMap(([sql, params]) => {
+    if (!String(sql).includes("INSERT INTO events") || !Array.isArray(params)) {
+      return [];
+    }
+    return [JSON.parse(String(params[2])) as Record<string, unknown>];
+  });
+}
+
 function markedCandidateInviteUsed(): boolean {
   return queryMock.mock.calls.some(([sql, params]) => {
     return (
@@ -544,7 +553,14 @@ describe("interviewer internal routes", () => {
       room: "interview-sess1",
     });
     expect(ensureRoomReadyMock).not.toHaveBeenCalled();
-    expect(insertedEventPayloads()).toEqual(
+    expectClientSqlOrder(
+      "BEGIN",
+      "INSERT INTO events",
+      "SELECT entry_hash",
+      "INSERT INTO audit_log",
+      "COMMIT",
+    );
+    expect(clientInsertedEventPayloads()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           event_type: "interviewer_joined",
@@ -554,6 +570,56 @@ describe("interviewer internal routes", () => {
         }),
       ]),
     );
+    await app.close();
+  });
+
+  it("rolls back interviewer presence acknowledgement when audit persistence fails", async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM sessions")) {
+        return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    clientQueryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("INSERT INTO audit_log")) {
+        throw new Error("audit insert failed");
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const app = Fastify();
+    registerInterviewerRoutes(app, FAKE_LK);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/internal/interviews/sess1/interviewer/connected",
+      payload: {
+        orgId: "org1",
+        interviewerEmail: "interviewer@example.com",
+        interviewerUserId: "user1",
+      },
+    });
+
+    expect(res.statusCode).toBe(500);
+    expectClientSqlOrder(
+      "BEGIN",
+      "INSERT INTO events",
+      "SELECT entry_hash",
+      "INSERT INTO audit_log",
+      "ROLLBACK",
+    );
+    expect(clientInsertedEventPayloads()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "interviewer_joined",
+          interviewer_email: "interviewer@example.com",
+          interviewer_user_id: "user1",
+          room: "interview-sess1",
+        }),
+      ]),
+    );
+    expect(clientSqls()).not.toContain("COMMIT");
+    expect(insertedEventPayloads()).toEqual([]);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
     await app.close();
   });
 
