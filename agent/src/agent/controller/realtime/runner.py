@@ -137,26 +137,27 @@ class RealtimeInterviewRunner:
             instructions=self._plan.instructions, tools=self._plan.tool_schemas
         )
 
-        async for event in self._session.events():
-            if isinstance(event, OutputTranscript):
-                await self._on_agent_turn(event)
-            elif isinstance(event, InputTranscript):
-                await self._on_candidate_turn(event)
-            elif isinstance(event, ToolCall):
-                await self._on_tool_call(event)
+        try:
+            async for event in self._session.events():
+                if isinstance(event, OutputTranscript):
+                    await self._on_agent_turn(event)
+                elif isinstance(event, InputTranscript):
+                    await self._on_candidate_turn(event)
+                elif isinstance(event, ToolCall):
+                    await self._on_tool_call(event)
 
-            if self._ended:
-                break
-
-            if self._clock_now() - start > REALTIME.max_session_seconds:
-                await self._force_wrap_up()
                 if self._ended:
                     break
 
-        self._enter(InterviewState.CLOSING)
-        await self._drain_background()
-        await self._session.aclose()
-        logger.info("realtime interview run closing", extra={"session_id": session_id})
+                if self._clock_now() - start > REALTIME.max_session_seconds:
+                    await self._force_wrap_up()
+                    if self._ended:
+                        break
+        finally:
+            self._enter(InterviewState.CLOSING)
+            await self._drain_background()
+            await self._session.aclose()
+            logger.info("realtime interview run closing", extra={"session_id": session_id})
         return roll_up_assessment(
             session_id=session_id,
             script_version=self._rubric.script_version,
@@ -185,7 +186,8 @@ class RealtimeInterviewRunner:
             utterance=event.text, reason_code="REALTIME_QUESTION"
         )
 
-        task = asyncio.create_task(self._run_guardrail(event.text))
+        qid = self._current_question_id
+        task = asyncio.create_task(self._run_guardrail(event.text, qid))
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
 
@@ -265,7 +267,7 @@ class RealtimeInterviewRunner:
         # hard server-side boundary.
         self._ended = True
 
-    async def _run_guardrail(self, agent_text: str) -> None:
+    async def _run_guardrail(self, agent_text: str, question_id: str | None) -> None:
         """Off-path guardrail check: log + inject a next-turn correction."""
         verdict = await asyncio.to_thread(self._guardrail_monitor.check_turn, agent_text)
         if not verdict.violation:
@@ -276,7 +278,7 @@ class RealtimeInterviewRunner:
         self._event_log.record_utterance(
             utterance=verdict.correction,
             reason_code="GUARDRAIL_CORRECTION",
-            question_id=self._current_question_id,
+            question_id=question_id,
         )
         await self._emit_agent_event_payload(
             utterance=verdict.correction, reason_code="GUARDRAIL_CORRECTION"
@@ -285,7 +287,10 @@ class RealtimeInterviewRunner:
     async def _drain_background(self) -> None:
         """Await any in-flight background guardrail tasks (shutdown/tests)."""
         if self._bg_tasks:
-            await asyncio.gather(*list(self._bg_tasks), return_exceptions=True)
+            results = await asyncio.gather(*list(self._bg_tasks), return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException):
+                    logger.warning("guardrail background task failed", exc_info=result)
 
     # ------------------------------------------------------------------
     # Probe provider (wired into the ControlBus)

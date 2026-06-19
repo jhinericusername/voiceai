@@ -13,6 +13,8 @@ import dataclasses
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from agent.config import REALTIME
 from agent.controller.event_log import EventLog
 from agent.controller.realtime import runner as runner_module
@@ -344,6 +346,45 @@ def test_request_probe_returns_scripted_probes_in_order(tmp_path: Path) -> None:
     assert p2_responses == [q.scripted_probes[1]], (
         f"Expected second probe={q.scripted_probes[1]!r}, got {p2_responses!r}"
     )
+
+
+async def test_cleanup_runs_on_exception_exit_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """If a handler raises mid-loop, session.aclose() and drain still run."""
+    session = FakeRealtimeSession(
+        [
+            OutputTranscript(text="Hello."),
+            OutputTranscript(text="This one raises."),
+        ]
+    )
+    event_log = EventLog(session_id="s-exc", path=tmp_path / "events.jsonl")
+    runner = RealtimeInterviewRunner(
+        rubric=RUBRIC,
+        session=session,
+        guardrail_monitor=_no_violation_guardrail(),
+        event_log=event_log,
+        clock_now=_clock(),
+    )
+
+    call_count = 0
+    original_on_agent_turn = runner._on_agent_turn
+
+    async def _raising_on_agent_turn(event: OutputTranscript) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise RuntimeError("handler exploded mid-loop")
+        await original_on_agent_turn(event)
+
+    monkeypatch.setattr(runner, "_on_agent_turn", _raising_on_agent_turn)
+
+    with pytest.raises(RuntimeError, match="handler exploded mid-loop"):
+        await runner.run(session_id="s-exc")
+
+    # Despite the exception, cleanup must have run.
+    assert session.closed is True, "session.aclose() must run even on exception exit"
+    assert runner._bg_tasks == set(), "_bg_tasks must be drained even on exception exit"
 
 
 def test_candidate_turn_does_not_score_or_steer(tmp_path: Path) -> None:

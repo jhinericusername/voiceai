@@ -357,7 +357,7 @@ async def test_realtime_run_interview_posts_disconnected_finalization(monkeypatc
     assert clients[0].finalization_payloads[0]["completionReason"] == "candidate_disconnected"  # type: ignore[index]
 
 
-def test_entrypoint_always_runs_realtime(monkeypatch) -> None:
+def test_realtime_config_has_no_enabled_field(monkeypatch) -> None:
     """After flag removal, RealtimeConfig has no `enabled` attr."""
     monkeypatch.delenv("PUDDLE_USE_REALTIME", raising=False)
     # Importing config must not expose an `enabled` flag anymore.
