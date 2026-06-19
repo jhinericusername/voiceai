@@ -322,6 +322,45 @@ async def test_urllib_transport_raises_for_response_status_failure(
         await UrlLibBackendTransport().post("/internal/test", {"answer": 42})
 
 
+async def test_post_transcript_turn_retries_then_logs(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Transient failure on first attempt: retry succeeds on second — exactly 2 calls made."""
+    calls: dict[str, int] = {"n": 0}
+
+    async def _flaky(path: str, payload: dict[str, Any]) -> None:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise RuntimeError("transient")
+
+    client = BackendClient(session_id="s")
+    monkeypatch.setattr(client._transport, "post", _flaky)
+    await client.post_transcript_turn({"turnIndex": 0, "speaker": "agent", "text": "hi"})
+    assert calls["n"] == 2  # retried once, then succeeded
+    assert client.pending == []  # nothing buffered — retry succeeded
+
+
+async def test_post_transcript_turn_always_fails_logs_and_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """All retry attempts exhausted: logs a warning, never raises, may buffer."""
+    calls: dict[str, int] = {"n": 0}
+
+    async def _always_fail(path: str, payload: dict[str, Any]) -> None:
+        calls["n"] += 1
+        raise RuntimeError("persistent")
+
+    import logging
+
+    client = BackendClient(session_id="s")
+    monkeypatch.setattr(client._transport, "post", _always_fail)
+    with caplog.at_level(logging.WARNING, logger="agent.worker.backend_client"):
+        # must not raise
+        await client.post_transcript_turn({"turnIndex": 0, "speaker": "agent", "text": "hi"})
+    assert calls["n"] >= 2  # at least one retry attempted
+    assert any("transcript" in r.message.lower() or "retry" in r.message.lower() or "artifact" in r.message.lower() for r in caplog.records)
+
+
 async def test_urllib_transport_propagates_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
     http_error = urllib.error.HTTPError(
         url="https://backend.test/internal/test",

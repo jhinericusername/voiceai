@@ -13,6 +13,10 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
+# Transcript turns are the sole interview deliverable — retry before buffering.
+_TRANSCRIPT_RETRY_ATTEMPTS: int = 3
+_TRANSCRIPT_RETRY_BACKOFF_SECONDS: float = 0.1
+
 
 def backend_base_url() -> str:
     return os.environ.get("PUDDLE_BACKEND_BASE_URL", "http://localhost:8080").rstrip("/")
@@ -73,12 +77,43 @@ class BackendClient:
         ]
 
     async def post_transcript_turn(self, payload: dict[str, Any]) -> None:
-        await self._post_or_buffer(
-            PendingPost(
-                f"/internal/sessions/{self._session_id}/transcript-turns",
-                payload,
+        """Post a transcript turn with a bounded retry before falling back to buffering.
+
+        Transcript turns are the sole interview deliverable, so a transient hiccup
+        gets up to _TRANSCRIPT_RETRY_ATTEMPTS tries (with short exponential backoff)
+        before the normal buffer-on-failure path kicks in. The method never raises.
+        """
+        path = f"/internal/sessions/{self._session_id}/transcript-turns"
+        pending_post = PendingPost(path, payload)
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            self._in_flight_posts.add(current_task)
+        try:
+            last_exc: BaseException | None = None
+            for attempt in range(_TRANSCRIPT_RETRY_ATTEMPTS):
+                try:
+                    await self._transport.post(path, payload)
+                    return  # success — skip buffering entirely
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < _TRANSCRIPT_RETRY_ATTEMPTS - 1:
+                        await asyncio.sleep(_TRANSCRIPT_RETRY_BACKOFF_SECONDS * (2**attempt))
+            # All retries exhausted — log and fall through to buffer.
+            logger.warning(
+                "transcript-turn post failed after %d attempts; buffering",
+                _TRANSCRIPT_RETRY_ATTEMPTS,
+                extra={
+                    "session_id": self._session_id,
+                    "path": path,
+                    "error": str(last_exc),
+                    "error_type": type(last_exc).__name__,
+                },
+                exc_info=last_exc,
             )
-        )
+            self._append_pending(pending_post)
+        finally:
+            if current_task is not None:
+                self._in_flight_posts.discard(current_task)
 
     async def post_agent_event(self, payload: dict[str, Any]) -> None:
         await self._post_or_buffer(
