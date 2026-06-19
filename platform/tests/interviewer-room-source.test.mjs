@@ -46,3 +46,22 @@ test("interviewer join and AI control routes call the role-specific backend surf
   assert.match(aiControlRoute, /ai-control/);
   assert.match(aiControlRoute, /action/);
 });
+
+test("interviewer platform routes fail closed on malformed backend success payloads", () => {
+  assert.match(candidateInviteRoute, /Candidate invite response was malformed\./);
+  assert.match(candidateInviteRoute, /isCandidateInviteResponse\(payload\)/);
+  assert.match(candidateInviteRoute, /typeof \w+\.invitePath === "string"/);
+  assert.match(candidateInviteRoute, /typeof \w+\.inviteExpiresAt === "string"/);
+
+  assert.match(interviewerJoinRoute, /Interviewer join response was malformed\./);
+  assert.match(interviewerJoinRoute, /isInterviewerJoinResponse\(payload\)/);
+  for (const field of ["sessionId", "room", "liveKitUrl", "token"]) {
+    assert.match(interviewerJoinRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
+  }
+
+  assert.match(aiControlRoute, /AI interviewer control response was malformed\./);
+  assert.match(aiControlRoute, /isAiControlResponse\(payload\)/);
+  for (const field of ["sessionId", "aiInterviewerState", "requestedAt"]) {
+    assert.match(aiControlRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
+  }
+});

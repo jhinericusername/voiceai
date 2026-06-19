@@ -12,6 +12,27 @@ interface RouteContext {
 }
 
 const AI_CONTROL_ACTIONS = new Set(["start", "stop", "resume"]);
+const AI_INTERVIEWER_STATES = new Set(["running", "stopped"]);
+
+interface AiControlResponse {
+  readonly sessionId: string;
+  readonly aiInterviewerState: string;
+  readonly requestedAt: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isAiControlResponse(value: unknown): value is AiControlResponse {
+  return (
+    isRecord(value) &&
+    typeof value.sessionId === "string" &&
+    typeof value.aiInterviewerState === "string" &&
+    AI_INTERVIEWER_STATES.has(value.aiInterviewerState) &&
+    typeof value.requestedAt === "string"
+  );
+}
 
 function actionFromBody(body: unknown): string {
   if (!body || typeof body !== "object" || !("action" in body)) {
@@ -57,6 +78,10 @@ export async function POST(request: Request, context: RouteContext) {
       },
       { status: backendResponse.status },
     );
+  }
+
+  if (!isAiControlResponse(payload)) {
+    return NextResponse.json({ error: "AI interviewer control response was malformed." }, { status: 502 });
   }
 
   return NextResponse.json(payload, {

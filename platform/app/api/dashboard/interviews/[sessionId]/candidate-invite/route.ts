@@ -12,6 +12,19 @@ interface RouteContext {
   }>;
 }
 
+interface CandidateInviteResponse {
+  readonly invitePath: string;
+  readonly inviteExpiresAt: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isCandidateInviteResponse(value: unknown): value is CandidateInviteResponse {
+  return isRecord(value) && typeof value.invitePath === "string" && typeof value.inviteExpiresAt === "string";
+}
+
 export async function POST(_request: Request, context: RouteContext) {
   const access = await requireAshbyReadyDashboardApiAccess(dashboardApiReadinessContext());
   if (access.response) return access.response;
@@ -44,6 +57,10 @@ export async function POST(_request: Request, context: RouteContext) {
       },
       { status: backendResponse.status },
     );
+  }
+
+  if (!isCandidateInviteResponse(payload)) {
+    return NextResponse.json({ error: "Candidate invite response was malformed." }, { status: 502 });
   }
 
   return NextResponse.json(

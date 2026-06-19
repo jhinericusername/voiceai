@@ -11,6 +11,27 @@ interface RouteContext {
   }>;
 }
 
+interface InterviewerJoinResponse {
+  readonly sessionId: string;
+  readonly room: string;
+  readonly liveKitUrl: string;
+  readonly token: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isInterviewerJoinResponse(value: unknown): value is InterviewerJoinResponse {
+  return (
+    isRecord(value) &&
+    typeof value.sessionId === "string" &&
+    typeof value.room === "string" &&
+    typeof value.liveKitUrl === "string" &&
+    typeof value.token === "string"
+  );
+}
+
 export async function POST(_request: Request, context: RouteContext) {
   const access = await requireAshbyReadyDashboardApiAccess(dashboardApiReadinessContext());
   if (access.response) return access.response;
@@ -43,6 +64,10 @@ export async function POST(_request: Request, context: RouteContext) {
       },
       { status: backendResponse.status },
     );
+  }
+
+  if (!isInterviewerJoinResponse(payload)) {
+    return NextResponse.json({ error: "Interviewer join response was malformed." }, { status: 502 });
   }
 
   return NextResponse.json(payload, {
