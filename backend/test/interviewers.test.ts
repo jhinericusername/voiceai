@@ -722,7 +722,70 @@ describe("interviewer internal routes", () => {
       interviewer_user_id: "user1",
       requested_state: "running",
     });
+    // running intent must actually dispatch the puddle-interviewer worker into the room
+    expect(ensureRoomReadyMock).toHaveBeenCalledWith(
+      FAKE_LK,
+      "sess1",
+      expect.any(String),
+      expect.objectContaining({ dispatchAgent: true }),
+    );
     await app.close();
+  });
+
+  it("dispatches the AI worker on start and not on stop", async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM sessions")) {
+        return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    clientQueryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT entry_hash")) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+
+    const startApp = Fastify();
+    registerInterviewerRoutes(startApp, FAKE_LK);
+    const startRes = await startApp.inject({
+      method: "POST",
+      url: "/internal/interviews/sess1/ai-control",
+      payload: {
+        orgId: "org1",
+        interviewerEmail: "interviewer@example.com",
+        interviewerUserId: "user1",
+        action: "start",
+      },
+    });
+    expect(startRes.statusCode).toBe(200);
+    expect(startRes.json()).toMatchObject({ aiInterviewerState: "running" });
+    expect(ensureRoomReadyMock).toHaveBeenCalledWith(
+      FAKE_LK,
+      "sess1",
+      expect.any(String),
+      expect.objectContaining({ dispatchAgent: true }),
+    );
+    await startApp.close();
+
+    ensureRoomReadyMock.mockClear();
+
+    const stopApp = Fastify();
+    registerInterviewerRoutes(stopApp, FAKE_LK);
+    const stopRes = await stopApp.inject({
+      method: "POST",
+      url: "/internal/interviews/sess1/ai-control",
+      payload: {
+        orgId: "org1",
+        interviewerEmail: "interviewer@example.com",
+        interviewerUserId: "user1",
+        action: "stop",
+      },
+    });
+    expect(stopRes.statusCode).toBe(200);
+    expect(stopRes.json()).toMatchObject({ aiInterviewerState: "stopped" });
+    expect(ensureRoomReadyMock).not.toHaveBeenCalled();
+    await stopApp.close();
   });
 
   it("rolls back AI control state when event persistence fails", async () => {

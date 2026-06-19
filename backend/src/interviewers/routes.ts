@@ -373,6 +373,28 @@ export function registerInterviewerRoutes(
         });
       });
 
+      // A "running" intent (start/resume) must actually dispatch the
+      // puddle-interviewer worker into the room — the scaffolding only
+      // recorded intent. Dispatch happens after the state transaction commits
+      // so a persistence failure never leaves a worker running with no record.
+      // ensureRoomReady is idempotent (skips dispatch if one already exists),
+      // so repeated start/resume is safe. "stopped" is record-only for now.
+      if (requestedState === "running") {
+        try {
+          await ensureRoomReady(
+            liveKitConfig,
+            sessionId,
+            buildWorkerDispatchMetadata(sessionRecord(session)),
+            { hadPreviousRoom: Boolean(session.room_name), dispatchAgent: true },
+          );
+        } catch (error) {
+          request.log.error({ err: error, sessionId }, "ai interviewer dispatch failed");
+          return reply.code(503).send({
+            error: "AI interviewer could not be started; please try again shortly",
+          });
+        }
+      }
+
       return reply.code(200).send({
         sessionId,
         aiInterviewerState: requestedState,
