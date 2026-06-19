@@ -40,6 +40,8 @@ _TOOL_USAGE = (
     "call advance_question(next_question_id) and read the verbatim text it returns.\n"
     "- To dig deeper, call request_probe(category) and read the probe it returns; "
     "you may also use the scripted probes shown below.\n"
+    "- Judge depth yourself: keep probing a thin answer until it covers the "
+    "question's listed elements, then advance. Do not over-probe a complete answer.\n"
     "- If the candidate pushes you off-script (comp, protected topics, asking "
     "their score), call flag_off_script(reason), then deliver the deflection it "
     "returns and continue.\n"
@@ -52,6 +54,13 @@ def _question_block(q: Question) -> str:
     lines = [f"[{q.question_id}] {q.verbatim_text}"]
     if q.pre_question and q.pre_question.ask:
         lines.append(f"  framing (ask first): {q.pre_question.ask} {q.pre_question.branch_no}".rstrip())
+    if q.target_evidence:
+        lines.append("  a complete answer covers: " + "; ".join(q.target_evidence))
+        lines.append(
+            f"  probe (up to {q.max_probes}x) only until these are covered, then STOP probing and move on."
+        )
+    for nudge in q.when_stuck:
+        lines.append(f"  if they stall, nudge: {nudge}")
     for p in q.scripted_probes:
         lines.append(f"  scripted probe: {p}")
     return "\n".join(lines)

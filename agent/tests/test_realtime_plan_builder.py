@@ -26,3 +26,13 @@ def test_required_coverage_is_every_question():
 def test_tool_schemas_expose_the_four_tools():
     names = {t["name"] for t in build_interview_plan(RUBRIC).tool_schemas}
     assert names == {"advance_question", "request_probe", "flag_off_script", "close_interview"}
+
+
+def test_instructions_include_completeness_exemplars():
+    plan = build_interview_plan(RUBRIC)
+    q = next(q for q in RUBRIC.questions if q.target_evidence)
+    # Each evidence element appears in the instructions as completeness guidance.
+    for element in q.target_evidence:
+        assert element in plan.instructions
+    assert "complete answer covers" in plan.instructions.lower()
+    assert "stop probing" in plan.instructions.lower()
