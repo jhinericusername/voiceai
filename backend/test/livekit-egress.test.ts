@@ -326,7 +326,9 @@ describe("LiveKit room readiness", () => {
       },
     };
     const dispatch = {
-      listDispatch: async () => [],
+      listDispatch: async () => {
+        throw new Error("should not list dispatches");
+      },
       createDispatch: async (room: string, agentName: string, options: unknown) => {
         createdDispatches.push({ room, agentName, options });
       },

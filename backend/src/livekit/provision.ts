@@ -100,8 +100,8 @@ function dispatchMatchesPuddleInterviewer(dispatch: AgentDispatch): boolean {
   return (dispatch.agentName ?? dispatch.agent_name) === INTERVIEW_AGENT_NAME;
 }
 
-// Ensures the SFU room exists and exactly one Puddle interviewer dispatch has
-// been requested. This is intentionally safe to call from every candidate join.
+// Ensures the SFU room exists and, unless disabled for interviewer-led setup,
+// that one Puddle interviewer dispatch has been requested.
 export async function ensureRoomReady(
   config: LiveKitConfig,
   sessionId: string,

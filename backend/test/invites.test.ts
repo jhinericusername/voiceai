@@ -191,6 +191,9 @@ describe("candidate LiveKit tokens", () => {
     expect(claims.sub).toBe("candidate-invite1");
     expect(claims.video?.roomJoin).toBe(true);
     expect(claims.video?.room).toBe("interview-sess1");
+    expect(claims.video?.canPublish).toBe(true);
+    expect(claims.video?.canSubscribe).toBe(true);
+    expect(claims.video?.canPublishData).toBe(true);
     expect(claims.name).toBe("candidate@example.com");
   });
 
@@ -234,6 +237,9 @@ describe("interviewer LiveKit tokens", () => {
     expect(claims.sub).toBe("interviewer-sess1-user_123");
     expect(claims.video?.roomJoin).toBe(true);
     expect(claims.video?.room).toBe("interview-sess1");
+    expect(claims.video?.canPublish).toBe(true);
+    expect(claims.video?.canSubscribe).toBe(true);
+    expect(claims.video?.canPublishData).toBe(true);
     expect(claims.name).toBe("host@workweave.ai");
     expect(JSON.parse(String(claims.metadata))).toEqual({
       session_id: "sess1",
