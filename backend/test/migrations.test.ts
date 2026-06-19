@@ -187,7 +187,7 @@ describe("database migrations", () => {
       "utf-8",
     );
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS interview_ai_control_state");
-    expect(migration).toContain("session_id             TEXT PRIMARY KEY REFERENCES sessions(session_id)");
+    expect(migration).toContain("session_id             TEXT PRIMARY KEY REFERENCES sessions(session_id) ON DELETE CASCADE");
     expect(migration).toContain("requested_state        TEXT NOT NULL CHECK (requested_state IN ('running', 'stopped'))");
     expect(migration).toContain("requested_by_user_id   TEXT NOT NULL");
     expect(migration).toContain("requested_by_email     TEXT NOT NULL");

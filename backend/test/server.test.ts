@@ -641,6 +641,35 @@ describe("buildServer", () => {
     }
   });
 
+  it("requires internal auth for interviewer internal routes", async () => {
+    const previousToken = process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+    process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/internal/interviews/session-1/ai-control",
+        headers: { "content-type": "application/json" },
+        payload: {
+          orgId: "org1",
+          interviewerEmail: "interviewer@example.com",
+          interviewerUserId: "user1",
+          action: "start",
+        },
+      });
+
+      expect(res.statusCode).toBe(401);
+      expectNoDbAccess();
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.PUDDLE_BACKEND_INTERNAL_TOKEN;
+      } else {
+        process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = previousToken;
+      }
+      await app.close();
+    }
+  });
+
   it("persists agent events and emits an ops event", async () => {
     const { app, close } = buildServerWithoutInternalAuth();
     try {

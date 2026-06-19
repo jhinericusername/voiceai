@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { Pool, PoolClient } from "pg";
 import { getPool } from "../db/pool.js";
 import { persistOpsEvent } from "../events/repository.js";
 import { generateInviteToken } from "../invites/tokens.js";
@@ -87,9 +88,31 @@ function validateAiControlBody(body: unknown): BodyValidation<Required<Interview
   return { ok: true, body: { ...base.body, action } };
 }
 
-async function loadSession(sessionId: string, orgId: string): Promise<InterviewerSessionRow | undefined> {
+async function withInterviewerTransaction<T>(
+  pool: Pick<Pool, "connect">,
+  work: (client: Pick<PoolClient, "query">) => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function loadSession(
+  pool: Pick<Pool, "query">,
+  sessionId: string,
+  orgId: string,
+): Promise<InterviewerSessionRow | undefined> {
   const stmt = interviewerSessionStatement(sessionId, orgId);
-  const { rows } = await getPool().query<InterviewerSessionRow>(stmt.sql, [...stmt.params]);
+  const { rows } = await pool.query<InterviewerSessionRow>(stmt.sql, [...stmt.params]);
   return rows[0];
 }
 
@@ -132,7 +155,8 @@ export function registerInterviewerRoutes(
         return reply.code(400).send({ error: validation.reason });
       }
 
-      const session = await loadSession(sessionId, validation.body.orgId);
+      const pool = getPool();
+      const session = await loadSession(pool, sessionId, validation.body.orgId);
       if (!session) {
         return reply.code(404).send({ error: "interview not found" });
       }
@@ -146,17 +170,18 @@ export function registerInterviewerRoutes(
         candidateEmail: session.candidate_email,
         token: inviteToken,
       });
-      await getPool().query(inviteStmt.sql, [...inviteStmt.params]);
-      const inviteExpiresAt = inviteStmt.params[5];
-
-      await persistOpsEvent(getPool(), {
-        sessionId,
-        eventType: "candidate_invite_created_by_interviewer",
-        payload: {
-          interviewer_email: validation.body.interviewerEmail,
-          interviewer_user_id: validation.body.interviewerUserId,
-        },
+      await withInterviewerTransaction(pool, async (client) => {
+        await client.query(inviteStmt.sql, [...inviteStmt.params]);
+        await persistOpsEvent(client, {
+          sessionId,
+          eventType: "candidate_invite_created_by_interviewer",
+          payload: {
+            interviewer_email: validation.body.interviewerEmail,
+            interviewer_user_id: validation.body.interviewerUserId,
+          },
+        });
       });
+      const inviteExpiresAt = inviteStmt.params[5];
 
       return reply.code(201).send({
         invitePath: invitePath(inviteToken),
@@ -179,7 +204,8 @@ export function registerInterviewerRoutes(
         return reply.code(400).send({ error: validation.reason });
       }
 
-      const session = await loadSession(sessionId, validation.body.orgId);
+      const pool = getPool();
+      const session = await loadSession(pool, sessionId, validation.body.orgId);
       if (!session) {
         return reply.code(404).send({ error: "interview not found" });
       }
@@ -204,7 +230,7 @@ export function registerInterviewerRoutes(
       }
 
       const roomStmt = sessionRoomUpdateStatement(sessionId, room);
-      await getPool().query(roomStmt.sql, [...roomStmt.params]);
+      await pool.query(roomStmt.sql, [...roomStmt.params]);
 
       const token = await buildInterviewerJoinToken(liveKitConfig, {
         sessionId,
@@ -213,7 +239,7 @@ export function registerInterviewerRoutes(
         interviewerEmail: validation.body.interviewerEmail,
       });
 
-      await persistOpsEvent(getPool(), {
+      await persistOpsEvent(pool, {
         sessionId,
         eventType: "interviewer_joined",
         payload: {
@@ -246,7 +272,8 @@ export function registerInterviewerRoutes(
         return reply.code(400).send({ error: validation.reason });
       }
 
-      const session = await loadSession(sessionId, validation.body.orgId);
+      const pool = getPool();
+      const session = await loadSession(pool, sessionId, validation.body.orgId);
       if (!session) {
         return reply.code(404).send({ error: "interview not found" });
       }
@@ -263,16 +290,17 @@ export function registerInterviewerRoutes(
         requestedByEmail: validation.body.interviewerEmail,
         requestedAt,
       });
-      await getPool().query(stateStmt.sql, [...stateStmt.params]);
-
-      await persistOpsEvent(getPool(), {
-        sessionId,
-        eventType: aiControlEventType(validation.body.action),
-        payload: {
-          interviewer_email: validation.body.interviewerEmail,
-          interviewer_user_id: validation.body.interviewerUserId,
-          requested_state: requestedState,
-        },
+      await withInterviewerTransaction(pool, async (client) => {
+        await client.query(stateStmt.sql, [...stateStmt.params]);
+        await persistOpsEvent(client, {
+          sessionId,
+          eventType: aiControlEventType(validation.body.action),
+          payload: {
+            interviewer_email: validation.body.interviewerEmail,
+            interviewer_user_id: validation.body.interviewerUserId,
+            requested_state: requestedState,
+          },
+        });
       });
 
       return reply.code(200).send({
