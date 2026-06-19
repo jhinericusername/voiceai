@@ -67,7 +67,6 @@ class ScoringConfig:
 class RealtimeConfig:
     """Configuration for OpenAI realtime mode."""
 
-    enabled: bool = field(default_factory=lambda: _bool_env("PUDDLE_USE_REALTIME", False))
     model: str = field(default_factory=lambda: os.getenv("PUDDLE_REALTIME_MODEL", "gpt-realtime"))
     guardrail_model: str = field(
         default_factory=lambda: os.getenv("PUDDLE_GUARDRAIL_MODEL", "claude-haiku-4-5")

@@ -449,7 +449,7 @@ async def test_default_run_interview_posts_timeout_finalization_and_returns(
     ]
 
 
-async def test_entrypoint_closes_voice_after_default_run(monkeypatch) -> None:
+async def test_entrypoint_closes_voice_after_realtime_run(monkeypatch) -> None:
     from agent.worker import entrypoint as ep
 
     job = MagicMock()
@@ -461,15 +461,15 @@ async def test_entrypoint_closes_voice_after_default_run(monkeypatch) -> None:
     voice = SimpleNamespace(aclose=AsyncMock())
     ran: dict[str, object] = {}
 
-    async def fake_build_voice(_job):  # noqa: ANN001
+    async def fake_build_realtime(_job):  # noqa: ANN001
         return voice
 
     async def fake_run(ctx, run_voice):  # noqa: ANN001
         ran["session_id"] = ctx.session_id
         ran["voice"] = run_voice
 
-    monkeypatch.setattr(ep, "_build_livekit_voice_agent", fake_build_voice)
-    monkeypatch.setattr(ep, "_default_run_interview", fake_run)
+    monkeypatch.setattr(ep, "_build_realtime_session", fake_build_realtime)
+    monkeypatch.setattr(ep, "_realtime_run_interview", fake_run)
 
     await ep.entrypoint(job)
 
@@ -477,7 +477,7 @@ async def test_entrypoint_closes_voice_after_default_run(monkeypatch) -> None:
     voice.aclose.assert_awaited_once()
 
 
-async def test_entrypoint_closes_default_voice_after_runner_failure(monkeypatch) -> None:
+async def test_entrypoint_closes_realtime_voice_after_runner_failure(monkeypatch) -> None:
     from agent.worker import entrypoint as ep
 
     job = MagicMock()
@@ -487,16 +487,16 @@ async def test_entrypoint_closes_default_voice_after_runner_failure(monkeypatch)
         '"script_version": "pilot-v1", "candidate_email": "c@example.com"}'
     )
     voice = SimpleNamespace(aclose=AsyncMock())
-    failure = RuntimeError("default runner failed")
+    failure = RuntimeError("realtime runner failed")
 
-    async def fake_build_voice(_job):  # noqa: ANN001
+    async def fake_build_realtime(_job):  # noqa: ANN001
         return voice
 
     async def fake_run(_ctx, _run_voice):  # noqa: ANN001
         raise failure
 
-    monkeypatch.setattr(ep, "_build_livekit_voice_agent", fake_build_voice)
-    monkeypatch.setattr(ep, "_default_run_interview", fake_run)
+    monkeypatch.setattr(ep, "_build_realtime_session", fake_build_realtime)
+    monkeypatch.setattr(ep, "_realtime_run_interview", fake_run)
 
     with pytest.raises(RuntimeError) as exc_info:
         await ep.entrypoint(job)
@@ -520,8 +520,8 @@ def _make_job(session_id: str = "sess1") -> MagicMock:
     return job
 
 
-async def test_entrypoint_flag_on_selects_realtime_path(monkeypatch) -> None:
-    """REALTIME.enabled=True → _build_realtime_session + _realtime_run_interview called."""
+async def test_entrypoint_always_selects_realtime_path(monkeypatch) -> None:
+    """Entrypoint always selects _build_realtime_session + _realtime_run_interview."""
     from agent.worker import entrypoint as ep
 
     fake_voice = SimpleNamespace(aclose=AsyncMock())
@@ -537,7 +537,6 @@ async def test_entrypoint_flag_on_selects_realtime_path(monkeypatch) -> None:
     async def fake_default_run(ctx, voice):  # noqa: ANN001
         default_ran.append((ctx, voice))
 
-    monkeypatch.setattr(ep, "REALTIME", SimpleNamespace(enabled=True))
     monkeypatch.setattr(ep, "_build_realtime_session", fake_build_realtime)
     monkeypatch.setattr(ep, "_realtime_run_interview", fake_realtime_run)
     monkeypatch.setattr(ep, "_default_run_interview", fake_default_run)
@@ -548,40 +547,6 @@ async def test_entrypoint_flag_on_selects_realtime_path(monkeypatch) -> None:
     assert realtime_ran[0][0].session_id == "sess1"
     assert realtime_ran[0][1] is fake_voice
     assert len(default_ran) == 0
-    fake_voice.aclose.assert_awaited_once()
-
-
-async def test_entrypoint_flag_off_selects_cascade_path(monkeypatch) -> None:
-    """REALTIME.enabled=False → _build_livekit_voice_agent + _default_run_interview called."""
-    from types import SimpleNamespace
-
-    from agent.worker import entrypoint as ep
-
-    fake_voice = SimpleNamespace(aclose=AsyncMock())
-    realtime_ran: list[object] = []
-    default_ran: list[tuple[object, object]] = []
-
-    async def fake_build_voice(_job):  # noqa: ANN001
-        return fake_voice
-
-    async def fake_realtime_run(ctx, voice):  # noqa: ANN001
-        realtime_ran.append((ctx, voice))
-
-    async def fake_default_run(ctx, voice):  # noqa: ANN001
-        default_ran.append((ctx, voice))
-
-    monkeypatch.setattr(ep, "REALTIME", SimpleNamespace(enabled=False))
-    monkeypatch.setattr(ep, "_build_livekit_voice_agent", fake_build_voice)
-    monkeypatch.setattr(ep, "_realtime_run_interview", fake_realtime_run)
-    monkeypatch.setattr(ep, "_default_run_interview", fake_default_run)
-
-    job = _make_job()
-    await ep.entrypoint(job)
-
-    assert len(default_ran) == 1
-    assert default_ran[0][0].session_id == "sess1"
-    assert default_ran[0][1] is fake_voice
-    assert len(realtime_ran) == 0
     fake_voice.aclose.assert_awaited_once()
 
 
@@ -649,7 +614,7 @@ async def test_realtime_run_interview_builds_runner_and_finalizes(monkeypatch) -
     monkeypatch.setattr(
         ep,
         "REALTIME",
-        SimpleNamespace(enabled=True, model="gpt-realtime", guardrail_model="claude-haiku-4-5"),
+        SimpleNamespace(model="gpt-realtime", guardrail_model="claude-haiku-4-5"),
     )
 
     ctx = InterviewJobContext(
@@ -726,7 +691,7 @@ async def test_realtime_run_interview_posts_disconnected_finalization(monkeypatc
     monkeypatch.setattr(
         ep,
         "REALTIME",
-        SimpleNamespace(enabled=True, model="gpt-realtime", guardrail_model="claude-haiku-4-5"),
+        SimpleNamespace(model="gpt-realtime", guardrail_model="claude-haiku-4-5"),
     )
 
     ctx = InterviewJobContext(
@@ -740,3 +705,11 @@ async def test_realtime_run_interview_posts_disconnected_finalization(monkeypatc
     await ep._realtime_run_interview(ctx, voice=object())
 
     assert clients[0].finalization_payloads[0]["completionReason"] == "candidate_disconnected"  # type: ignore[index]
+
+
+def test_entrypoint_always_runs_realtime(monkeypatch) -> None:
+    """After flag removal, RealtimeConfig has no `enabled` attr."""
+    monkeypatch.delenv("PUDDLE_USE_REALTIME", raising=False)
+    # Importing config must not expose an `enabled` flag anymore.
+    from agent.config import RealtimeConfig
+    assert not hasattr(RealtimeConfig(), "enabled")

@@ -119,18 +119,11 @@ async def entrypoint(
             await _close_voice_if_present(voice)
         return
 
-    if REALTIME.enabled:
-        voice = await _build_realtime_session(job)
-        try:
-            await _realtime_run_interview(ctx, voice)
-        finally:
-            await _close_voice_if_present(voice)
-    else:
-        voice = await _build_livekit_voice_agent(job)
-        try:
-            await _default_run_interview(ctx, voice)
-        finally:
-            await _close_voice_if_present(voice)
+    voice = await _build_realtime_session(job)
+    try:
+        await _realtime_run_interview(ctx, voice)
+    finally:
+        await _close_voice_if_present(voice)
 
 
 async def _close_voice_if_present(voice: Any) -> None:
