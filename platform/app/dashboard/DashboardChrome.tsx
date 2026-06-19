@@ -14,6 +14,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { DashboardCreateInterviewLauncher } from "./DashboardCreateInterviewLauncher";
 import { cx, secondaryButtonClass } from "./dashboard-ui";
 
 interface DashboardChromeProps {
@@ -141,7 +142,10 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
                 </div>
               </div>
 
-              <SearchAffordance />
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-end">
+                <DashboardCreateInterviewLauncher />
+                <SearchAffordance />
+              </div>
             </div>
 
             <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 pt-2 lg:hidden" aria-label="Dashboard">

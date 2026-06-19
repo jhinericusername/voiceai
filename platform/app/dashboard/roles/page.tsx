@@ -15,7 +15,7 @@ export default async function RolesPage() {
     <ActivePipelineDashboard
       pipeline={pipeline}
       view="roles"
-      canManageActiveStages={canManageAshbyOnboarding(session)}
+      canManagePipelineStages={canManageAshbyOnboarding(session)}
     />
   );
 }

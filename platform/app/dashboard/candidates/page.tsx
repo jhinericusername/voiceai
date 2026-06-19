@@ -15,7 +15,7 @@ export default async function CandidatesPage() {
     <ActivePipelineDashboard
       pipeline={pipeline}
       view="candidates"
-      canManageActiveStages={canManageAshbyOnboarding(session)}
+      canManagePipelineStages={canManageAshbyOnboarding(session)}
     />
   );
 }

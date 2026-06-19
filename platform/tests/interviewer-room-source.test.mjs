@@ -22,8 +22,10 @@ const interviewerJoinRoute = await source(
   "../app/api/dashboard/interviews/[sessionId]/interviewer-join/route.ts",
 );
 const aiControlRoute = await source("../app/api/dashboard/interviews/[sessionId]/ai-control/route.ts");
+const dashboardChrome = await source("../app/dashboard/DashboardChrome.tsx");
 
 const interviewerConnectedRoutePath = "../app/api/dashboard/interviews/[sessionId]/interviewer-connected/route.ts";
+const dashboardCreateInterviewLauncherPath = "../app/dashboard/DashboardCreateInterviewLauncher.tsx";
 
 test("create interview API returns an interviewer join URL for host launch", () => {
   assert.match(createInterviewRoute, /interviewerJoinUrl/);
@@ -116,28 +118,23 @@ test("interviewer join page is a full-screen dashboard-gated room entry", async 
   assert.match(pageSource, /<InterviewerJoinClient sessionId=\{sessionId\} \/>/);
 });
 
-test("role workspace exposes create-and-join launcher", async () => {
+test("role workspace does not own generic room creation", async () => {
   const rolePageSource = await requiredSource("../app/dashboard/roles/[roleId]/page.tsx");
-  const formSource = await requiredSource("../app/dashboard/roles/[roleId]/CreateAndJoinInterviewForm.tsx");
 
-  assert.match(rolePageSource, /CreateAndJoinInterviewForm/);
-  assert.match(formSource, /Create and join interview/);
-  assert.match(formSource, /candidateEmail/);
-  assert.match(formSource, /\/api\/interviews/);
-  assert.match(formSource, /interviewerJoinUrl/);
-  assert.match(formSource, /router\.push/);
-  assert.match(formSource, /router\.push\(interviewerJoinUrl\);\s+return;/);
-  assert.doesNotMatch(formSource, /\} finally \{/);
+  assert.doesNotMatch(rolePageSource, /CreateAndJoinInterviewForm/);
+  assert.doesNotMatch(rolePageSource, /Create and join interview/);
+});
 
-  const invalidResponseBlock = formSource.slice(
-    formSource.indexOf("if (!response.ok || !interviewerJoinUrl) {"),
-    formSource.indexOf("router.push(interviewerJoinUrl);"),
-  );
-  assert.match(invalidResponseBlock, /setIsSubmitting\(false\);/);
+test("dashboard topbar exposes a generic create-and-join room launcher", async () => {
+  const launcherSource = await requiredSource(dashboardCreateInterviewLauncherPath);
 
-  const catchIndex = formSource.indexOf("} catch {");
-  const catchBlock = formSource.slice(catchIndex, formSource.indexOf("\n  }\n\n  return", catchIndex));
-  assert.match(catchBlock, /setIsSubmitting\(false\);/);
+  assert.match(dashboardChrome, /DashboardCreateInterviewLauncher/);
+  assert.match(launcherSource, /Create and join interview/);
+  assert.match(launcherSource, /fetch\("\/api\/interviews"/);
+  assert.match(launcherSource, /interviewerJoinUrl/);
+  assert.match(launcherSource, /router\.push\(interviewerJoinUrl\)/);
+  assert.doesNotMatch(launcherSource, /roleLabel/);
+  assert.doesNotMatch(launcherSource, /candidateEmail/);
 });
 
 test("interviewer join client exposes host invite, join, and AI controls without candidate notices", async () => {

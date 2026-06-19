@@ -106,35 +106,28 @@ test("nested role workspace routes do not expose demo dashboard data", () => {
   }
 
   assert.match(roleDetailSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
-  assert.match(roleDetailSource, /CreateAndJoinInterviewForm/);
-  assert.match(roleDetailSource, /Start a hosted Puddle room/);
+  assert.doesNotMatch(roleDetailSource, /CreateAndJoinInterviewForm/);
+  assert.match(chromeSource, /DashboardCreateInterviewLauncher/);
   assert.match(roleCandidateSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
   assert.match(roleRubricSource, /generateStaticParams\(\)\s*\{\s*return\s+\[\]/);
 });
 
 test("roles, candidates, and review queue are explicit about role-scoped interviewing", () => {
   assert.match(rolesSource, /getAshbyActivePipeline/);
-  assert.match(rolesSource, /canManageAshbyOnboarding/);
-  assert.match(rolesSource, /canManageActiveStages/);
   assert.match(rolesSource, /ActivePipelineDashboard/);
+  assert.match(rolesSource, /canManageAshbyOnboarding\(session\)/);
+  assert.match(rolesSource, /canManagePipelineStages/);
   assert.match(candidatesSource, /getAshbyActivePipeline/);
-  assert.match(candidatesSource, /canManageAshbyOnboarding/);
-  assert.match(candidatesSource, /canManageActiveStages/);
   assert.match(candidatesSource, /ActivePipelineDashboard/);
+  assert.match(candidatesSource, /canManageAshbyOnboarding\(session\)/);
+  assert.match(candidatesSource, /canManagePipelineStages/);
   assert.match(activePipelineSource, /selectedRole\.stageOptions\.map/);
-  assert.match(activePipelineSource, /readonly canManageActiveStages: boolean/);
-  assert.match(activePipelineSource, /if \(!canManageActiveStages\)/);
-  assert.match(activePipelineSource, /disabled=\{!canManageActiveStages \|\| pendingStageKey !== null\}/);
+  assert.match(activePipelineSource, /readonly canManagePipelineStages: boolean/);
+  assert.match(activePipelineSource, /if \(!canManagePipelineStages\)/);
+  assert.match(activePipelineSource, /disabled=\{!canManagePipelineStages \|\| pendingStageKey !== null\}/);
   assert.match(activePipelineSource, /candidateRowsTruncated/);
-  assert.match(activePipelineSource, /Create and join interview/);
-  assert.match(activePipelineSource, /\/api\/interviews/);
-  assert.match(activePipelineSource, /interviewerJoinUrl/);
-  assert.match(activePipelineSource, /candidate\.candidateEmail/);
-  assert.match(activePipelineSource, /applicationId: candidate\.applicationId/);
-  assert.match(activePipelineSource, /candidateId: candidate\.candidateId/);
-  assert.match(activePipelineSource, /candidateName: candidate\.candidateName/);
-  assert.match(activePipelineSource, /jobId: candidate\.jobId/);
-  assert.match(activePipelineSource, /currentStage: candidate\.currentStage/);
+  assert.match(activePipelineSource, /DashboardCreateInterviewLauncher/);
+  assert.match(activePipelineSource, /Stage filters are read-only for members\./);
   assert.match(activePipelineSource, /data-active-candidate-scroll-region/);
   assert.match(activePipelineSource, /overflow-y-auto/);
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);

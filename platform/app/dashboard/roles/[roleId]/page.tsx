@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { companyIdentityFromUser, getAshbyCompanyState } from "@/lib/ashby/server";
 import { requireDashboardUser } from "../../auth";
-import { CreateAndJoinInterviewForm } from "./CreateAndJoinInterviewForm";
 import { RoleWorkspaceTabs } from "./RoleWorkspaceTabs";
 import {
   SectionPanel,
@@ -72,10 +71,9 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
           <SectionPanel title="Send interviews" eyebrow="Next step">
             <p className="text-sm leading-6 text-slate-600">
-              Start a hosted Puddle room for {roleLabel}. Create the interview session, then continue to the interviewer
-              pre-call room to copy the candidate link.
+              Use the dashboard top bar to create a hosted Puddle room, then copy the candidate link from the interviewer
+              pre-call room.
             </p>
-            <CreateAndJoinInterviewForm roleLabel={roleLabel} />
           </SectionPanel>
         </aside>
       </div>

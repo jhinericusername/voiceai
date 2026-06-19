@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { BriefcaseIcon, SendIcon, UsersIcon } from "../dashboard-icons";
+import { DashboardCreateInterviewLauncher } from "../DashboardCreateInterviewLauncher";
+import { BriefcaseIcon, UsersIcon } from "../dashboard-icons";
 import { cx, EmptyState, formatDateTime, MetricCard, StatusPill } from "../dashboard-ui";
 
 interface ActivePipelineStage {
@@ -70,33 +70,19 @@ function errorMessage(value: unknown): string {
   return "Stage settings could not be saved.";
 }
 
-function createInterviewError(value: unknown): string {
-  if (value && typeof value === "object" && "error" in value && typeof value.error === "string") {
-    return value.error;
-  }
-  return "Interview room could not be created.";
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
 export function ActivePipelineDashboard({
   pipeline,
   view = "roles",
-  canManageActiveStages,
+  canManagePipelineStages,
 }: {
   readonly pipeline: ActivePipeline;
   readonly view?: "roles" | "candidates";
-  readonly canManageActiveStages: boolean;
+  readonly canManagePipelineStages: boolean;
 }) {
-  const router = useRouter();
   const [roles, setRoles] = useState<EditableRole[]>(() => editableRoles(pipeline.roles));
   const [selectedJobId, setSelectedJobId] = useState(() => pipeline.roles[0]?.jobId ?? "");
   const [pendingStageKey, setPendingStageKey] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [creatingApplicationId, setCreatingApplicationId] = useState<string | null>(null);
-  const [createMessage, setCreateMessage] = useState<string | null>(null);
 
   const selectedRole = roles.find((role) => role.jobId === selectedJobId) ?? roles[0] ?? null;
   const visibleCandidates = useMemo(() => {
@@ -109,7 +95,7 @@ export function ActivePipelineDashboard({
   const activeCandidateTotal = totalActiveCandidates(roles);
 
   async function updateStage(jobId: string, stageName: string, enabled: boolean) {
-    if (!canManageActiveStages) {
+    if (!canManagePipelineStages) {
       return;
     }
 
@@ -151,45 +137,6 @@ export function ActivePipelineDashboard({
       setSaveMessage(error instanceof Error ? error.message : "Stage settings could not be saved.");
     } finally {
       setPendingStageKey(null);
-    }
-  }
-
-  async function createInterview(candidate: ActivePipelineCandidate) {
-    if (!candidate.candidateEmail) {
-      setCreateMessage("Candidate email is required before creating an interview room.");
-      return;
-    }
-
-    setCreatingApplicationId(candidate.applicationId);
-    setCreateMessage(null);
-    try {
-      const response = await fetch("/api/interviews", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          candidateEmail: candidate.candidateEmail,
-          applicationId: candidate.applicationId,
-          candidateId: candidate.candidateId,
-          candidateName: candidate.candidateName,
-          jobId: candidate.jobId,
-          currentStage: candidate.currentStage,
-        }),
-      });
-      const payload: unknown = await response.json().catch(() => ({}));
-      const interviewerJoinUrl = stringValue(
-        payload && typeof payload === "object" && "interviewerJoinUrl" in payload
-          ? payload.interviewerJoinUrl
-          : null,
-      );
-      if (!response.ok || !interviewerJoinUrl) {
-        setCreateMessage(createInterviewError(payload));
-        setCreatingApplicationId(null);
-        return;
-      }
-      router.push(interviewerJoinUrl);
-    } catch {
-      setCreateMessage("Interview room could not be created.");
-      setCreatingApplicationId(null);
     }
   }
 
@@ -267,6 +214,7 @@ export function ActivePipelineDashboard({
                     <h2 className="mt-1 truncate text-base font-semibold text-slate-950">{selectedRole.name}</h2>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <DashboardCreateInterviewLauncher />
                     <StatusPill status={`${visibleCandidates.length} active`} />
                     <StatusPill status={pipeline.lastSyncAt ? "Synced" : "Sync pending"} />
                   </div>
@@ -281,11 +229,12 @@ export function ActivePipelineDashboard({
                         key={stage.name}
                         className={cx(
                           "flex min-h-11 items-center justify-between gap-3 rounded-md border px-3 text-sm font-semibold transition",
-                          canManageActiveStages ? "cursor-pointer" : "cursor-not-allowed",
                           checked
                             ? "border-cyan-200 bg-cyan-50/70 text-slate-950"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-cyan-200 hover:bg-cyan-50/40",
-                          (pending || !canManageActiveStages) && "opacity-60",
+                            : "border-slate-200 bg-white text-slate-700",
+                          canManagePipelineStages && !checked && "hover:border-cyan-200 hover:bg-cyan-50/40",
+                          canManagePipelineStages ? "cursor-pointer" : "cursor-default",
+                          pending && "opacity-60",
                         )}
                       >
                         <span className="flex min-w-0 items-center gap-2">
@@ -293,7 +242,7 @@ export function ActivePipelineDashboard({
                             type="checkbox"
                             className="h-4 w-4 shrink-0 rounded border-slate-300 text-cyan-700 accent-cyan-700"
                             checked={checked}
-                            disabled={!canManageActiveStages || pendingStageKey !== null}
+                            disabled={!canManagePipelineStages || pendingStageKey !== null}
                             onChange={(event) => updateStage(selectedRole.jobId, stage.name, event.currentTarget.checked)}
                           />
                           <span className="truncate">{stage.name}</span>
@@ -306,6 +255,9 @@ export function ActivePipelineDashboard({
                   })}
                 </div>
                 {saveMessage ? <div className="mt-2 text-xs font-medium text-slate-500">{saveMessage}</div> : null}
+                {!canManagePipelineStages ? (
+                  <div className="mt-2 text-xs font-medium text-slate-500">Stage filters are read-only for members.</div>
+                ) : null}
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -314,11 +266,6 @@ export function ActivePipelineDashboard({
                     <UsersIcon className="h-4 w-4 text-cyan-700" aria-hidden="true" />
                     Active candidates
                   </div>
-                  {createMessage ? (
-                    <div className="mt-2 text-xs font-medium text-slate-500" aria-live="polite">
-                      {createMessage}
-                    </div>
-                  ) : null}
                   {pipeline.candidateRowsTruncated ? (
                     <div className="mt-2 text-xs font-medium text-slate-500">
                       Showing {pipeline.candidateRowCount} recent candidate rows. Stage counts include all active applications.
@@ -328,41 +275,24 @@ export function ActivePipelineDashboard({
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3" data-active-candidate-scroll-region>
                   {visibleCandidates.length > 0 ? (
                     <div className="grid gap-2">
-                      {visibleCandidates.map((candidate) => {
-                        const creating = creatingApplicationId === candidate.applicationId;
-                        return (
-                          <div
-                            key={candidate.applicationId}
-                            className="grid min-h-16 gap-3 rounded-md border border-slate-200 bg-white px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-slate-950">{candidate.candidateName}</div>
-                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                                {candidate.candidateEmail ? <span className="truncate">{candidate.candidateEmail}</span> : null}
-                                {candidate.source ? <span className="truncate">{candidate.source}</span> : null}
-                                {candidate.updatedAt ? <span>{formatDateTime(candidate.updatedAt)}</span> : null}
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                              <StatusPill status={candidate.currentStage} />
-                              <button
-                                type="button"
-                                onClick={() => createInterview(candidate)}
-                                disabled={!candidate.candidateEmail || creatingApplicationId !== null}
-                                className={cx(
-                                  "inline-flex min-h-9 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition",
-                                  candidate.candidateEmail && creatingApplicationId === null
-                                    ? "border-slate-900 bg-slate-950 text-white hover:bg-slate-800"
-                                    : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
-                                )}
-                              >
-                                <SendIcon className="h-4 w-4" aria-hidden="true" />
-                                {creating ? "Creating..." : "Create and join interview"}
-                              </button>
+                      {visibleCandidates.map((candidate) => (
+                        <div
+                          key={candidate.applicationId}
+                          className="grid min-h-16 gap-3 rounded-md border border-slate-200 bg-white px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-950">{candidate.candidateName}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                              {candidate.candidateEmail ? <span className="truncate">{candidate.candidateEmail}</span> : null}
+                              {candidate.source ? <span className="truncate">{candidate.source}</span> : null}
+                              {candidate.updatedAt ? <span>{formatDateTime(candidate.updatedAt)}</span> : null}
                             </div>
                           </div>
-                        );
-                      })}
+                          <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                            <StatusPill status={candidate.currentStage} />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <EmptyState
