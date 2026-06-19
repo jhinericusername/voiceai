@@ -5,7 +5,7 @@ import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
 
 export const dynamic = "force-dynamic";
 
-const JOIN_AI_INTERVIEWER_STATES = new Set(["not_started"]);
+const JOIN_AI_INTERVIEWER_STATES = new Set(["not_started", "running", "stopped"]);
 
 interface RouteContext {
   readonly params: Promise<{

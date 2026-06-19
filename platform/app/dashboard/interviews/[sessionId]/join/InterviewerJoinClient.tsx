@@ -335,19 +335,18 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
       updateParticipants();
 
       stopPreview();
-      const [audioTrack, videoTrack] = await Promise.all([
-        createLocalAudioTrack({
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }),
-        createLocalVideoTrack({
-          facingMode: "user",
-        }),
-      ]);
-
+      const audioTrack = await createLocalAudioTrack({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      });
       localAudioTrackRef.current = audioTrack;
+
+      const videoTrack = await createLocalVideoTrack({
+        facingMode: "user",
+      });
       localVideoTrackRef.current = videoTrack;
+
       await Promise.all([
         setLocalTrackEnabled(audioTrack, publishAudioEnabled),
         setLocalTrackEnabled(videoTrack, publishVideoEnabled),

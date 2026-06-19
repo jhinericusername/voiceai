@@ -17,7 +17,10 @@ import {
   aiControlStateUpsertStatement,
   candidateInviteInsertForSessionStatement,
   interviewerSessionStatement,
+  latestAiControlStateStatement,
   type AiControlAction,
+  type AiInterviewerState,
+  type AiRequestedState,
   type InterviewerSessionRow,
 } from "./repository.js";
 
@@ -114,6 +117,20 @@ async function loadSession(
   const stmt = interviewerSessionStatement(sessionId, orgId);
   const { rows } = await pool.query<InterviewerSessionRow>(stmt.sql, [...stmt.params]);
   return rows[0];
+}
+
+function isAiRequestedState(value: unknown): value is AiRequestedState {
+  return value === "running" || value === "stopped";
+}
+
+async function loadAiInterviewerState(
+  pool: Pick<Pool, "query">,
+  sessionId: string,
+): Promise<AiInterviewerState> {
+  const stmt = latestAiControlStateStatement(sessionId);
+  const { rows } = await pool.query<{ requested_state: unknown }>(stmt.sql, [...stmt.params]);
+  const requestedState = rows[0]?.requested_state;
+  return isAiRequestedState(requestedState) ? requestedState : "not_started";
 }
 
 function isTerminalSession(session: InterviewerSessionRow): boolean {
@@ -231,6 +248,7 @@ export function registerInterviewerRoutes(
 
       const roomStmt = sessionRoomUpdateStatement(sessionId, room);
       await pool.query(roomStmt.sql, [...roomStmt.params]);
+      const aiInterviewerState = await loadAiInterviewerState(pool, sessionId);
 
       const token = await buildInterviewerJoinToken(liveKitConfig, {
         sessionId,
@@ -254,7 +272,7 @@ export function registerInterviewerRoutes(
         room,
         liveKitUrl: liveKitConfig.host,
         token,
-        aiInterviewerState: "not_started",
+        aiInterviewerState,
       });
     },
   );

@@ -6,6 +6,7 @@ const DEFAULT_INVITE_TTL_SECONDS = 2 * 60 * 60;
 
 export type AiControlAction = "start" | "stop" | "resume";
 export type AiRequestedState = "running" | "stopped";
+export type AiInterviewerState = "not_started" | AiRequestedState;
 
 export interface InterviewerSessionRow {
   readonly session_id: string;
@@ -76,6 +77,15 @@ export function hasInterviewerJoinedStatement(sessionId: string): SqlStatement {
 
 export function aiControlStateFromAction(action: AiControlAction): AiRequestedState {
   return action === "stop" ? "stopped" : "running";
+}
+
+export function latestAiControlStateStatement(sessionId: string): SqlStatement {
+  return {
+    sql:
+      "SELECT requested_state FROM interview_ai_control_state " +
+      "WHERE session_id = $1 ORDER BY requested_at DESC LIMIT 1",
+    params: [sessionId],
+  };
 }
 
 export function aiControlEventType(action: AiControlAction): string {

@@ -64,6 +64,8 @@ test("interviewer platform routes fail closed on malformed backend success paylo
   assert.match(interviewerJoinRoute, /Interviewer join response was malformed\./);
   assert.match(interviewerJoinRoute, /isInterviewerJoinResponse\(payload\)/);
   assert.match(interviewerJoinRoute, /not_started/);
+  assert.match(interviewerJoinRoute, /running/);
+  assert.match(interviewerJoinRoute, /stopped/);
   assert.match(interviewerJoinRoute, /has\(value\.aiInterviewerState\)/);
   for (const field of ["sessionId", "room", "liveKitUrl", "token", "aiInterviewerState"]) {
     assert.match(interviewerJoinRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
@@ -122,6 +124,21 @@ test("interviewer join client exposes host invite, join, and AI controls without
   assert.match(clientSource, /room\.connect\(payload\.liveKitUrl, payload\.token\)/);
   assert.match(clientSource, /createLocalAudioTrack/);
   assert.match(clientSource, /createLocalVideoTrack/);
+  assert.doesNotMatch(clientSource, /const \[audioTrack, videoTrack\] = await Promise\.all/);
+  const mediaAcquisitionSource = clientSource.slice(
+    clientSource.indexOf("const audioTrack = await createLocalAudioTrack"),
+    clientSource.indexOf("await Promise.all([\n        room.localParticipant.publishTrack"),
+  );
+  assert.ok(
+    mediaAcquisitionSource.indexOf("localAudioTrackRef.current = audioTrack") <
+      mediaAcquisitionSource.indexOf("const videoTrack = await createLocalVideoTrack"),
+    "audio track should be assigned to its cleanup ref before video acquisition can throw",
+  );
+  assert.ok(
+    mediaAcquisitionSource.indexOf("localVideoTrackRef.current = videoTrack") <
+      mediaAcquisitionSource.indexOf("setLocalVideoTrack(videoTrack)"),
+    "video track should be assigned to its cleanup ref before later publishing/setup can throw",
+  );
   assert.match(clientSource, /room\.localParticipant\.publishTrack\(audioTrack\)/);
   assert.match(clientSource, /room\.localParticipant\.publishTrack\(videoTrack\)/);
   assert.match(clientSource, /\.attach\(video\)/);

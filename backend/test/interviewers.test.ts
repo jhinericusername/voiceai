@@ -10,6 +10,7 @@ import {
   candidateInviteInsertForSessionStatement,
   hasInterviewerJoinedStatement,
   interviewerSessionStatement,
+  latestAiControlStateStatement,
 } from "../src/interviewers/repository.js";
 import { registerInterviewerRoutes } from "../src/interviewers/routes.js";
 
@@ -220,6 +221,16 @@ describe("interviewer repository", () => {
       "interviewer@example.com",
       "2026-05-25T12:00:00.000Z",
     ]);
+  });
+
+  it("queries the latest requested AI control state for a session", () => {
+    const stmt = latestAiControlStateStatement("sess1");
+
+    expect(stmt.sql).toContain("FROM interview_ai_control_state");
+    expect(stmt.sql).toContain("session_id = $1");
+    expect(stmt.sql).toContain("ORDER BY requested_at DESC");
+    expect(stmt.sql).toContain("LIMIT 1");
+    expect(stmt.params).toEqual(["sess1"]);
   });
 
   it("checks whether an interviewer has already joined by ops event name", () => {
@@ -453,6 +464,9 @@ describe("interviewer internal routes", () => {
       if (sql.includes("FROM sessions")) {
         return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
       }
+      if (sql.includes("FROM interview_ai_control_state")) {
+        return { rows: [], rowCount: 0 };
+      }
       if (sql.includes("SELECT entry_hash")) {
         return { rows: [], rowCount: 0 };
       }
@@ -500,6 +514,44 @@ describe("interviewer internal routes", () => {
     expect(eventCall).toBeDefined();
     await app.close();
   });
+
+  it.each(["running", "stopped"] as const)(
+    "returns persisted %s AI control state on interviewer join",
+    async (requestedState) => {
+      queryMock.mockImplementation(async (sql: string) => {
+        if (sql.includes("FROM sessions")) {
+          return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
+        }
+        if (sql.includes("FROM interview_ai_control_state")) {
+          return { rows: [{ requested_state: requestedState }], rowCount: 1 };
+        }
+        if (sql.includes("SELECT entry_hash")) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 1 };
+      });
+      const app = Fastify();
+      registerInterviewerRoutes(app, FAKE_LK);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/internal/interviews/sess1/interviewer/join",
+        payload: {
+          orgId: "org1",
+          interviewerEmail: "interviewer@example.com",
+          interviewerUserId: "user1",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        sessionId: "sess1",
+        aiInterviewerState: requestedState,
+      });
+      expect(queryMock.mock.calls.some(([sql]) => String(sql).includes("FROM interview_ai_control_state"))).toBe(true);
+      await app.close();
+    },
+  );
 
   it("records AI control state and ops audit event", async () => {
     queryMock.mockImplementation(async (sql: string) => {
