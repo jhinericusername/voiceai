@@ -72,4 +72,4 @@ def test_instructions_include_weave_facts_allowlist():
     instr = build_interview_plan(rubric).instructions
     assert "understand and quantify the work software engineers do" in instr
     assert "open to negotiation" in instr            # relaxed comp line present
-    assert "the team will follow up" in instr.lower()
+    assert "FACTS YOU MAY SHARE" in instr
