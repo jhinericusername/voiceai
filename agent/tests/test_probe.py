@@ -44,8 +44,8 @@ def test_scripted_probe_is_returned_when_pool_has_capacity() -> None:
     client = _fake_anthropic("LLM-generated probe (should NOT be returned)")
     gen = ProbeGenerator(client=client, rubric=RUBRIC)
     probe = gen.generate(_request(category="problem_solving", probes_used=0))
-    # q1 (problem_solving) has scripted_probes; index 0 starts with "Got it..."
-    assert probe.startswith("Got it. Got it. Got it.")
+    # q1 (problem_solving) scripted_probes index 0 targets "why was it hard".
+    assert probe.startswith("What made that problem actually hard")
     client.messages.create.assert_not_called()
 
 

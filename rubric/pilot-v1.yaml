@@ -125,18 +125,14 @@ questions:
         I guess my first question is, can you tell me about maybe, like, a
         clever or hacky or novel solution you came up with when you were
         building something technically complex?
+    # OPTIONAL fallback wordings, one per target_evidence element (problem/why-hard,
+    # solution/why-clever, impact/recognition). Use ONE only for an element the
+    # candidate has NOT covered; never fire in order. Tech stack is a clause inside
+    # the 'why clever' probe, not its own question.
     scripted_probes:
-      - >-
-        Got it. Got it. Got it. And then guide me through, like, the tech
-        stack or, like, your guys' frame of mind, like things that you use,
-        why you use them, etcetera.
-      - >-
-        And then what about in this particular instance? Like what did you
-        use with the stack? Like why did you think of this solution rather
-        than, you know, a brute force?
-      - >-
-        Like how did you come to this? Like what made you think that this
-        was a good solution versus others?
+      - "What made that problem actually hard — what was getting in the way of the obvious approach?"
+      - "What made your approach the clever one versus the brute-force or textbook way — and what was the stack you reached for?"
+      - "And what did that end up unlocking — did anyone notice, or did it ship to real users?"
     when_stuck:
       - >-
         Imagine I'm a new developer joining your team, and you had to break
@@ -213,12 +209,11 @@ questions:
         outside of work where you were so competitive that it cost you
         something? Maybe you played sports or video games at a high level
         so much so that it was detrimental in some facet of your life?
+    # OPTIONAL element-targeted fallbacks (intensity, then cost). Use ONE only for
+    # a piece still missing; skip if the first answer already covered it.
     scripted_probes:
-      - >-
-        Like, maybe you train for eight hours on one day or something like
-        that. Like, what's the most extreme instance? Or maybe it's about
-        longevity — how much you practiced every day for a particular
-        period of time.
+      - "How far did that actually go — what's the most extreme thing you did to win, or how long did you keep at it?"
+      - "And what did that competitiveness end up costing you — time, a relationship, your body, something you gave up?"
     when_stuck:
       - "Would you like an example?"
       - >-
@@ -249,7 +244,11 @@ questions:
         Nontechnical, that you are an expert in — meaning you're in the top
         one percent of knowledge about this obscure topic that nobody cares
         about, nobody gives a shit about.
-    scripted_probes: []
+    # OPTIONAL element-targeted fallbacks (how they became expert, then top-1%
+    # depth). The topic / why-niche is already drawn out by the question itself.
+    scripted_probes:
+      - "How did you fall down that rabbit hole — what pulled you in and kept you going?"
+      - "What's the most obscure thing you know about it that almost no one else would — something that shows you're genuinely top one percent?"
     when_stuck:
       - >-
         I'll give some examples. Something that I've heard is — and these

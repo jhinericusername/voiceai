@@ -55,7 +55,7 @@ def test_q1_has_scripted_probes() -> None:
     rubric = load_rubric(RUBRIC_PATH)
     q1 = next(q for q in rubric.questions if q.question_id == "q1")
     assert len(q1.scripted_probes) >= 3
-    assert "tech stack" in q1.scripted_probes[0]
+    assert "stack" in q1.scripted_probes[1].lower()
 
 
 def test_bare_minimum_rule_present() -> None:

@@ -34,8 +34,22 @@ def test_instructions_include_completeness_exemplars():
     # Each evidence element appears in the instructions as completeness guidance.
     for element in q.target_evidence:
         assert element in plan.instructions
-    assert "complete answer covers" in plan.instructions.lower()
-    assert "stop probing" in plan.instructions.lower()
+    assert "silently track whether they cover" in plan.instructions.lower()
+    assert "fallback probe wordings" in plan.instructions.lower()
+
+
+def test_intelligent_probing_block_present_once_in_both_paths():
+    for include_tools in (True, False):
+        instr = build_interview_plan(RUBRIC, include_tools=include_tools).instructions
+        assert instr.count("INTELLIGENT PROBING") == 1
+
+
+def test_question_without_scripted_probes_renders_no_fallback_section():
+    from agent.controller.realtime.plan_builder import _question_block
+
+    q2 = next(q for q in RUBRIC.questions if q.question_id == "q2")
+    assert q2.scripted_probes == []
+    assert "fallback probe wordings" not in _question_block(q2)
 
 
 def test_persona_content_updates_present():

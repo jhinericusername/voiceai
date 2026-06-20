@@ -91,6 +91,41 @@ _SELF_MANAGEMENT = (
 )
 
 
+_INTELLIGENT_PROBING = (
+    "INTELLIGENT PROBING — listen, reflect, then fill ONLY real gaps:\n\n"
+    "Each question below carries a SILENT checklist (shown as \"silently track "
+    "whether they cover:\"). That is your private memory — NEVER read it aloud, "
+    "never name its items as a list, never tell the candidate what you're "
+    "listening for.\n\n"
+    "After EVERY substantive answer, do this in your head BEFORE you speak:\n"
+    "1. TICK OFF coverage. Go item by item down that question's checklist and mark "
+    "which the candidate ALREADY covered. One rich answer commonly covers several "
+    "— or all — at once, even said out of order or buried in a story. Credit "
+    "everything they actually said. The biggest mistake to avoid is re-asking "
+    "about something they already told you — it makes you sound like you weren't "
+    "listening.\n"
+    "2. REFLECT in ONE sentence. Say one short, warm, natural sentence mirroring "
+    "back the gist of what you heard, the way an attentive person consolidates "
+    "(\"So basically you did X because Y, and it ended up Z — love that\"). This "
+    "is the Boardy move: it proves you listened and matters more than any "
+    "follow-up. ONE sentence, your own words, never a verbatim echo, never robotic.\n"
+    "3. DECIDE what, if anything, is genuinely missing, and act:\n"
+    "   - Checklist mentally COMPLETE: do NOT probe. Reflect, briefly acknowledge, "
+    "and move straight to the next question — even if it was all covered in their "
+    "very first answer.\n"
+    "   - Exactly ONE item missing: fold ONE targeted question onto the tail of "
+    "your reflection, aimed only at that gap, then STOP and listen and re-tick.\n"
+    "   - More than one missing: ask the single most important missing item first; "
+    "only pursue the next if their answer still leaves it open.\n\n"
+    "Bounds: each question's probe cap is a CEILING, not a quota — never exceed it, "
+    "and stop the instant the checklist is complete (usually well under the cap). "
+    "Never invent probes to fill time. The 'fallback probe wordings' are spare "
+    "phrasings to reach for ONLY when that specific item is still missing — not a "
+    "sequence to run through. Stay warm and present, like a curious person catching "
+    "up, not a form collecting fields."
+)
+
+
 def _question_block(q: Question) -> str:
     lines = [f"[{q.question_id}]"]
     if q.transition_in:
@@ -114,14 +149,30 @@ def _question_block(q: Question) -> str:
     else:
         lines.append(f'  ask verbatim: "{q.verbatim_text}"')
     if q.target_evidence:
-        lines.append("  a complete answer covers: " + "; ".join(q.target_evidence))
         lines.append(
-            f"  probe (up to {q.max_probes}x) only until these are covered, then STOP probing and move on."
+            "  silently track whether they cover: " + " | ".join(q.target_evidence)
+        )
+        lines.append(
+            "  (tick these off in your head as they talk — one rich answer may cover "
+            "several or all at once; NEVER read this list aloud)"
+        )
+        lines.append(
+            "  after their answer: reflect back in ONE warm, natural sentence what you "
+            f"heard (show you listened), then ask AT MOST {q.max_probes} follow-up(s), "
+            "each aimed ONLY at a piece still genuinely missing. STOP the instant all "
+            "are covered — even if that's right after their first answer. If everything's "
+            "covered, just reflect, acknowledge, and move on; do NOT re-ask what they "
+            "already told you."
         )
     for nudge in q.when_stuck:
         lines.append(f"  if they stall, nudge: {nudge}")
-    for p in q.scripted_probes:
-        lines.append(f"  scripted probe: {p}")
+    if q.scripted_probes:
+        lines.append(
+            "  fallback probe wordings (reach for ONE only if that specific piece is "
+            "still missing, in Prakul's voice — never run these in order or as a checklist):"
+        )
+        for p in q.scripted_probes:
+            lines.append(f'    - "{p}"')
     return "\n".join(lines)
 
 
@@ -166,34 +217,36 @@ def _opener_block(rubric: Rubric) -> str:
     o = rubric.opener
     if not o:
         return ""
-    recip = (
-        f' If they ask where you\'re calling from or turn a question back on you, '
-        f'answer briefly and warmly — e.g. "{o.reciprocation.strip()}"'
-        if o.reciprocation
-        else ""
-    )
+    prompts = [p for p in o.small_talk_prompts if p]
+    location_q = prompts[0] if len(prompts) > 0 else ""
+    weather_q = prompts[1] if len(prompts) > 1 else ""
+    recip = o.reciprocation.strip().rstrip(".")
+    intro = " ".join(o.introduction.split())
+
     lines = [
-        "OPENER — a warm bit of small talk, delivered as SEPARATE turns. After "
-        "EACH numbered beat you STOP and wait for the candidate. When they answer, "
-        "react naturally and briefly (a few words — acknowledge, mirror their "
-        "energy) BEFORE you move to the next beat. Never stack beats into one "
-        "speech, and never rush past their reply." + recip,
+        "OPENER — warm small talk. STOP and wait ONLY at the ⏸ marks. Every turn "
+        "after the greeting COMBINES your reaction to what they just said WITH your "
+        "next question, in ONE breath — NEVER acknowledge and then go silent, and "
+        "never split an acknowledgment and its question into two separate turns.",
+        f'  1) Greet: "{o.greeting}"  ⏸ wait.',
     ]
-    n = 1
-    lines.append(
-        f'  {n}) Greet them: "{o.greeting}"  → wait. Only say how YOU are doing if '
-        "they actually ask you back; otherwise just acknowledge them warmly and go on."
-    )
-    n += 1
-    for prompt in o.small_talk_prompts:
-        if prompt:
-            lines.append(f'  {n}) "{prompt}"  → wait, then react warmly to their answer.')
-            n += 1
-    if o.introduction:
-        intro = " ".join(o.introduction.split())
+    if location_q:
         lines.append(
-            f'  {n}) Then introduce yourself and hand off: "{intro}"  → wait for '
-            "their answer before you start the first question."
+            '  2) ONE turn: warmly acknowledge their reply with a short filler '
+            '(e.g. "Nice, nice —"), and ONLY if they asked how you are add that '
+            "you're doing well, then in the SAME breath ask "
+            f'"{location_q}"  ⏸ wait.'
+        )
+    if weather_q:
+        recip_clause = f' (feel free to reciprocate, e.g. "{recip}")' if recip else ""
+        lines.append(
+            "  3) ONE turn: react warmly to where they're calling from"
+            f'{recip_clause}, and in the SAME sentence ask "{weather_q}"  ⏸ wait.'
+        )
+    if o.introduction:
+        lines.append(
+            "  4) ONE turn: react briefly, then introduce yourself and hand off: "
+            f'"{intro}"  ⏸ wait for their answer, then begin the first question.'
         )
     return "\n".join(lines)
 
@@ -289,6 +342,7 @@ def build_interview_plan(rubric: Rubric, *, include_tools: bool = True) -> Inter
             [
                 _persona(rubric),
                 _style_block(rubric),
+                _INTELLIGENT_PROBING,
                 opener,
                 f"QUESTIONS (ask in this order, verbatim):\n{question_blocks}",
                 _closer_block(rubric),
