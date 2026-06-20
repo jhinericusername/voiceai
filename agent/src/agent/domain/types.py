@@ -94,6 +94,7 @@ class Question(BaseModel):
     soft_budget_seconds: int = 180
     hard_stop_behavior: HardStopBehavior = "acknowledge_and_move_on"
     transition_in: str = ""
+    depth_invite: str = ""
     variations: list[str] = Field(default_factory=list)
     scripted_probes: list[str] = Field(default_factory=list)
     when_stuck: list[str] = Field(default_factory=list)

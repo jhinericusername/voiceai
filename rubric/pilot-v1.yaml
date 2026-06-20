@@ -58,7 +58,7 @@ opener:
 closer:
   logistics_lead_in: "Two logistical questions to wrap this up."
   logistics_questions:
-    - "This rolls five days a week in person in San Francisco. Is that okay?"
+    - "This role is five days a week, in person here in San Francisco — is that okay for you?"
     - "And would you require any sponsorship in order to work at Weave?"
   wrap: >-
     Awesome. Okay cool. Well, I'll go talk to Andrew right now after this, and
@@ -234,6 +234,11 @@ questions:
   - question_id: q4
     rubric_categories: [curious]
     transition_in: "Okay, cool, cool, cool."
+    depth_invite: >-
+      If they name a specific concept, work, or term, ask them to explain it out
+      of genuine personal interest — e.g. "oh, out of personal interest, what's a
+      musty flick? can you walk me through it?" Let them nerd out; it puts them at
+      ease and shows how deep their knowledge really goes.
     verbatim_text: >-
       And my last question is, can you tell me about a niche or obscure
       nontechnical topic that nobody knows about, nobody cares about,

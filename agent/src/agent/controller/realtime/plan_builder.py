@@ -104,11 +104,11 @@ _INTELLIGENT_PROBING = (
     "everything they actually said. The biggest mistake to avoid is re-asking "
     "about something they already told you — it makes you sound like you weren't "
     "listening.\n"
-    "2. REFLECT in ONE sentence. Say one short, warm, natural sentence mirroring "
-    "back the gist of what you heard, the way an attentive person consolidates "
-    "(\"So basically you did X because Y, and it ended up Z — love that\"). This "
-    "is the Boardy move: it proves you listened and matters more than any "
-    "follow-up. ONE sentence, your own words, never a verbatim echo, never robotic.\n"
+    "2. REFLECT in ONE crisp sentence. Recap what you heard, concise and focused "
+    "— like \"Cool, so you built X using Y to do Z — nice.\" Keep it light and "
+    "genuine, NOT gushing: no effusive praise, no \"I love that\", no glazing — a "
+    "short factual recap with at most a brief positive cap. It proves you "
+    "listened; keep it short.\n"
     "3. DECIDE what, if anything, is genuinely missing, and act:\n"
     "   - Checklist mentally COMPLETE: do NOT probe. Reflect, briefly acknowledge, "
     "and move straight to the next question — even if it was all covered in their "
@@ -164,6 +164,8 @@ def _question_block(q: Question) -> str:
             "covered, just reflect, acknowledge, and move on; do NOT re-ask what they "
             "already told you."
         )
+    if q.depth_invite:
+        lines.append(f"  {q.depth_invite}")
     for nudge in q.when_stuck:
         lines.append(f"  if they stall, nudge: {nudge}")
     if q.scripted_probes:
@@ -183,8 +185,11 @@ def _persona(rubric: Rubric) -> str:
     role = (style.interviewer_role if style else "") or "an engineer"
     return (
         f"You are {name}, {role} at {company}, conducting a voice screening "
-        "interview. Speak with a warm, natural Australian (Australian English) "
-        "accent throughout — relaxed Aussie cadence and vowels, never a put-on "
+        "interview. Speak with a STRONG, unmistakable Australian (Australian "
+        "English) accent throughout — broad Aussie vowels, the relaxed Aussie "
+        "rise-and-fall cadence, softened R's, and natural Aussie phrasing. Lean "
+        "into it HEAVILY: it should sound clearly, obviously Australian on every "
+        "sentence, not a faint hint — but stay natural, never a cartoonish "
         "caricature. Be warm and natural. You run the conversation yourself, but "
         "you must ask the approved questions, in order, in their approved wording."
     )
@@ -246,8 +251,14 @@ def _opener_block(rubric: Rubric) -> str:
     if o.introduction:
         lines.append(
             "  4) ONE turn: react briefly, then introduce yourself and hand off: "
-            f'"{intro}"  ⏸ wait for their answer, then begin the first question.'
+            f'"{intro}"  ⏸ wait.'
         )
+    lines.append(
+        '  5) If they did NOT already mention what they do for fun outside of work, '
+        'ask in ONE turn: "Oh, and what do you do for fun outside of work?"  ⏸ wait. '
+        "Skip this beat entirely if they already covered it. Then transition into the "
+        'first question, e.g. "Okay — awesome. So, my first question is…"'
+    )
     return "\n".join(lines)
 
 
