@@ -5,11 +5,15 @@ import {
   Room,
   RoomEvent,
   Track,
+  createAudioAnalyser,
   createLocalAudioTrack,
   createLocalVideoTrack,
   type LocalAudioTrack,
   type LocalVideoTrack,
+  type RemoteAudioTrack,
+  type RemoteParticipant,
   type RemoteTrack,
+  type RemoteTrackPublication,
 } from "livekit-client";
 
 interface InterviewerJoinClientProps {
@@ -87,6 +91,7 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack | null>(null);
   const [remoteVideoTrack, setRemoteVideoTrack] = useState<RemoteTrack | null>(null);
+  const [agentAudioTrack, setAgentAudioTrack] = useState<RemoteAudioTrack | null>(null);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [aiInterviewerState, setAiInterviewerState] = useState<AiInterviewerState>("not_started");
@@ -125,6 +130,7 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
     localVideoTrackRef.current = null;
     setLocalVideoTrack(null);
     setRemoteVideoTrack(null);
+    setAgentAudioTrack(null);
     setCandidateDelayed(false);
     setRemoteParticipants(0);
     setIsMicEnabled(true);
@@ -173,35 +179,60 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
     }
   }, [encodedSessionId]);
 
-  const attachRemoteTrack = useCallback((track: RemoteTrack): void => {
-    if (track.kind === Track.Kind.Video) {
-      setRemoteVideoTrack(track);
-      return;
-    }
+  const attachRemoteTrack = useCallback(
+    (track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant): void => {
+      const isAgent = participant?.isAgent === true;
 
-    if (track.kind !== Track.Kind.Audio || !remoteAudioRef.current) {
-      return;
-    }
+      if (track.kind === Track.Kind.Video) {
+        // Only the candidate publishes video; the agent has none.
+        if (!isAgent) {
+          setRemoteVideoTrack(track);
+        }
+        return;
+      }
 
-    const element = track.attach();
-    element.autoplay = true;
-    element.dataset.puddleRemoteAudio = "true";
-    remoteAudioRef.current.appendChild(element);
-    void element.play().catch(() => {
-      setRoomError("Candidate audio was blocked by the browser. Leave, then rejoin the room.");
-    });
-  }, []);
+      if (track.kind !== Track.Kind.Audio) {
+        return;
+      }
 
-  const detachRemoteTrack = useCallback((track: RemoteTrack): void => {
-    if (track.kind === Track.Kind.Video) {
-      setRemoteVideoTrack((currentTrack) => (currentTrack === track ? null : currentTrack));
-      return;
-    }
+      // The agent's audio drives the live waveform on its tile (it still plays
+      // back through the hidden audio element below).
+      if (isAgent) {
+        setAgentAudioTrack(track as RemoteAudioTrack);
+      }
 
-    for (const element of track.detach()) {
-      element.remove();
-    }
-  }, []);
+      if (!remoteAudioRef.current) {
+        return;
+      }
+
+      const element = track.attach();
+      element.autoplay = true;
+      element.dataset.puddleRemoteAudio = "true";
+      remoteAudioRef.current.appendChild(element);
+      void element.play().catch(() => {
+        setRoomError("Candidate audio was blocked by the browser. Leave, then rejoin the room.");
+      });
+    },
+    [],
+  );
+
+  const detachRemoteTrack = useCallback(
+    (track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant): void => {
+      if (track.kind === Track.Kind.Video) {
+        setRemoteVideoTrack((currentTrack) => (currentTrack === track ? null : currentTrack));
+        return;
+      }
+
+      if (participant?.isAgent === true) {
+        setAgentAudioTrack((current) => (current === track ? null : current));
+      }
+
+      for (const element of track.detach()) {
+        element.remove();
+      }
+    },
+    [],
+  );
 
   const runPreflight = useCallback(async (): Promise<void> => {
     setPreflightStatus("checking");
@@ -581,6 +612,7 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
 
       {stage === "live" ? (
         <LivePanel
+          agentAudioTrack={agentAudioTrack}
           aiControlPending={aiControlPending}
           aiInterviewerState={aiInterviewerState}
           candidateDelayed={candidateDelayed}
@@ -819,6 +851,7 @@ function ConnectingPanel({ roomStatus }: { readonly roomStatus: string }) {
 }
 
 function LivePanel({
+  agentAudioTrack,
   aiControlPending,
   aiInterviewerState,
   candidateDelayed,
@@ -837,6 +870,7 @@ function LivePanel({
   onToggleCamera,
   onToggleMic,
 }: {
+  readonly agentAudioTrack: RemoteAudioTrack | null;
   readonly aiControlPending: boolean;
   readonly aiInterviewerState: AiInterviewerState;
   readonly candidateDelayed: boolean;
@@ -919,7 +953,9 @@ function LivePanel({
             </div>
           </div>
 
-          {showAgentTile ? <AgentTile aiInterviewerState={aiInterviewerState} /> : null}
+          {showAgentTile ? (
+            <AgentTile aiInterviewerState={aiInterviewerState} agentAudioTrack={agentAudioTrack} />
+          ) : null}
 
           <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
             <video
@@ -1016,8 +1052,84 @@ const AGENT_WAVE_BARS = [0, 0.18, 0.36, 0.12, 0.3, 0.06, 0.24];
 const AGENT_WAVE_KEYFRAMES =
   "@keyframes puddleWave { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }";
 
-function AgentTile({ aiInterviewerState }: { readonly aiInterviewerState: AiInterviewerState }) {
+function AgentTile({
+  aiInterviewerState,
+  agentAudioTrack,
+}: {
+  readonly aiInterviewerState: AiInterviewerState;
+  readonly agentAudioTrack: RemoteAudioTrack | null;
+}) {
   const isStopped = aiInterviewerState === "stopped";
+  const barRefs = useRef<(HTMLSpanElement | null)[]>([]);
+
+  // Drive the waveform bars. Three modes:
+  //  - stopped         -> flat bars (deafened);
+  //  - running, audio   -> real-time bars from the agent's live audio spectrum;
+  //  - running, no audio yet -> gentle idle pulse (agent still connecting).
+  useEffect(() => {
+    const bars = barRefs.current.filter((el): el is HTMLSpanElement => el !== null);
+    if (bars.length === 0) {
+      return;
+    }
+
+    if (isStopped) {
+      bars.forEach((el) => {
+        el.style.animation = "none";
+        el.style.transform = "scaleY(0.18)";
+      });
+      return;
+    }
+
+    if (!agentAudioTrack) {
+      bars.forEach((el, i) => {
+        el.style.transform = "";
+        el.style.animation = `puddleWave 1s ease-in-out ${AGENT_WAVE_BARS[i] ?? 0}s infinite`;
+      });
+      return;
+    }
+
+    bars.forEach((el) => {
+      el.style.animation = "none";
+    });
+
+    let raf = 0;
+    let stopAnalyser: (() => void) | undefined;
+    let analyser: AnalyserNode;
+    try {
+      const created = createAudioAnalyser(agentAudioTrack, {
+        cloneTrack: true,
+        smoothingTimeConstant: 0.65,
+      });
+      analyser = created.analyser;
+      analyser.fftSize = 128;
+      stopAnalyser = () => {
+        void created.cleanup();
+      };
+      const ctx = analyser.context as AudioContext;
+      if (ctx.state === "suspended") {
+        void ctx.resume();
+      }
+    } catch {
+      return;
+    }
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const binFor = bars.map((_, i) => 2 + i * 2); // low-mid bins where the voice sits
+    const loop = () => {
+      analyser.getByteFrequencyData(data);
+      bars.forEach((el, i) => {
+        const level = Math.min(1, (data[binFor[i]] ?? 0) / 170);
+        el.style.transform = `scaleY(${0.16 + level * 0.84})`;
+      });
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      stopAnalyser?.();
+    };
+  }, [isStopped, agentAudioTrack]);
 
   return (
     <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#1b1c1f] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
@@ -1045,16 +1157,19 @@ function AgentTile({ aiInterviewerState }: { readonly aiInterviewerState: AiInte
           </div>
 
           <div className="mt-5 flex h-9 items-end justify-center gap-1.5" aria-hidden="true">
-            {AGENT_WAVE_BARS.map((delay, index) => (
+            {AGENT_WAVE_BARS.map((_, index) => (
               <span
                 key={index}
+                ref={(el) => {
+                  barRefs.current[index] = el;
+                }}
                 className="w-1.5 rounded-full"
                 style={{
                   height: "100%",
                   transformOrigin: "bottom",
+                  transform: "scaleY(0.18)",
                   backgroundColor: isStopped ? "#5f6368" : "#8ab4f8",
-                  transform: isStopped ? "scaleY(0.18)" : undefined,
-                  animation: isStopped ? "none" : `puddleWave 1s ease-in-out ${delay}s infinite`,
+                  transition: "transform 80ms linear",
                 }}
               />
             ))}
