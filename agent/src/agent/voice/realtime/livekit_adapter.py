@@ -37,6 +37,14 @@ _INSTRUCTIONS_FALLBACK = "You are Puddle's realtime interviewer."
 _DEFAULT_RECONNECT_GRACE_SECONDS = 300.0
 _TRANSCRIPTION_MODEL = "gpt-4o-transcribe"
 
+# The candidate joins LiveKit with a "candidate-<inviteId>" identity; the
+# interviewer joins as "interviewer-<sessionId>-<userId>" (see backend
+# livekit/token.ts). The realtime model MUST listen to the candidate, not the
+# host. In the interviewer-led flow the host joins first and then starts the AI,
+# so wait_for_participant() (first joiner) returns the interviewer — we filter by
+# this prefix instead.
+_CANDIDATE_IDENTITY_PREFIX = "candidate-"
+
 # Semantic server-side VAD eagerness — the main turn-latency knob.
 #   "high"   = grabs the turn fastest (snappiest, but may cut off a pause)
 #   "medium" = balanced default
@@ -81,6 +89,11 @@ def _attribute_ready(attributes: Any) -> bool:
         return str(attributes.get("ready", "")).strip().lower() == "true"
     except AttributeError:
         return False
+
+
+def _is_candidate_identity(identity: str) -> bool:
+    """True when a participant identity belongs to the interviewee (candidate)."""
+    return identity.startswith(_CANDIDATE_IDENTITY_PREFIX)
 
 
 def _to_input_transcript(event: Any) -> InputTranscript:
@@ -224,7 +237,7 @@ class LiveKitRealtimeSession:
                 identity=self._participant_identity
             )
         else:
-            participant = await self._job.wait_for_participant()
+            participant = await self._wait_for_candidate()
         session.room_io.set_participant(participant.identity)
         self._link_participant(self._job.room, participant.identity)
         logger.info(
@@ -239,6 +252,46 @@ class LiveKitRealtimeSession:
         # scripted opener first, like a structured gpt-realtime session.
         session.generate_reply(instructions=_OPENER_NUDGE)
         logger.info("triggered agent opener", extra={"room": self._job.room.name})
+
+    async def _wait_for_candidate(self) -> Any:  # pragma: no cover - vendor I/O
+        """Return the candidate participant, waiting if they have not joined yet.
+
+        ``wait_for_participant()`` returns the FIRST participant, which in the
+        interviewer-led flow is the host who started the AI — binding to them
+        makes the model deaf to the candidate (it then 'dies' after the opener).
+        We instead match the ``candidate-`` identity prefix and, if the candidate
+        is not in the room yet, wait for their ``participant_connected`` event.
+        """
+        room = self._job.room
+
+        def _present_candidate() -> Any | None:
+            for participant in list(room.remote_participants.values()):
+                if _is_candidate_identity(str(getattr(participant, "identity", ""))):
+                    return participant
+            return None
+
+        existing = _present_candidate()
+        if existing is not None:
+            return existing
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = loop.create_future()
+
+        def _on_participant_connected(participant: Any) -> None:
+            if _is_candidate_identity(str(getattr(participant, "identity", ""))) and not fut.done():
+                fut.set_result(participant)
+
+        room.on("participant_connected", _on_participant_connected)
+        try:
+            # Re-check after registering the handler to close the join race.
+            existing = _present_candidate()
+            if existing is not None and not fut.done():
+                fut.set_result(existing)
+            logger.info("waiting for candidate participant", extra={"room": room.name})
+            return await fut
+        finally:
+            with contextlib.suppress(Exception):
+                room.off("participant_connected", _on_participant_connected)
 
     async def events(self) -> AsyncIterator[RealtimeEvent]:
         """Drain the internal queue until the end sentinel."""

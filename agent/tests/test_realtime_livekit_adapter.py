@@ -23,6 +23,7 @@ from agent.voice.realtime.livekit_adapter import (
     LiveKitRealtimeSession,
     ParticipantDisconnectedError,
     _attribute_ready,
+    _is_candidate_identity,
     _to_input_transcript,
     _to_output_transcript,
     _to_tool_call,
@@ -48,6 +49,12 @@ def _make_session(job=None) -> LiveKitRealtimeSession:
 # ---------------------------------------------------------------------------
 # Pure event-translation helpers
 # ---------------------------------------------------------------------------
+
+
+def test_is_candidate_identity_matches_only_candidate_prefix() -> None:
+    assert _is_candidate_identity("candidate-abc123") is True
+    assert _is_candidate_identity("interviewer-sess-user_01") is False
+    assert _is_candidate_identity("") is False
 
 
 def test_to_input_transcript_maps_transcript_text() -> None:
