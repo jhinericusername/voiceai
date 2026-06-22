@@ -34,6 +34,30 @@ export interface RealInterviewListItem {
   readonly signed_off_at: string | null;
 }
 
+export interface RealRoomRecordingListItem {
+  readonly session_id: string;
+  readonly org_id: string;
+  readonly candidate_email: string;
+  readonly script_version: string;
+  readonly status: string;
+  readonly room_name: string | null;
+  readonly scheduled_at: string | null;
+  readonly started_at: string | null;
+  readonly ended_at: string | null;
+  readonly external_source: string | null;
+  readonly external_id: string | null;
+  readonly source_metadata: unknown;
+  readonly recording_status: string;
+  readonly egress_id: string | null;
+  readonly recording_started_at: string | null;
+  readonly recording_ended_at: string | null;
+  readonly error_message: string | null;
+  readonly composite_video_status: string | null;
+  readonly composite_video_size_bytes: number | string | null;
+  readonly composite_video_duration_seconds: number | string | null;
+  readonly transcript_turn_count: number;
+}
+
 export interface RealInterviewDetail extends RealInterviewListItem {
   readonly error_message: string | null;
   readonly recommendation_packet: {
@@ -96,6 +120,25 @@ export async function getRealInterviews(input: {
     readonly interviews?: readonly RealInterviewListItem[];
   };
   return payload.interviews ?? [];
+}
+
+export async function getRoomRecordings(input: {
+  readonly orgId: string;
+}): Promise<readonly RealRoomRecordingListItem[]> {
+  const params = new URLSearchParams({ orgId: input.orgId });
+  const response = await fetch(`${backendBaseUrl()}/internal/room-recordings?${params}`, {
+    headers: backendHeaders(),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`backend returned ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    readonly recordings?: readonly RealRoomRecordingListItem[];
+  };
+  return payload.recordings ?? [];
 }
 
 export async function getRealInterview(

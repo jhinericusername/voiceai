@@ -27,6 +27,7 @@ const roleRubricSource = await source("../app/dashboard/roles/[roleId]/rubric/pa
 const scoreTabSource = await source("../app/dashboard/roles/[roleId]/ScoreTab.tsx");
 const candidatesSource = await source("../app/dashboard/candidates/page.tsx");
 const reviewQueueSource = await source("../app/dashboard/review-queue/page.tsx");
+const recordingsSource = await source("../app/dashboard/recordings/page.tsx");
 const ashbyFirstSectionsSource = await source("../app/dashboard/AshbyFirstDashboardSections.tsx");
 const interviewDetailSource = await source("../app/dashboard/interviews/[sessionId]/page.tsx");
 const backendDataSource = await source("../app/dashboard/backend-data.ts");
@@ -59,6 +60,19 @@ test("dashboard chrome uses Ashby-first navigation without fake role controls", 
   assert.doesNotMatch(chromeSource, /Active role/);
   assert.doesNotMatch(chromeSource, /roles:/);
   assert.doesNotMatch(chromeSource, /demoRoles/);
+});
+
+test("recordings page lists historical Fireflies and room recordings with links to detail", () => {
+  assert.match(recordingsSource, /getRoomRecordings/);
+  assert.match(recordingsSource, /Historical Fireflies/);
+  assert.match(recordingsSource, /Fireflies recording/);
+  assert.match(recordingsSource, /recordings\.map/);
+  assert.match(recordingsSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(recording\.session_id\)\}`\}/);
+  assert.match(recordingsSource, /recording\.composite_video_status/);
+  assert.match(recordingsSource, /recording\.external_source === "fireflies"/);
+  assert.match(recordingsSource, /data-recordings-scroll-region/);
+  assert.match(recordingsSource, /overflow-y-auto/);
+  assert.doesNotMatch(recordingsSource, /OperationalPlaceholderPage/);
 });
 
 test("dashboard default route redirects to roles after onboarding", () => {

@@ -22,6 +22,35 @@ export function interviewListStatement(input: {
   };
 }
 
+export function roomRecordingListStatement(input: {
+  readonly limit: number;
+  readonly orgId: string;
+}): SqlStatement {
+  return {
+    sql:
+      "SELECT s.session_id, s.org_id, s.candidate_email, s.script_version, " +
+      "s.status, s.room_name, s.scheduled_at, s.started_at, s.ended_at, " +
+      "s.external_source, s.external_id, s.source_metadata, " +
+      "r.status AS recording_status, r.egress_id, r.started_at AS recording_started_at, " +
+      "r.ended_at AS recording_ended_at, r.error_message, " +
+      "composite.status AS composite_video_status, " +
+      "composite.size_bytes AS composite_video_size_bytes, " +
+      "composite.duration_seconds AS composite_video_duration_seconds, " +
+      "COALESCE(transcripts.turn_count, 0)::integer AS transcript_turn_count " +
+      "FROM sessions s " +
+      "JOIN recordings r ON r.session_id = s.session_id " +
+      "LEFT JOIN recording_artifacts composite ON composite.session_id = s.session_id " +
+      "AND composite.kind = 'composite_video' " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT count(*) AS turn_count FROM transcript_turns tt WHERE tt.session_id = s.session_id" +
+      ") transcripts ON true " +
+      "WHERE s.org_id = $2 " +
+      "ORDER BY COALESCE(r.ended_at, r.started_at, s.started_at, s.scheduled_at, s.created_at) DESC " +
+      "LIMIT $1",
+    params: [input.limit, input.orgId],
+  };
+}
+
 export function interviewDetailStatement(sessionId: string, orgId: string): SqlStatement {
   return {
     sql:

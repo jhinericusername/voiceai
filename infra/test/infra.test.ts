@@ -315,7 +315,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::IAM::User', 0);
   });
 
-  test('injects the Ashby integration secret key only into backend tasks', () => {
+  test('injects backend-only and model-provider secrets into the right runtime tasks', () => {
     const stack = createStack({
       backend: {
         ...defaultConfig().backend,
@@ -391,6 +391,19 @@ describe('InfraStack', () => {
       ]),
     });
 
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'agent',
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'OPENAI_API_KEY',
+            }),
+          ]),
+        }),
+      ]),
+    });
+
     const taskDefinitions = template.findResources('AWS::ECS::TaskDefinition');
     const platformTask = Object.values(taskDefinitions).find((task) =>
       JSON.stringify(task).includes('"Name":"platform"'),
@@ -402,7 +415,6 @@ describe('InfraStack', () => {
     expect(JSON.stringify(platformTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
     expect(JSON.stringify(agentTask)).not.toContain('PUDDLE_INTEGRATION_SECRET_KEY');
     expect(JSON.stringify(platformTask)).not.toContain('OPENAI_API_KEY');
-    expect(JSON.stringify(agentTask)).not.toContain('OPENAI_API_KEY');
   });
 
   test('connects the historical Fireflies bucket as a read-only backend source', () => {
