@@ -539,7 +539,7 @@ describe('InfraStack', () => {
     template.hasOutput('FirefliesIngestionWorkerServiceName', {});
   });
 
-  test('creates LiveKit Egress S3 credentials only when recordings are enabled', () => {
+  test('uses existing LiveKit Egress S3 credentials when recordings are enabled', () => {
     const stack = createStack({
       backend: {
         ...defaultConfig().backend,
@@ -576,18 +576,16 @@ describe('InfraStack', () => {
         }),
       ]),
     });
-    template.hasResourceProperties('AWS::IAM::User', {
-      UserName: 'puddle-videoagent-livekit-egress-upload-user',
-    });
-    template.hasResourceProperties('AWS::IAM::Policy', {
-      PolicyDocument: {
-        Statement: Match.arrayWith([
-          Match.objectLike({
-            Action: Match.arrayWith(['s3:PutObject']),
-          }),
-        ]),
+    template.resourcePropertiesCountIs(
+      'AWS::IAM::User',
+      {
+        UserName: 'puddle-videoagent-livekit-egress-upload-user',
       },
-    });
+      0,
+    );
+    expect(JSON.stringify(template.toJSON())).toContain(
+      '/puddle-videoagent/livekit/egress-s3-credentials',
+    );
   });
 
   test('blocks prod external database without explicit approval', () => {
@@ -932,6 +930,12 @@ describe('configFromApp', () => {
     expect(config.platform.ashbyOnboardingAdminEmails).toBe('admin@usepuddle.com');
   });
 
+  test('enables LiveKit recordings by default', () => {
+    const config = configFromApp(new cdk.App());
+
+    expect(config.liveKit.recordingsEnabled).toBe(true);
+  });
+
   test('does not read Ashby onboarding admin emails from CDK context', () => {
     delete process.env.PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS;
     delete process.env.PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS;
@@ -1099,7 +1103,7 @@ function defaultConfig(): PuddleEnvConfig {
     },
     devTunnel: { enabled: true, instanceType: 't3.nano' },
     liveKit: {
-      recordingsEnabled: false,
+      recordingsEnabled: true,
     },
     logs: {
       retentionDays: 30,

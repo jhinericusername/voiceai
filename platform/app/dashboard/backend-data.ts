@@ -131,6 +131,10 @@ export async function getRoomRecordings(input: {
     cache: "no-store",
   });
 
+  if (response.status === 404) {
+    return [];
+  }
+
   if (!response.ok) {
     throw new Error(`backend returned ${response.status}`);
   }

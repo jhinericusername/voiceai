@@ -173,7 +173,9 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
           </div>
         </header>
 
-        <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-hidden px-4 py-5 sm:px-5">{children}</main>
+        <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-5">
+          {children}
+        </main>
       </div>
     </div>
   );

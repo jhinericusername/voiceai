@@ -185,7 +185,7 @@ export function configFromApp(app: cdk.App): PuddleEnvConfig {
     },
     liveKit: {
       url: readStringContext(app, 'liveKitUrl'),
-      recordingsEnabled: readBooleanContext(app, 'enableLiveKitRecordings', false),
+      recordingsEnabled: readBooleanContext(app, 'enableLiveKitRecordings', true),
       egressAssumeRoleArn: readStringContext(app, 'liveKitEgressAssumeRoleArn'),
       egressAssumeRoleExternalId: readStringContext(
         app,

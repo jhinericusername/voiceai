@@ -148,7 +148,7 @@ export class InfraStack extends cdk.Stack {
       autoDeleteObjects,
     );
     const repositories = this.createRepositories();
-    const runtimeSecrets = this.createRuntimeSecrets(removalPolicy, artifactsBucket);
+    const runtimeSecrets = this.createRuntimeSecrets(removalPolicy);
     const logGroups = this.createLogGroups(logRetention, removalPolicy);
     const firefliesIngestionQueue = this.cfg.backend.deployService
       ? this.importFirefliesIngestionQueue()
@@ -817,10 +817,7 @@ export class InfraStack extends cdk.Stack {
     });
   }
 
-  private createRuntimeSecrets(
-    removalPolicy: cdk.RemovalPolicy,
-    artifactsBucket: s3.IBucket,
-  ): RuntimeSecrets {
+  private createRuntimeSecrets(removalPolicy: cdk.RemovalPolicy): RuntimeSecrets {
     const secrets: RuntimeSecrets = {
       livekitApiKey: this.createSecret(
         'LiveKitApiKey',
@@ -895,50 +892,14 @@ export class InfraStack extends cdk.Stack {
     };
 
     if (this.cfg.liveKit.recordingsEnabled) {
-      secrets.livekitEgressS3Credentials = this.createLiveKitEgressS3CredentialsSecret(
-        artifactsBucket,
-        removalPolicy,
+      secrets.livekitEgressS3Credentials = secretsmanager.Secret.fromSecretNameV2(
+        this,
+        'LiveKitEgressS3Credentials',
+        this.secretName(RUNTIME_SECRET_PATHS.livekitEgressS3Credentials),
       );
     }
 
     return secrets;
-  }
-
-  private createLiveKitEgressS3CredentialsSecret(
-    artifactsBucket: s3.IBucket,
-    removalPolicy: cdk.RemovalPolicy,
-  ): secretsmanager.Secret {
-    const user = new iam.User(this, 'LiveKitEgressUploadUser', {
-      userName: this.name('livekit-egress-upload-user'),
-    });
-
-    user.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ['s3:GetBucketLocation', 's3:ListBucketMultipartUploads'],
-        resources: [artifactsBucket.bucketArn],
-      }),
-    );
-    user.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ['s3:AbortMultipartUpload', 's3:ListMultipartUploadParts', 's3:PutObject'],
-        resources: [artifactsBucket.arnForObjects('*')],
-      }),
-    );
-
-    const accessKey = new iam.AccessKey(this, 'LiveKitEgressUploadAccessKey', {
-      user,
-    });
-    const secret = new secretsmanager.Secret(this, 'LiveKitEgressS3Credentials', {
-      secretName: this.secretName(RUNTIME_SECRET_PATHS.livekitEgressS3Credentials),
-      description: `${this.cfg.envName} LiveKit Cloud Egress S3 upload credentials.`,
-      secretObjectValue: {
-        accessKeyId: cdk.SecretValue.unsafePlainText(accessKey.accessKeyId),
-        secretAccessKey: accessKey.secretAccessKey,
-      },
-    });
-    secret.applyRemovalPolicy(removalPolicy);
-
-    return secret;
   }
 
   private createSecret(

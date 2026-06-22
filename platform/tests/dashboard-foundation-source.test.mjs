@@ -33,6 +33,7 @@ const interviewDetailSource = await source("../app/dashboard/interviews/[session
 const backendDataSource = await source("../app/dashboard/backend-data.ts");
 const dashboardRoutesSource = await source("../../backend/src/dashboard/routes.ts");
 const wizardSource = await source("../app/dashboard/AshbyOnboardingWizard.tsx");
+const createInterviewLauncherSource = await source("../app/dashboard/DashboardCreateInterviewLauncher.tsx");
 
 test("dashboard layout gates operational routes behind completed Ashby onboarding", () => {
   assert.match(layoutSource, /requireDashboardUser/);
@@ -62,6 +63,17 @@ test("dashboard chrome uses Ashby-first navigation without fake role controls", 
   assert.doesNotMatch(chromeSource, /demoRoles/);
 });
 
+test("dashboard app content region scrolls while chrome stays fixed", () => {
+  assert.match(chromeSource, /<main className="[^"]*flex-1[^"]*overflow-y-auto[^"]*overflow-x-hidden/);
+  assert.doesNotMatch(chromeSource, /<main className="[^"]*flex-1 overflow-hidden/);
+});
+
+test("create interview launcher keeps the topbar action label unclipped", () => {
+  assert.match(createInterviewLauncherSource, /sm:min-w-max/);
+  assert.match(createInterviewLauncherSource, /sm:shrink-0/);
+  assert.match(createInterviewLauncherSource, /whitespace-nowrap/);
+});
+
 test("recordings page lists historical Fireflies and room recordings with links to detail", () => {
   assert.match(recordingsSource, /getRoomRecordings/);
   assert.match(recordingsSource, /Historical Fireflies/);
@@ -73,6 +85,26 @@ test("recordings page lists historical Fireflies and room recordings with links 
   assert.match(recordingsSource, /data-recordings-scroll-region/);
   assert.match(recordingsSource, /overflow-y-auto/);
   assert.doesNotMatch(recordingsSource, /OperationalPlaceholderPage/);
+});
+
+test("recordings page surfaces native Puddle session records even before full finalization", () => {
+  assert.match(recordingsSource, /getRealInterviews/);
+  assert.match(recordingsSource, /Puddle platform sessions/);
+  assert.match(recordingsSource, /nativeSessionRows/);
+  assert.match(recordingsSource, /nativeRecordedSessionRows/);
+  assert.match(recordingsSource, /hasNativeRecordingSignal/);
+  assert.match(recordingsSource, /\.\.\.nativeRecordedSessionRows,\s*\.\.\.nativePendingSessionRows/s);
+  assert.match(recordingsSource, /Math\.max\(recordings\.length,\s*nativeRecordedSessionRows\.length\)/);
+  assert.match(recordingsSource, /recordingBySessionId/);
+  assert.match(recordingsSource, /composite_video_status/);
+  assert.match(recordingsSource, /sessionVideoStatus\(session,\s*recording\)/);
+  assert.match(recordingsSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(session\.session_id\)\}`\}/);
+});
+
+test("recordings data tolerates older connected-dev backends without room-recordings", () => {
+  assert.match(backendDataSource, /response\.status === 404/);
+  assert.match(backendDataSource, /return \[\];/);
+  assert.match(backendDataSource, /backend returned \$\{response\.status\}/);
 });
 
 test("dashboard default route redirects to roles after onboarding", () => {
@@ -144,6 +176,8 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
   assert.match(activePipelineSource, /Stage filters are read-only for members\./);
   assert.match(activePipelineSource, /data-active-candidate-scroll-region/);
   assert.match(activePipelineSource, /overflow-y-auto/);
+  assert.match(activePipelineSource, /<section className="min-h-0 min-w-0 overflow-hidden/);
+  assert.match(activePipelineSource, /"min-h-16 w-full min-w-0 overflow-hidden rounded-md/);
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);
   assert.match(ashbyFirstSectionsSource, /role picker/i);
   assert.match(ashbyFirstSectionsSource, /<select/);

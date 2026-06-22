@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { TokenVerifier } from "livekit-server-sdk";
+import { EgressStatus, TokenVerifier } from "livekit-server-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerCandidateInviteRoutes } from "../src/invites/routes.js";
 import type { CandidateInviteRow } from "../src/invites/repository.js";
@@ -14,12 +14,20 @@ import {
 } from "../src/interviewers/repository.js";
 import { registerInterviewerRoutes } from "../src/interviewers/routes.js";
 
-const { queryMock, clientQueryMock, connectMock, releaseMock, ensureRoomReadyMock } = vi.hoisted(() => ({
+const {
+  queryMock,
+  clientQueryMock,
+  connectMock,
+  releaseMock,
+  ensureRoomReadyMock,
+  startRecordingMock,
+} = vi.hoisted(() => ({
   queryMock: vi.fn(),
   clientQueryMock: vi.fn(),
   connectMock: vi.fn(),
   releaseMock: vi.fn(),
   ensureRoomReadyMock: vi.fn(),
+  startRecordingMock: vi.fn(),
 }));
 
 vi.mock("../src/db/pool.js", () => ({
@@ -81,6 +89,10 @@ const CANDIDATE_JOIN_PAYLOAD = {
 
 beforeEach(() => {
   vi.stubEnv("PUDDLE_RECORDINGS_ENABLED", "false");
+  vi.stubEnv("PUDDLE_ARTIFACTS_BUCKET", "puddle-artifacts");
+  vi.stubEnv("AWS_REGION", "us-west-1");
+  vi.stubEnv("PUDDLE_EGRESS_S3_ACCESS_KEY_ID", "access-key-id");
+  vi.stubEnv("PUDDLE_EGRESS_S3_SECRET_ACCESS_KEY", "secret-access-key");
   queryMock.mockReset();
   queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
   clientQueryMock.mockReset();
@@ -94,6 +106,11 @@ beforeEach(() => {
     roomCreated: true,
     dispatchCreated: false,
     roomRecreated: false,
+  });
+  startRecordingMock.mockReset();
+  startRecordingMock.mockResolvedValue({
+    egressId: "egress1",
+    status: EgressStatus.EGRESS_ACTIVE,
   });
 });
 
@@ -267,7 +284,7 @@ describe("candidate join auto-dispatch behavior", () => {
   it("dispatches the AI interviewer when no interviewer join event exists", async () => {
     setupCandidateJoinQueries({ interviewerJoined: false });
     const app = Fastify();
-    registerCandidateInviteRoutes(app, FAKE_LK);
+    registerCandidateInviteRoutes(app, FAKE_LK, startRecordingMock);
 
     const res = await app.inject({
       method: "POST",
@@ -289,6 +306,12 @@ describe("candidate join auto-dispatch behavior", () => {
       { hadPreviousRoom: false, dispatchAgent: true },
     );
     expect(markedCandidateInviteUsed()).toBe(true);
+    expect(startRecordingMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        room: "interview-sess1",
+        storagePath: "/org1/interviews/sess1/media/composite.mp4",
+      }),
+    );
     expect(insertedEventPayloads()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ event_type: "candidate_first_join" }),
@@ -305,7 +328,7 @@ describe("candidate join auto-dispatch behavior", () => {
   it("skips AI auto-dispatch when an interviewer join event exists", async () => {
     setupCandidateJoinQueries({ interviewerJoined: true });
     const app = Fastify();
-    registerCandidateInviteRoutes(app, FAKE_LK);
+    registerCandidateInviteRoutes(app, FAKE_LK, startRecordingMock);
 
     const res = await app.inject({
       method: "POST",
@@ -322,6 +345,12 @@ describe("candidate join auto-dispatch behavior", () => {
       { hadPreviousRoom: true, dispatchAgent: false },
     );
     expect(markedCandidateInviteUsed()).toBe(true);
+    expect(startRecordingMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        room: "interview-sess1",
+        storagePath: "/org1/interviews/sess1/media/composite.mp4",
+      }),
+    );
     expect(insertedEventPayloads()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ event_type: "candidate_first_join" }),
@@ -339,7 +368,7 @@ describe("candidate join auto-dispatch behavior", () => {
   it("still lets the candidate join when the skip audit event fails", async () => {
     setupCandidateJoinQueries({ interviewerJoined: true, failSkipEvent: true });
     const app = Fastify();
-    registerCandidateInviteRoutes(app, FAKE_LK);
+    registerCandidateInviteRoutes(app, FAKE_LK, startRecordingMock);
 
     const res = await app.inject({
       method: "POST",
@@ -356,6 +385,12 @@ describe("candidate join auto-dispatch behavior", () => {
       { hadPreviousRoom: true, dispatchAgent: false },
     );
     expect(markedCandidateInviteUsed()).toBe(true);
+    expect(startRecordingMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        room: "interview-sess1",
+        storagePath: "/org1/interviews/sess1/media/composite.mp4",
+      }),
+    );
     expect(insertedEventPayloads()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ event_type: "candidate_first_join" }),
