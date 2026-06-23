@@ -212,10 +212,6 @@ def _style_block(rubric: Rubric) -> str:
         "STYLE — sound like a warm, natural human, not a form:\n"
         "- Between answers, before you probe or move on, use a brief natural "
         "acknowledgment. Vary it; draw on these: " + acks + ".\n"
-        "- Use AT MOST ONE acknowledgment word or phrase, then move straight on. "
-        "NEVER chain or repeat fillers — do NOT say things like \"ok ok cool\", "
-        "\"cool cool\", \"got it got it\", or \"awesome, okay, cool\". One short "
-        "beat only.\n"
     )
     if style.thinking_fillers:
         fillers = " / ".join(f'"{f}"' for f in style.thinking_fillers)

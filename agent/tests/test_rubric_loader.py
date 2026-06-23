@@ -34,9 +34,7 @@ def test_style_and_opener_and_closer_present() -> None:
     rubric = load_rubric(RUBRIC_PATH)
     assert rubric.style is not None
     assert rubric.style.interviewer_name == "Prakul"
-    # Acknowledgments are single, de-chained beats (no "Got it. Got it. Got it.").
-    assert "Got it." in rubric.style.acknowledgments
-    assert all(ack.count(".") <= 1 for ack in rubric.style.acknowledgments)
+    assert "Got it. Got it. Got it." in rubric.style.acknowledgments
     assert rubric.opener is not None
     assert rubric.opener.greeting == "Hey, how are you doing?"
     assert "Weave" in rubric.opener.introduction

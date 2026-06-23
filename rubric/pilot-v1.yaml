@@ -7,22 +7,23 @@ bare_minimum_rule: at_least_one_4_and_problem_solving_ge_3
 # (artifacts/transcripts/video_1.json, video_2.json — Speaker [1]).
 #
 # The Interview Controller picks one acknowledgment / filler at random when
-# the candidate finishes a turn before transitioning to the next state. Keep
-# each one to a SINGLE short beat — never chain or repeat fillers (no
-# "ok ok cool" / "got it got it"); one acknowledgment, then move on.
+# the candidate finishes a turn before transitioning to the next state. These
+# triplet repetitions ("Got it. Got it. Got it.") are signature Prakul; keep
+# them verbatim.
 # ─────────────────────────────────────────────────────────────────────────────
 style:
   interviewer_name: Prakul
   company_name: Weave
   interviewer_role: engineer
   acknowledgments:
-    - "Got it."
-    - "Awesome."
-    - "Okay, cool."
-    - "Nice."
-    - "Good."
-    - "Pretty cool."
-    - "Right, okay."
+    - "Got it. Got it. Got it."
+    - "Awesome. Awesome. Awesome."
+    - "Okay. Cool. Cool. Cool."
+    - "Cool. Cool. Cool. Cool. Cool."
+    - "Nice. Nice. Nice."
+    - "Good. Good. Good."
+    - "Awesome. Awesome. Pretty cool."
+    - "Got it. And okay, cool."
   thinking_fillers:
     - "Take your time."
     - "No rush."
@@ -60,8 +61,9 @@ closer:
     - "This role is five days a week, in person here in San Francisco — is that okay for you?"
     - "And would you require any sponsorship in order to work at Weave?"
   wrap: >-
-    Awesome. Well, I'll go talk to Andrew right now after this, and we'll get
-    back to you by tomorrow morning. Thanks so much for your time — bye!
+    Awesome. Okay cool. Well, I'll go talk to Andrew right now after this, and
+    we'll get back to you by tomorrow morning. Thanks so much for your time —
+    bye!
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Categories — unchanged from prior rubric. Definitions remain.
@@ -113,7 +115,7 @@ categories:
 questions:
   - question_id: q1
     rubric_categories: [problem_solving]
-    transition_in: "Awesome."
+    transition_in: "Awesome. Cool."
     verbatim_text: >-
       Well, I guess the first question I have is, can you tell me about a
       technically complex problem you solved with a clever or hacky or novel
@@ -156,7 +158,7 @@ questions:
 
   - question_id: q2
     rubric_categories: [agency]
-    transition_in: "Got it."
+    transition_in: "Got it. And okay, cool."
     pre_question:
       ask: "Have you ever applied to YC before as a founder?"
       branch_no: >-
@@ -194,7 +196,7 @@ questions:
 
   - question_id: q3
     rubric_categories: [competitiveness]
-    transition_in: "Shifting gears a bit. I think"
+    transition_in: "Awesome. Yeah. Shifting gears a bit. I think"
     verbatim_text: >-
       My next question is, can you tell me about an area outside of your
       work or outside of tech where you are extremely competitive, so much
@@ -231,7 +233,7 @@ questions:
 
   - question_id: q4
     rubric_categories: [curious]
-    transition_in: "Okay, cool."
+    transition_in: "Okay, cool, cool, cool."
     depth_invite: >-
       If they name a specific concept, work, or term, ask them to explain it out
       of genuine personal interest — e.g. "oh, out of personal interest, what's a
