@@ -155,7 +155,10 @@ async def test_guardrail_violation_injects_correction_and_records_event(
 
     await runner.run(session_id="s-guard")
 
-    assert correction in session.injections
+    # The correction is injected with the Australian-accent re-anchor appended,
+    # so the model doesn't drift off-accent on the corrective turn.
+    assert any(correction in m for m in session.injections)
+    assert any("Australian accent" in m for m in session.injections)
     guardrail_events = [
         ev for ev in event_log.events() if ev.reason_code == "GUARDRAIL_CORRECTION"
     ]
@@ -235,7 +238,7 @@ async def test_session_cap_forces_wrap_up_and_ends_run(
 
     await runner.run(session_id="s-cap")
 
-    assert "We need to wrap up now." in session.injections
+    assert any("We need to wrap up now." in m for m in session.injections)
     assert session.closed is True
     # The run ended early — far fewer than 50 turns were logged.
     agent_turns = [t for t in runner.transcript if t.speaker == "agent"]

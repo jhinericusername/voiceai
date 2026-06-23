@@ -50,6 +50,19 @@ logger = logging.getLogger(__name__)
 _FALLBACK_PROBE = "Could you tell me a little more about that?"
 _WRAP_UP_LINE = "We need to wrap up now."
 
+# Every message we inject mid-interview (guardrail corrections, wrap-up) is a
+# fresh steering turn that can nudge the model off-persona. Append this so the
+# Australian accent is re-anchored at each injection and never drifts.
+_ACCENT_REMINDER = (
+    "(Keep speaking in your strong, broad Australian accent — every sentence, "
+    "no slipping.)"
+)
+
+
+def _with_accent(message: str) -> str:
+    """Tack the accent re-anchor onto a mid-interview steering message."""
+    return f"{message}\n\n{_ACCENT_REMINDER}"
+
 
 async def _noop_emit(_payload: dict[str, object]) -> None:
     return None
@@ -250,7 +263,7 @@ class RealtimeInterviewRunner:
     async def _force_wrap_up(self) -> None:
         """Hit the session cap: announce the wrap and close through the bus."""
         logger.warning("realtime session cap reached; forcing wrap-up")
-        await self._session.inject_message(_WRAP_UP_LINE)
+        await self._session.inject_message(_with_accent(_WRAP_UP_LINE))
         result = self._bus.close_interview()
         await self._session.respond_to_tool("time-guard-close", result.speak)
         self._event_log.record_utterance(
@@ -276,7 +289,7 @@ class RealtimeInterviewRunner:
             return
         logger.info("guardrail violation (non-blocking)", extra={"kind": verdict.kind})
         with contextlib.suppress(Exception):
-            await self._session.inject_message(verdict.correction)
+            await self._session.inject_message(_with_accent(verdict.correction))
         self._event_log.record_utterance(
             utterance=verdict.correction,
             reason_code="GUARDRAIL_CORRECTION",

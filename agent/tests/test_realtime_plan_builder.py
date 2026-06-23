@@ -52,6 +52,15 @@ def test_question_without_scripted_probes_renders_no_fallback_section():
     assert "fallback probe wordings" not in _question_block(q2)
 
 
+def test_persona_demands_accent_persistence_throughout():
+    instr = build_interview_plan(RUBRIC).instructions.lower()
+    # The accent must be instructed to hold for the whole interview, not just
+    # the opening, and to re-anchor rather than drift.
+    assert "australian" in instr
+    assert "entire interview" in instr
+    assert "drift" in instr
+
+
 def test_persona_content_updates_present():
     from pathlib import Path
     from agent.rubric_loader import load_rubric

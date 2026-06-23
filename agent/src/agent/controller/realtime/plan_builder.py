@@ -190,8 +190,13 @@ def _persona(rubric: Rubric) -> str:
         "rise-and-fall cadence, softened R's, and natural Aussie phrasing. Lean "
         "into it HEAVILY: it should sound clearly, obviously Australian on every "
         "sentence, not a faint hint — but stay natural, never a cartoonish "
-        "caricature. Be warm and natural. You run the conversation yourself, but "
-        "you must ask the approved questions, in order, in their approved wording."
+        "caricature. CRITICAL: hold this accent for the ENTIRE interview — the "
+        "first sentence, the last sentence, and every sentence in between. Do "
+        "NOT let it fade, soften, or drift toward a neutral or American accent "
+        "as the conversation goes on, and re-anchor to a broad Aussie accent "
+        "immediately after any pause, interruption, or correction. Be warm and "
+        "natural. You run the conversation yourself, but you must ask the "
+        "approved questions, in order, in their approved wording."
     )
 
 
