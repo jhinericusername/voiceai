@@ -240,7 +240,10 @@ def _opener_block(rubric: Rubric) -> str:
         "OPENER — warm small talk. STOP and wait ONLY at the ⏸ marks. Every turn "
         "after the greeting COMBINES your reaction to what they just said WITH your "
         "next question, in ONE breath — NEVER acknowledge and then go silent, and "
-        "never split an acknowledgment and its question into two separate turns.",
+        "never split an acknowledgment and its question into two separate turns. "
+        "The wordings below are EXAMPLES, not a script to recite — improvise in "
+        "your own words, genuinely react to what they actually say, and keep it "
+        "natural and unscripted while still leading the conversation forward.",
         f'  1) Greet: "{o.greeting}"  ⏸ wait.',
     ]
     if location_q:
@@ -250,11 +253,20 @@ def _opener_block(rubric: Rubric) -> str:
             "you're doing well, then in the SAME breath ask "
             f'"{location_q}"  ⏸ wait.'
         )
-    if weather_q:
-        recip_clause = f' (feel free to reciprocate, e.g. "{recip}")' if recip else ""
+    if weather_q or recip:
         lines.append(
-            "  3) ONE turn: react warmly to where they're calling from"
-            f'{recip_clause}, and in the SAME sentence ask "{weather_q}"  ⏸ wait.'
+            "  3) ONE turn, react warmly to where they're calling from, then "
+            "branch naturally on their answer:\n"
+            "       - If they're in San Francisco or nearby (the Bay Area): do "
+            "NOT ask about the weather. Instead ask whereabouts in the city they "
+            'are (e.g. "Oh nice — whereabouts in the city?") and mention you\'re '
+            "based in Chinatown. If they're in Chinatown too, warmly note you're "
+            'based there as well (e.g. "Oh no way — we\'re in Chinatown as well!").\n'
+            "       - Otherwise: react to where they are"
+            + (f', reciprocate naturally (e.g. "{recip}")' if recip else "")
+            + (f', then ask "{weather_q}"' if weather_q else "")
+            + ".\n"
+            "     ⏸ wait."
         )
     if o.introduction:
         lines.append(
