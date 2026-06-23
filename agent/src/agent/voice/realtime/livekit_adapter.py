@@ -302,6 +302,24 @@ class LiveKitRealtimeSession:
                 return
             yield item
 
+    async def _await_current_speech(self) -> None:  # pragma: no cover - vendor timing
+        """Let any in-flight agent speech finish before generating the next reply.
+
+        ``generate_reply()`` interrupts the currently-playing audio, which cuts
+        the agent off mid-sentence — e.g. when the model calls ``advance_question``
+        while it is still speaking its acknowledgment, or when a guardrail
+        correction is injected during the next turn. Waiting for play-out first
+        makes the agent finish its sentence, then speak. ``wait_for_playout()``
+        returns immediately if play-out is already done, so this adds no latency
+        in the common case.
+        """
+        if self._session is None:
+            return
+        speech = self._session.current_speech
+        if speech is not None and not speech.done():
+            with contextlib.suppress(Exception):
+                await speech.wait_for_playout()
+
     async def respond_to_tool(self, call_id: str, output: str) -> None:  # pragma: no cover
         """Return a tool result, then trigger the next agent response.
 
@@ -320,6 +338,9 @@ class LiveKitRealtimeSession:
         chat_ctx.items.append(
             FunctionCallOutput(call_id=call_id, output=output, is_error=False)
         )
+        # Finish the in-flight acknowledgment before asking the next question,
+        # so a tool call emitted mid-utterance doesn't truncate the sentence.
+        await self._await_current_speech()
         self._session.generate_reply(chat_ctx=chat_ctx)
 
     async def inject_message(self, text: str) -> None:  # pragma: no cover
@@ -330,6 +351,9 @@ class LiveKitRealtimeSession:
         """
         if self._session is None:
             raise RuntimeError("inject_message called before start()")
+        # Land steering on the NEXT turn (the documented intent) instead of
+        # cutting off whatever the agent is currently saying.
+        await self._await_current_speech()
         self._session.generate_reply(instructions=text)
 
     async def aclose(self) -> None:
