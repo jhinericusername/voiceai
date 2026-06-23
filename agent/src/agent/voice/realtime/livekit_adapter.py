@@ -173,25 +173,17 @@ class LiveKitRealtimeSession:
         )
 
         # Turn-taking: semantic server-side VAD. The model decides when the
-        # candidate has finished a turn and then replies (create_response). We
-        # keep semantic (not server_vad) because it judges turn-ends by MEANING,
-        # so a candidate's mid-answer thinking pause isn't mistaken for "done"
-        # the way a fixed silence timer would. The plugin already defaults to
-        # semantic VAD, but we set it EXPLICITLY so the interview's turn-taking
-        # is greppable and tunable in one place (eagerness), and is not at the
-        # mercy of an upstream default change.
-        #
-        # interrupt_response=False: barge-in is OFF. The agent finishes its
-        # question even if it hears noise, so background sounds can no longer
-        # make it stop and restart mid-sentence. The cost is that a candidate
-        # can't cut the agent off mid-question (they wait ~2-4s for it to
-        # finish) — acceptable for a structured interviewer, and consistent with
-        # the cascaded path, which already speaks with allow_interruptions=False.
+        # candidate has finished a turn and then replies (create_response), and
+        # yields the floor if the candidate starts talking over it
+        # (interrupt_response). The plugin already defaults to semantic VAD, but
+        # we set it EXPLICITLY so the interview's turn-taking is greppable and
+        # tunable in one place (eagerness), and is not at the mercy of an
+        # upstream default change.
         turn_detection = SemanticVad(
             type="semantic_vad",
             eagerness=_VAD_EAGERNESS,
             create_response=True,
-            interrupt_response=False,
+            interrupt_response=True,
         )
 
         # input_audio_transcription MUST be set explicitly or candidate
@@ -212,7 +204,6 @@ class LiveKitRealtimeSession:
                 "model": self._model,
                 "voice": "cedar",
                 "turn_detection": f"semantic_vad/{_VAD_EAGERNESS}",
-                "barge_in": False,
                 "instructions_chars": len(instructions or ""),
                 "tools": len(tools),
             },
