@@ -67,8 +67,10 @@ def test_persona_content_updates_present():
     from agent.controller.realtime.plan_builder import build_interview_plan
     rubric = load_rubric(Path(__file__).parents[2] / "rubric" / "pilot-v1.yaml")
     instr = build_interview_plan(rubric).instructions
-    # AI disclosure in the opener
-    assert "an AI modeled after Prakul" in instr
+    # AI disclosure in the opener — self-identifies as Puddle, an agent modeled
+    # after Prakul.
+    assert "Puddle" in instr
+    assert "an agent modeled after Prakul" in instr
     # Q1 worked example (cache story) + Q3 worked example (competitiveness)
     assert "in-memory cache" in instr
     assert "Smash Bros" in instr
@@ -82,7 +84,8 @@ def test_instructions_surface_acknowledgments():
     from agent.controller.realtime.plan_builder import build_interview_plan
     rubric = load_rubric(Path(__file__).parents[2] / "rubric" / "pilot-v1.yaml")
     instr = build_interview_plan(rubric).instructions
-    assert "Got it. Got it. Got it." in instr            # a real ack phrase surfaced
+    assert "Got it." in instr                            # a single, de-chained ack surfaced
+    assert "never chain" in instr.lower()                # no-chaining rule present
     assert "acknowledg" in instr.lower()                 # the guidance framing
     assert "STYLE — sound like a warm, natural human, not a form" in instr  # _style_block contribution
 
