@@ -54,6 +54,11 @@ _CANDIDATE_IDENTITY_PREFIX = "candidate-"
 # "medium" (balanced) or "low" (most patient).
 _VAD_EAGERNESS = "high"
 
+# Agent speech rate as a multiple of natural pace. gpt-realtime allows 0.25–1.5;
+# 1.5 is the MAX (≈50% faster than the 1.0 default). Dial toward ~1.3 if 1.5
+# sounds rushed or clipped.
+_SPEECH_SPEED = 1.5
+
 # One-shot steering for the opening turn. The standing instructions already carry
 # the scripted opener; this just tells the model to deliver it now and then yield
 # the floor, so the interview always starts with a clean, properly-formatted intro
@@ -197,6 +202,7 @@ class LiveKitRealtimeSession:
             voice="cedar",
             input_audio_transcription=AudioTranscription(model=_TRANSCRIPTION_MODEL),
             turn_detection=turn_detection,
+            speed=_SPEECH_SPEED,
         )
         logger.info(
             "realtime model configured",
@@ -204,6 +210,7 @@ class LiveKitRealtimeSession:
                 "model": self._model,
                 "voice": "cedar",
                 "turn_detection": f"semantic_vad/{_VAD_EAGERNESS}",
+                "speed": _SPEECH_SPEED,
                 "instructions_chars": len(instructions or ""),
                 "tools": len(tools),
             },
