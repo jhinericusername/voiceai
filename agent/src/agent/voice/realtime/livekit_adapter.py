@@ -59,6 +59,21 @@ _VAD_EAGERNESS = "high"
 # sounds rushed or clipped.
 _SPEECH_SPEED = 1.5
 
+# gpt-realtime output voice. Picked by ear-test (2026-06-25): "ash" carried the
+# steered Australian accent best of the 10 realtime voices. gpt-realtime has NO
+# native en-AU voice, so the accent is still prompt-steered (see
+# plan_builder._persona + _ACCENT_DIRECTIVE below); if it still drifts that's the
+# model ceiling, not the prompt.
+_VOICE = "ash"
+
+# Delivery-only re-anchor appended to every tool-driven turn (each question/probe
+# the agent speaks) so the Australian accent stays consistent across the whole
+# interview instead of fading after the opener.
+_ACCENT_DIRECTIVE = (
+    "Continue speaking in your strong, broad, unmistakable Australian accent — "
+    "every sentence, never drifting to a neutral or American accent."
+)
+
 # One-shot steering for the opening turn. The standing instructions already carry
 # the scripted opener; this just tells the model to deliver it now and then yield
 # the floor, so the interview always starts with a clean, properly-formatted intro
@@ -195,11 +210,7 @@ class LiveKitRealtimeSession:
         # transcription events never fire (Task 8 finding Q1).
         realtime_model = openai_realtime.RealtimeModel(
             model=self._model,
-            # High-quality gpt-realtime voice. gpt-realtime has no native en-AU
-            # voice, so the Australian accent is steered via the persona
-            # instructions (see plan_builder._persona). Ear-test and swap if
-            # the accent/timbre isn't right.
-            voice="cedar",
+            voice=_VOICE,
             input_audio_transcription=AudioTranscription(model=_TRANSCRIPTION_MODEL),
             turn_detection=turn_detection,
             speed=_SPEECH_SPEED,
@@ -208,7 +219,7 @@ class LiveKitRealtimeSession:
             "realtime model configured",
             extra={
                 "model": self._model,
-                "voice": "cedar",
+                "voice": _VOICE,
                 "turn_detection": f"semantic_vad/{_VAD_EAGERNESS}",
                 "speed": _SPEECH_SPEED,
                 "instructions_chars": len(instructions or ""),
@@ -348,7 +359,9 @@ class LiveKitRealtimeSession:
         # Finish the in-flight acknowledgment before asking the next question,
         # so a tool call emitted mid-utterance doesn't truncate the sentence.
         await self._await_current_speech()
-        self._session.generate_reply(chat_ctx=chat_ctx)
+        # Re-anchor the Australian accent on every spoken question/probe so it
+        # stays consistent across the interview instead of drifting after the opener.
+        self._session.generate_reply(chat_ctx=chat_ctx, instructions=_ACCENT_DIRECTIVE)
 
     async def inject_message(self, text: str) -> None:  # pragma: no cover
         """Send out-of-band steering: one-shot ``generate_reply(instructions=…)``.
