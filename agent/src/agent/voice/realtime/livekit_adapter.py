@@ -87,6 +87,44 @@ _OPENER_NUDGE = (
 )
 
 
+def build_realtime_model(model: str) -> Any:
+    """Build the gpt-realtime model with the production voice / turn-taking / speed.
+
+    Shared by the LiveKit worker AND the local console harness
+    (``agent.local_interview``) so both run a byte-identical bot. Turn-taking is
+    semantic server-side VAD set explicitly (``eagerness`` is the one tuning
+    knob); voice and speed are the constants above. ``input_audio_transcription``
+    MUST be set or candidate transcription events never fire.
+    """
+    from livekit.plugins.openai import realtime as openai_realtime
+    from openai.types.realtime import AudioTranscription
+    from openai.types.realtime.realtime_audio_input_turn_detection import SemanticVad
+
+    turn_detection = SemanticVad(
+        type="semantic_vad",
+        eagerness=_VAD_EAGERNESS,
+        create_response=True,
+        interrupt_response=True,
+    )
+    realtime_model = openai_realtime.RealtimeModel(
+        model=model,
+        voice=_VOICE,
+        input_audio_transcription=AudioTranscription(model=_TRANSCRIPTION_MODEL),
+        turn_detection=turn_detection,
+        speed=_SPEECH_SPEED,
+    )
+    logger.info(
+        "realtime model configured",
+        extra={
+            "model": model,
+            "voice": _VOICE,
+            "turn_detection": f"semantic_vad/{_VAD_EAGERNESS}",
+            "speed": _SPEECH_SPEED,
+        },
+    )
+    return realtime_model
+
+
 class _EndSentinel:
     """Single-instance marker that terminates the `events()` async generator."""
 
@@ -186,42 +224,11 @@ class LiveKitRealtimeSession:
         translation, queue emit, lifecycle linking) are covered separately.
         """
         from livekit.agents import Agent, AgentSession, room_io
-        from livekit.plugins.openai import realtime as openai_realtime
-        from openai.types.realtime import AudioTranscription
-        from openai.types.realtime.realtime_audio_input_turn_detection import (
-            SemanticVad,
-        )
 
-        # Turn-taking: semantic server-side VAD. The model decides when the
-        # candidate has finished a turn and then replies (create_response), and
-        # yields the floor if the candidate starts talking over it
-        # (interrupt_response). The plugin already defaults to semantic VAD, but
-        # we set it EXPLICITLY so the interview's turn-taking is greppable and
-        # tunable in one place (eagerness), and is not at the mercy of an
-        # upstream default change.
-        turn_detection = SemanticVad(
-            type="semantic_vad",
-            eagerness=_VAD_EAGERNESS,
-            create_response=True,
-            interrupt_response=True,
-        )
-
-        # input_audio_transcription MUST be set explicitly or candidate
-        # transcription events never fire (Task 8 finding Q1).
-        realtime_model = openai_realtime.RealtimeModel(
-            model=self._model,
-            voice=_VOICE,
-            input_audio_transcription=AudioTranscription(model=_TRANSCRIPTION_MODEL),
-            turn_detection=turn_detection,
-            speed=_SPEECH_SPEED,
-        )
+        realtime_model = build_realtime_model(self._model)
         logger.info(
-            "realtime model configured",
+            "realtime session starting",
             extra={
-                "model": self._model,
-                "voice": _VOICE,
-                "turn_detection": f"semantic_vad/{_VAD_EAGERNESS}",
-                "speed": _SPEECH_SPEED,
                 "instructions_chars": len(instructions or ""),
                 "tools": len(tools),
             },
