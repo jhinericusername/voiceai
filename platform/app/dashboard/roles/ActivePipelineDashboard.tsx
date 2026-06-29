@@ -168,7 +168,7 @@ export function ActivePipelineDashboard({
       </div>
 
       <div className="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)]">
-        <section className="min-h-0 overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <section className="min-h-0 min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <div className="border-b border-slate-200 px-4 py-3">
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Roles</div>
             <h2 className="mt-1 text-base font-semibold text-slate-950">Active pipeline</h2>
@@ -182,7 +182,7 @@ export function ActivePipelineDashboard({
                   type="button"
                   onClick={() => setSelectedJobId(role.jobId)}
                   className={cx(
-                    "min-h-16 rounded-md border px-3 py-2 text-left transition",
+                    "min-h-16 w-full min-w-0 overflow-hidden rounded-md border px-3 py-2 text-left transition",
                     active
                       ? "border-cyan-200 bg-cyan-50/70 shadow-[0_10px_24px_rgba(8,145,178,0.08)]"
                       : "border-slate-200 bg-white hover:border-cyan-200 hover:bg-cyan-50/40",

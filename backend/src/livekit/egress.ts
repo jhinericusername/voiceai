@@ -54,7 +54,8 @@ function optionalBooleanEnv(env: NodeJS.ProcessEnv, key: string): boolean | unde
 export function liveKitRecordingsEnabledFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return optionalBooleanEnv(env, "PUDDLE_RECORDINGS_ENABLED") === true;
+  void env;
+  return true;
 }
 
 export function liveKitEgressStorageConfigFromEnv(

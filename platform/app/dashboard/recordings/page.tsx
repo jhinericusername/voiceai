@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
   dashboardOrgId,
+  getRealInterviews,
   getRoomRecordings,
+  type RealInterviewListItem,
   type RealRoomRecordingListItem,
 } from "../backend-data";
 import { requireDashboardUser } from "../auth";
@@ -17,7 +19,19 @@ export const dynamic = "force-dynamic";
 export default async function RecordingsPage() {
   const { user, organizationId } = await requireDashboardUser("/dashboard/recordings");
   const orgId = dashboardOrgId({ organizationId, userId: user.id });
-  const recordings = await getRoomRecordings({ orgId });
+  const [recordings, interviews] = await Promise.all([
+    getRoomRecordings({ orgId }),
+    getRealInterviews({ orgId }),
+  ]);
+  const recordingBySessionId = new Map(recordings.map((recording) => [recording.session_id, recording]));
+  const nativeSessions = interviews.filter(isNativePuddleSession);
+  const nativeRecordedSessionRows = nativeSessions.filter(hasNativeRecordingSignal);
+  const nativePendingSessionRows = nativeSessions.filter((session) => !hasNativeRecordingSignal(session));
+  const nativeSessionRows = [
+    ...nativeRecordedSessionRows,
+    ...nativePendingSessionRows,
+  ].slice(0, 12);
+  const recordingCount = Math.max(recordings.length, nativeRecordedSessionRows.length);
   const historicalFirefliesCount = recordings.filter(isHistoricalFirefliesRecording).length;
 
   return (
@@ -26,7 +40,8 @@ export default async function RecordingsPage() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <StatusPill status={`${recordings.length} recordings`} />
+              <StatusPill status={`${recordingCount} recordings`} />
+              <StatusPill status={`${nativeSessionRows.length} Puddle sessions`} />
               <StatusPill status={`${historicalFirefliesCount} Fireflies`} />
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Evidence library</span>
             </div>
@@ -39,6 +54,60 @@ export default async function RecordingsPage() {
           </div>
         </div>
       </header>
+
+      <SectionPanel title="Puddle platform sessions" eyebrow="Native interviews">
+        {nativeSessionRows.length ? (
+          <div
+            data-native-sessions-scroll-region
+            className="grid max-h-[calc(100svh-18rem)] gap-2 overflow-y-auto pr-1"
+            aria-label="Puddle platform sessions"
+          >
+            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 md:grid">
+              <span>Candidate</span>
+              <span>Opened</span>
+              <span>Session</span>
+              <span>Recording</span>
+              <span>Video</span>
+            </div>
+            {nativeSessionRows.map((session) => {
+              const recording = recordingBySessionId.get(session.session_id);
+              return (
+                <Link
+                  key={session.session_id}
+                  href={`/dashboard/interviews/${encodeURIComponent(session.session_id)}`}
+                  className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-white/88 px-3 py-3 text-sm transition hover:-translate-y-px hover:border-cyan-200 hover:bg-cyan-50/40 hover:shadow-[0_10px_24px_rgba(8,145,178,0.08)] md:grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] md:items-center"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-slate-950">
+                      {candidateLabel(session)}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-slate-500">
+                      {sessionRoomLabel(session, recording)}
+                    </span>
+                  </span>
+                  <span className="text-slate-600">
+                    {formatNullableDate(session.started_at ?? session.scheduled_at)}
+                  </span>
+                  <span>
+                    <StatusPill status={formatBackendStatus(session.status, "Unknown")} />
+                  </span>
+                  <span>
+                    <StatusPill status={formatBackendStatus(recording?.recording_status ?? session.recording_status, "Missing")} />
+                  </span>
+                  <span>
+                    <StatusPill status={formatBackendStatus(sessionVideoStatus(session, recording), "Missing")} />
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState
+            title="No Puddle sessions yet"
+            detail="Native interview sessions created from the Puddle dashboard will appear here as soon as they are scheduled or opened."
+          />
+        )}
+      </SectionPanel>
 
       <SectionPanel title="Recordings" eyebrow="Completed interviews">
         {recordings.length ? (
@@ -96,13 +165,15 @@ export default async function RecordingsPage() {
   );
 }
 
-function candidateLabel(recording: RealRoomRecordingListItem): string {
-  const metadataName = sourceMetadataString(recording.source_metadata, [
+type CandidateDisplayRecord = Pick<RealInterviewListItem, "candidate_email" | "source_metadata">;
+
+function candidateLabel(record: CandidateDisplayRecord): string {
+  const metadataName = sourceMetadataString(record.source_metadata, [
     "ashby",
     "selected",
     "candidateName",
   ]);
-  return metadataName || recording.candidate_email?.trim() || "Candidate";
+  return metadataName || record.candidate_email?.trim() || "Candidate";
 }
 
 function roomLabel(recording: RealRoomRecordingListItem): string {
@@ -117,6 +188,30 @@ function isHistoricalFirefliesRecording(recording: RealRoomRecordingListItem): b
 
 function recordingSourceLabel(recording: RealRoomRecordingListItem): string {
   return isHistoricalFirefliesRecording(recording) ? "Historical Fireflies" : "Puddle room";
+}
+
+function isNativePuddleSession(session: RealInterviewListItem): boolean {
+  return session.external_source !== "fireflies";
+}
+
+function hasNativeRecordingSignal(session: RealInterviewListItem): boolean {
+  return Boolean(session.recording_status?.trim() || session.egress_id?.trim());
+}
+
+function sessionVideoStatus(
+  session: RealInterviewListItem,
+  recording: RealRoomRecordingListItem | undefined,
+): string | null | undefined {
+  return recording?.composite_video_status ?? (hasNativeRecordingSignal(session) ? "Open detail" : null);
+}
+
+function sessionRoomLabel(
+  session: RealInterviewListItem,
+  recording: RealRoomRecordingListItem | undefined,
+): string {
+  const duration = formatDuration(recording?.composite_video_duration_seconds ?? null);
+  const room = session.room_name?.trim() || "Puddle room";
+  return duration ? `${room} · ${duration}` : room;
 }
 
 function sourceMetadataString(value: unknown, path: readonly string[]): string {

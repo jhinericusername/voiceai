@@ -51,14 +51,14 @@ export function DashboardCreateInterviewLauncher() {
   }
 
   return (
-    <div className="grid min-w-0 gap-1">
+    <div className="grid w-full min-w-0 gap-1 sm:w-auto sm:min-w-max sm:shrink-0">
       <button
         type="button"
         onClick={createAndJoin}
         disabled={isCreating}
         className={cx(
           primaryButtonClass,
-          "min-h-9 shrink-0 gap-2 px-3 text-sm disabled:cursor-not-allowed disabled:bg-slate-400",
+          "min-h-9 w-full shrink-0 gap-2 px-3 text-sm whitespace-nowrap sm:w-auto disabled:cursor-not-allowed disabled:bg-slate-400",
         )}
       >
         <VideoIcon className="h-4 w-4 shrink-0" aria-hidden="true" />

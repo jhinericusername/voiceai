@@ -49,11 +49,11 @@ async function signedWebhookAuth(body: string): Promise<string> {
 }
 
 describe("LiveKit Egress output configuration", () => {
-  it("keeps recordings disabled unless explicitly enabled", () => {
-    expect(liveKitRecordingsEnabledFromEnv({})).toBe(false);
+  it("keeps recordings enabled even if legacy env tries to disable them", () => {
+    expect(liveKitRecordingsEnabledFromEnv({})).toBe(true);
     expect(
       liveKitRecordingsEnabledFromEnv({ PUDDLE_RECORDINGS_ENABLED: "false" }),
-    ).toBe(false);
+    ).toBe(true);
     expect(liveKitRecordingsEnabledFromEnv({ PUDDLE_RECORDINGS_ENABLED: "true" })).toBe(
       true,
     );

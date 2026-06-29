@@ -69,7 +69,7 @@ backendDesiredCount=1
 backendCpu=256
 backendMemoryMiB=512
 liveKitUrl=wss://...
-enableLiveKitRecordings=false
+enableLiveKitRecordings=true
 liveKitEgressAssumeRoleArn=<optional-role-arn>
 liveKitEgressAssumeRoleExternalId=<optional-external-id>
 
@@ -129,23 +129,22 @@ npm run cdk -- deploy \
   -c backendDesiredCount=0 \
   -c backendImageTag="$TAG" \
   -c liveKitUrl=wss://your-livekit-host \
-  -c enableLiveKitRecordings=false
+  -c enableLiveKitRecordings=true
 ```
 
-Recording/dashboard persistence is disabled by default. With
-`enableLiveKitRecordings=false`, backend ECS tasks run the platform interview
-flow without LiveKit Egress S3 credentials or recording artifact writes. When
-`enableLiveKitRecordings=true`, CDK creates a least-privilege IAM user/access
-key for LiveKit Cloud S3 egress uploads and stores it in Secrets Manager at
-`/puddle-videoagent/livekit/egress-s3-credentials`; backend ECS tasks receive
-that secret as `PUDDLE_EGRESS_S3_ACCESS_KEY_ID` and
-`PUDDLE_EGRESS_S3_SECRET_ACCESS_KEY`. `liveKitEgressAssumeRoleArn` is optional
-and should stay unset unless LiveKit enables AWS AssumeRole for S3 egress on the
-account.
+Recording/dashboard persistence is required. With
+`enableLiveKitRecordings=true`, CDK imports the existing LiveKit Cloud S3 egress
+credential secret at `/puddle-videoagent/livekit/egress-s3-credentials`; backend
+ECS tasks receive that secret as `PUDDLE_EGRESS_S3_ACCESS_KEY_ID` and
+`PUDDLE_EGRESS_S3_SECRET_ACCESS_KEY`. The secret must contain `accessKeyId` and
+`secretAccessKey` JSON fields for a least-privilege upload credential that can
+write to the artifacts bucket. `liveKitEgressAssumeRoleArn` is optional and
+should stay unset unless LiveKit enables AWS AssumeRole for S3 egress on the
+account. Candidate joins should fail closed rather than proceed without
+recording.
 
-`scripts/deploy-platform.sh` maps `PUDDLE_RECORDINGS_ENABLED=true` from
-`.env.local` (or `ENABLE_LIVEKIT_RECORDINGS=true` from the shell) to the CDK
-`enableLiveKitRecordings=true` context flag. It also maps
+`scripts/deploy-platform.sh` passes `enableLiveKitRecordings=true` by default. It
+also maps
 `PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS` (default `300`) to the CDK
 `participantReconnectGraceSeconds` context flag for the LiveKit agent service.
 For Ashby bootstrap admins, it maps
@@ -214,7 +213,7 @@ npm run cdk -- deploy \
   -c deployBackendService=true \
   -c backendImageTag="<backend-tag>" \
   -c liveKitUrl=wss://your-livekit-host \
-  -c enableLiveKitRecordings=false \
+  -c enableLiveKitRecordings=true \
   -c platformHosting=container \
   -c platformImageTag="<platform-tag>" \
   -c deployAgentService=true \
@@ -263,7 +262,7 @@ npm run cdk -- deploy \
   -c deployBackendService=true \
   -c backendImageTag="<backend-tag>" \
   -c liveKitUrl=wss://your-livekit-host \
-  -c enableLiveKitRecordings=false \
+  -c enableLiveKitRecordings=true \
   -c platformHosting=container \
   -c platformImageTag="$TAG" \
   -c platformDomainName=app.usepuddle.com \
