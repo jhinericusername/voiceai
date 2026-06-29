@@ -250,6 +250,26 @@ describe("database migrations", () => {
     expect(migration).toContain("ALTER COLUMN active_stage_names DROP NOT NULL");
   });
 
+  it("allows interviewer AI control to record ended state after role stage filters", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const nullableIndex = files.indexOf("017_role_active_stage_filters_nullable.sql");
+    const aiEndedIndex = files.indexOf("018_interviewer_ai_control_ended_state.sql");
+
+    expect(nullableIndex).toBeGreaterThanOrEqual(0);
+    expect(aiEndedIndex).toBeGreaterThan(nullableIndex);
+
+    const migration = readFileSync(
+      join(migrationsDir, "018_interviewer_ai_control_ended_state.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain(
+      "DROP CONSTRAINT IF EXISTS interview_ai_control_state_requested_state_check",
+    );
+    expect(migration).toContain(
+      "CHECK (requested_state IN ('running', 'stopped', 'ended'))",
+    );
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 

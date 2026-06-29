@@ -26,6 +26,35 @@ def test_build_session_context_reads_job_metadata() -> None:
     assert ctx.org_id == "org1"
     assert ctx.script_version == "pilot-v1"
     assert ctx.room_name == "interview-sess1"
+    assert ctx.agent_participant_identity is None
+    assert ctx.candidate_participant_identity is None
+
+
+def test_build_session_context_treats_participant_identity_as_agent_identity() -> None:
+    job = MagicMock()
+    job.room.name = "interview-sess1"
+    job.metadata = (
+        '{"session_id": "sess1", "org_id": "org1", '
+        '"script_version": "pilot-v1", "candidate_email": "c@example.com", '
+        '"participant_identity": "puddle-interviewer-sess1"}'
+    )
+    ctx = build_session_context(job)
+    assert ctx.agent_participant_identity == "puddle-interviewer-sess1"
+    assert ctx.candidate_participant_identity is None
+
+
+def test_build_session_context_extracts_separate_candidate_identity() -> None:
+    job = MagicMock()
+    job.room.name = "interview-sess1"
+    job.metadata = (
+        '{"session_id": "sess1", "org_id": "org1", '
+        '"script_version": "pilot-v1", "candidate_email": "c@example.com", '
+        '"participant_identity": "puddle-interviewer-sess1", '
+        '"candidate_participant_identity": "candidate-invite1"}'
+    )
+    ctx = build_session_context(job)
+    assert ctx.agent_participant_identity == "puddle-interviewer-sess1"
+    assert ctx.candidate_participant_identity == "candidate-invite1"
 
 
 def test_build_session_context_extracts_livekit_job_metadata() -> None:
@@ -121,7 +150,12 @@ async def test_entrypoint_closes_voice_after_realtime_run(monkeypatch) -> None:
     voice = SimpleNamespace(aclose=AsyncMock())
     ran: dict[str, object] = {}
 
-    async def fake_build_realtime(_job):  # noqa: ANN001
+    async def fake_build_realtime(
+        _job: object,
+        *,
+        participant_identity: str | None = None,
+    ) -> object:
+        assert participant_identity is None
         return voice
 
     async def fake_run(ctx, run_voice):  # noqa: ANN001
@@ -137,6 +171,39 @@ async def test_entrypoint_closes_voice_after_realtime_run(monkeypatch) -> None:
     voice.aclose.assert_awaited_once()
 
 
+async def test_entrypoint_passes_candidate_identity_to_realtime_session(monkeypatch) -> None:
+    from agent.worker import entrypoint as ep
+
+    job = MagicMock()
+    job.room.name = "interview-sess1"
+    job.metadata = (
+        '{"session_id": "sess1", "org_id": "org1", '
+        '"script_version": "pilot-v1", "candidate_email": "c@example.com", '
+        '"candidate_participant_identity": "candidate-invite1"}'
+    )
+    voice = SimpleNamespace(aclose=AsyncMock())
+    seen: dict[str, object | None] = {}
+
+    async def fake_build_realtime(
+        _job: object,
+        *,
+        participant_identity: str | None = None,
+    ) -> object:
+        seen["participant_identity"] = participant_identity
+        return voice
+
+    async def fake_run(_ctx: object, _voice: object) -> None:
+        return None
+
+    monkeypatch.setattr(ep, "_build_realtime_session", fake_build_realtime)
+    monkeypatch.setattr(ep, "_realtime_run_interview", fake_run)
+
+    await ep.entrypoint(job)
+
+    assert seen["participant_identity"] == "candidate-invite1"
+    voice.aclose.assert_awaited_once()
+
+
 async def test_entrypoint_closes_realtime_voice_after_runner_failure(monkeypatch) -> None:
     from agent.worker import entrypoint as ep
 
@@ -149,7 +216,12 @@ async def test_entrypoint_closes_realtime_voice_after_runner_failure(monkeypatch
     voice = SimpleNamespace(aclose=AsyncMock())
     failure = RuntimeError("realtime runner failed")
 
-    async def fake_build_realtime(_job):  # noqa: ANN001
+    async def fake_build_realtime(
+        _job: object,
+        *,
+        participant_identity: str | None = None,
+    ) -> object:
+        assert participant_identity is None
         return voice
 
     async def fake_run(_ctx, _run_voice):  # noqa: ANN001
@@ -187,7 +259,12 @@ async def test_entrypoint_always_selects_realtime_path(monkeypatch) -> None:
     fake_voice = SimpleNamespace(aclose=AsyncMock())
     realtime_ran: list[tuple[object, object]] = []
 
-    async def fake_build_realtime(_job):  # noqa: ANN001
+    async def fake_build_realtime(
+        _job: object,
+        *,
+        participant_identity: str | None = None,
+    ) -> object:
+        assert participant_identity is None
         return fake_voice
 
     async def fake_realtime_run(ctx, voice):  # noqa: ANN001

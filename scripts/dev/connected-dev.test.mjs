@@ -328,6 +328,15 @@ test("backend connected runner binds local backend to loopback", async () => {
   assert.match(source, /^\s*HOST:\s*"127\.0\.0\.1",$/m);
 });
 
+test("platform connected runner restarts backend tunnel after clean SSM timeout", async () => {
+  const source = await readFile(new URL("./dev-connected.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /function startBackendTunnel/);
+  assert.match(source, /code === 0 && !signal/);
+  assert.match(source, /restarting/);
+  assert.match(source, /startBackendTunnel\(\)/);
+});
+
 test("grading evaluation connected runner clears inherited database URLs", async () => {
   const source = await readFile(
     new URL("./grading-evaluate-connected.mjs", import.meta.url),

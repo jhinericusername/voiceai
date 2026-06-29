@@ -77,6 +77,14 @@ const agentErrorFinalizationWithoutScoreCheckpointCount: FinalizationBody = {
   agentEventCount: 8,
 };
 
+const aiEndedFinalizationWithoutScoreCheckpointCount: FinalizationBody = {
+  completionReason: "ai_ended_by_host",
+  scriptVersion: "pilot-v1",
+  finalTurnCount: 10,
+  integrityFlags: ["ai_ended_by_host"],
+  agentEventCount: 8,
+};
+
 function expectInvalid(result: { ok: true } | { ok: false; reason: string }): void {
   expect(result.ok).toBe(false);
 }
@@ -346,6 +354,12 @@ describe("finalization validation and payload", () => {
     });
   });
 
+  it("accepts host-ended AI finalization without scoreCheckpointCount", () => {
+    expect(validateFinalization(aiEndedFinalizationWithoutScoreCheckpointCount)).toEqual({
+      ok: true,
+    });
+  });
+
   it("rejects malformed finalization bodies without throwing", () => {
     for (const body of [null, "final", 10, [], false]) {
       expectInvalid(validateFinalization(body));
@@ -369,6 +383,16 @@ describe("finalization validation and payload", () => {
       script_version: "pilot-v1",
       final_turn_count: 10,
       integrity_flags: ["agent_error"],
+      agent_event_count: 8,
+    });
+  });
+
+  it("serializes host-ended AI finalization payload", () => {
+    expect(finalizationEventPayload(aiEndedFinalizationWithoutScoreCheckpointCount)).toEqual({
+      completion_reason: "ai_ended_by_host",
+      script_version: "pilot-v1",
+      final_turn_count: 10,
+      integrity_flags: ["ai_ended_by_host"],
       agent_event_count: 8,
     });
   });

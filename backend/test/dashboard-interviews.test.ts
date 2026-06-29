@@ -24,10 +24,14 @@ describe("dashboard interview read model", () => {
   it("queries historical Fireflies and room recordings for the dashboard list", () => {
     const stmt = roomRecordingListStatement({ limit: 25, orgId: "org1" });
 
+    expect(stmt.sql).toContain("WITH limited_recordings AS");
+    expect(stmt.sql).toContain("FROM limited_recordings base");
     expect(stmt.sql).toContain("FROM sessions s");
     expect(stmt.sql).toContain("JOIN recordings r");
     expect(stmt.sql).toContain("LEFT JOIN recording_artifacts composite");
     expect(stmt.sql).toContain("composite.kind = 'composite_video'");
+    expect(stmt.sql).toContain("LEFT JOIN transcript_counts transcripts");
+    expect(stmt.sql).toContain("tt.session_id = base.session_id");
     expect(stmt.sql).toContain("WHERE s.org_id = $2");
     expect(stmt.sql).toContain("LIMIT $1");
     expect(stmt.sql).not.toContain("s.external_source IS DISTINCT FROM 'fireflies'");

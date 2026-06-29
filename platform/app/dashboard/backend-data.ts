@@ -1,4 +1,4 @@
-import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
+import { backendBaseUrl, backendFetch, backendHeaders } from "@/lib/backend-api";
 
 export function dashboardOrgId(input: {
   readonly organizationId?: string | null;
@@ -107,7 +107,7 @@ export async function getRealInterviews(input: {
   readonly orgId: string;
 }): Promise<readonly RealInterviewListItem[]> {
   const params = new URLSearchParams({ orgId: input.orgId });
-  const response = await fetch(`${backendBaseUrl()}/internal/interviews?${params}`, {
+  const response = await backendFetch(`${backendBaseUrl()}/internal/interviews?${params}`, {
     headers: backendHeaders(),
     cache: "no-store",
   });
@@ -126,7 +126,7 @@ export async function getRoomRecordings(input: {
   readonly orgId: string;
 }): Promise<readonly RealRoomRecordingListItem[]> {
   const params = new URLSearchParams({ orgId: input.orgId });
-  const response = await fetch(`${backendBaseUrl()}/internal/room-recordings?${params}`, {
+  const response = await backendFetch(`${backendBaseUrl()}/internal/room-recordings?${params}`, {
     headers: backendHeaders(),
     cache: "no-store",
   });
@@ -152,7 +152,7 @@ export async function getRealInterview(
   },
 ): Promise<RealInterviewDetail | null> {
   const params = new URLSearchParams({ orgId: input.orgId });
-  const response = await fetch(
+  const response = await backendFetch(
     `${backendBaseUrl()}/internal/interviews/${encodeURIComponent(sessionId)}?${params}`,
     {
       headers: backendHeaders(),

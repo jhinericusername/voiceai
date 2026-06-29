@@ -4,8 +4,8 @@ import { hashInviteToken } from "../invites/tokens.js";
 
 const DEFAULT_INVITE_TTL_SECONDS = 2 * 60 * 60;
 
-export type AiControlAction = "start" | "stop" | "resume";
-export type AiRequestedState = "running" | "stopped";
+export type AiControlAction = "start" | "stop" | "resume" | "end";
+export type AiRequestedState = "running" | "stopped" | "ended";
 export type AiInterviewerState = "not_started" | AiRequestedState;
 
 export interface InterviewerSessionRow {
@@ -76,6 +76,9 @@ export function hasInterviewerJoinedStatement(sessionId: string): SqlStatement {
 }
 
 export function aiControlStateFromAction(action: AiControlAction): AiRequestedState {
+  if (action === "end") {
+    return "ended";
+  }
   return action === "stop" ? "stopped" : "running";
 }
 
@@ -94,6 +97,9 @@ export function aiControlEventType(action: AiControlAction): string {
   }
   if (action === "stop") {
     return "ai_interviewer_stop_requested";
+  }
+  if (action === "end") {
+    return "ai_interviewer_end_requested";
   }
   return "ai_interviewer_resume_requested";
 }

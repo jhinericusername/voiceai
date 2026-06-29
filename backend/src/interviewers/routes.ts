@@ -5,7 +5,11 @@ import { persistOpsEvent } from "../events/repository.js";
 import { generateInviteToken } from "../invites/tokens.js";
 import { invitePath } from "../invites/repository.js";
 import { buildInterviewerJoinToken } from "../livekit/token.js";
-import { ensureRoomReady, stopInterviewerAgent, type LiveKitConfig } from "../livekit/provision.js";
+import {
+  ensureRoomReady,
+  removeInterviewAgentParticipant,
+  type LiveKitConfig,
+} from "../livekit/provision.js";
 import {
   buildWorkerDispatchMetadata,
   sessionRoomUpdateStatement,
@@ -74,7 +78,7 @@ function validateBaseBody(body: unknown): BodyValidation<Required<InterviewerBas
 }
 
 function isAiControlAction(value: unknown): value is AiControlAction {
-  return value === "start" || value === "stop" || value === "resume";
+  return value === "start" || value === "stop" || value === "resume" || value === "end";
 }
 
 function validateAiControlBody(body: unknown): BodyValidation<Required<InterviewerBaseBody> & { action: AiControlAction }> {
@@ -85,7 +89,7 @@ function validateAiControlBody(body: unknown): BodyValidation<Required<Interview
 
   const action = (body as AiControlBody | undefined)?.action;
   if (!isAiControlAction(action)) {
-    return { ok: false, reason: "action must be start, stop, or resume" };
+    return { ok: false, reason: "action must be start, stop, resume, or end" };
   }
 
   return { ok: true, body: { ...base.body, action } };
@@ -120,7 +124,7 @@ async function loadSession(
 }
 
 function isAiRequestedState(value: unknown): value is AiRequestedState {
-  return value === "running" || value === "stopped";
+  return value === "running" || value === "stopped" || value === "ended";
 }
 
 async function loadAiInterviewerState(
@@ -351,6 +355,42 @@ export function registerInterviewerRoutes(
         return reply.code(410).send(terminalSessionReply());
       }
 
+      let room = session.room_name?.trim() ?? "";
+      if (validation.body.action === "start" || validation.body.action === "resume") {
+        try {
+          const readiness = await ensureRoomReady(
+            liveKitConfig,
+            sessionId,
+            buildWorkerDispatchMetadata(sessionRecord(session)),
+            { hadPreviousRoom: Boolean(room), dispatchAgent: true },
+          );
+          room = readiness.room;
+        } catch (error) {
+          request.log.error({ err: error, sessionId }, "AI interviewer dispatch failed");
+          return reply.code(503).send({
+            error: "AI interviewer could not be started; please try again shortly",
+          });
+        }
+
+        const roomStmt = sessionRoomUpdateStatement(sessionId, room);
+        await pool.query(roomStmt.sql, [...roomStmt.params]);
+      }
+
+      if (validation.body.action === "end") {
+        try {
+          await removeInterviewAgentParticipant(
+            liveKitConfig,
+            sessionId,
+            room ? { room } : {},
+          );
+        } catch (error) {
+          request.log.error({ err: error, sessionId }, "AI interviewer removal failed");
+          return reply.code(503).send({
+            error: "AI interviewer could not be ended; please try again shortly",
+          });
+        }
+      }
+
       const requestedState = aiControlStateFromAction(validation.body.action);
       const requestedAt = new Date().toISOString();
       const stateStmt = aiControlStateUpsertStatement({
@@ -372,38 +412,6 @@ export function registerInterviewerRoutes(
           },
         });
       });
-
-      // A "running" intent (start/resume) must actually dispatch the
-      // puddle-interviewer worker into the room — the scaffolding only
-      // recorded intent. Dispatch happens after the state transaction commits
-      // so a persistence failure never leaves a worker running with no record.
-      // ensureRoomReady is idempotent (skips dispatch if one already exists),
-      // so repeated start/resume is safe. "stopped" is record-only for now.
-      if (requestedState === "running") {
-        try {
-          await ensureRoomReady(
-            liveKitConfig,
-            sessionId,
-            buildWorkerDispatchMetadata(sessionRecord(session)),
-            { hadPreviousRoom: Boolean(session.room_name), dispatchAgent: true },
-          );
-        } catch (error) {
-          request.log.error({ err: error, sessionId }, "ai interviewer dispatch failed");
-          return reply.code(503).send({
-            error: "AI interviewer could not be started; please try again shortly",
-          });
-        }
-      } else if (requestedState === "stopped") {
-        // Actually stop the agent: delete the dispatch + evict the agent
-        // participant. Best-effort — the stop intent is already persisted, so a
-        // cleanup failure must not fail the request (the agent may have already
-        // left, and the empty-room timeout is a backstop).
-        try {
-          await stopInterviewerAgent(liveKitConfig, sessionId);
-        } catch (error) {
-          request.log.error({ err: error, sessionId }, "ai interviewer stop failed");
-        }
-      }
 
       return reply.code(200).send({
         sessionId,

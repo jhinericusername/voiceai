@@ -10,8 +10,20 @@ import {
   createLocalVideoTrack,
   type LocalAudioTrack,
   type LocalVideoTrack,
+  type RemoteParticipant,
   type RemoteTrack,
+  type RemoteTrackPublication,
 } from "livekit-client";
+import {
+  aiInterviewerParticipantIdentity,
+  aiInterviewerPlaceholderTile,
+  findParticipantTile,
+  removeParticipantTile,
+  setParticipantVideoTrack,
+  syncParticipantTiles,
+  upsertParticipantTile,
+  type LiveKitParticipantTile,
+} from "@/lib/livekit-participant-tiles";
 
 interface InterviewJoinClientProps {
   readonly token: string;
@@ -78,14 +90,13 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   const [error, setError] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [roomStatus, setRoomStatus] = useState("Not connected");
-  const [remoteParticipants, setRemoteParticipants] = useState(0);
+  const [remoteParticipantTiles, setRemoteParticipantTiles] = useState<readonly LiveKitParticipantTile[]>([]);
   const [interviewerDelayed, setInterviewerDelayed] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [isPreviewMicEnabled, setIsPreviewMicEnabled] = useState(true);
   const [isPreviewCameraEnabled, setIsPreviewCameraEnabled] = useState(true);
   const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack | null>(null);
-  const [remoteVideoTrack, setRemoteVideoTrack] = useState<RemoteTrack | null>(null);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
 
@@ -95,7 +106,6 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   const previewStreamRef = useRef<MediaStream | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const callVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLDivElement | null>(null);
 
   const consentComplete = isConsentComplete(consent);
@@ -119,15 +129,12 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
     localVideoTrackRef.current?.stop();
     localVideoTrackRef.current = null;
     setLocalVideoTrack(null);
-    setRemoteVideoTrack(null);
+    setRemoteParticipantTiles([]);
     setInterviewerDelayed(false);
     setIsMicEnabled(true);
     setIsCameraEnabled(true);
     liveKitRoomRef.current?.disconnect();
     liveKitRoomRef.current = null;
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
     if (remoteAudioRef.current) {
       remoteAudioRef.current.replaceChildren();
     }
@@ -154,13 +161,14 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
   }, [stage]);
 
   useEffect(() => {
-    if (stage !== "live" || remoteParticipants > 0) {
+    const aiInterviewerTile = findParticipantTile(remoteParticipantTiles, "ai_interviewer");
+    if (stage !== "live" || aiInterviewerTile !== null) {
       return;
     }
 
     const timeout = window.setTimeout(() => setInterviewerDelayed(true), 15_000);
     return () => window.clearTimeout(timeout);
-  }, [remoteParticipants, stage]);
+  }, [remoteParticipantTiles, stage]);
 
   useEffect(() => {
     const video = callVideoRef.current;
@@ -173,21 +181,6 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
       localVideoTrack.detach(video);
     };
   }, [localVideoTrack, stage]);
-
-  useEffect(() => {
-    const video = remoteVideoRef.current;
-    if (!video || !remoteVideoTrack || stage !== "live") {
-      return;
-    }
-
-    remoteVideoTrack.attach(video);
-    void video.play().catch(() => {
-      setError("Interviewer video was blocked by the browser. Click Leave, then rejoin the interview.");
-    });
-    return () => {
-      remoteVideoTrack.detach(video);
-    };
-  }, [remoteVideoTrack, stage]);
 
   useEffect(() => {
     const video = previewVideoRef.current;
@@ -309,12 +302,17 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
 
       const updateParticipants = () => {
         setInterviewerDelayed(false);
-        setRemoteParticipants(room.remoteParticipants.size);
+        setRemoteParticipantTiles((currentTiles) => syncParticipantTiles(currentTiles, room.remoteParticipants.values()));
       };
       room.on(RoomEvent.Connected, () => setRoomStatus("Connected"));
       room.on(RoomEvent.Disconnected, () => setRoomStatus("Disconnected"));
-      room.on(RoomEvent.ParticipantConnected, updateParticipants);
-      room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
+      room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+        setInterviewerDelayed(false);
+        setRemoteParticipantTiles((currentTiles) => upsertParticipantTile(currentTiles, participant));
+      });
+      room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+        setRemoteParticipantTiles((currentTiles) => removeParticipantTile(currentTiles, participant));
+      });
       room.on(RoomEvent.TrackSubscribed, attachRemoteTrack);
       room.on(RoomEvent.TrackUnsubscribed, detachRemoteTrack);
 
@@ -322,19 +320,18 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
       updateParticipants();
 
       stopPreview();
-      const [audioTrack, videoTrack] = await Promise.all([
-        createLocalAudioTrack({
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }),
-        createLocalVideoTrack({
-          facingMode: "user",
-        }),
-      ]);
-
+      const audioTrack = await createLocalAudioTrack({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      });
       localAudioTrackRef.current = audioTrack;
+
+      const videoTrack = await createLocalVideoTrack({
+        facingMode: "user",
+      });
       localVideoTrackRef.current = videoTrack;
+
       await Promise.all([
         setLocalTrackEnabled(audioTrack, publishAudioEnabled),
         setLocalTrackEnabled(videoTrack, publishVideoEnabled),
@@ -361,9 +358,15 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
     }
   }
 
-  function attachRemoteTrack(track: RemoteTrack): void {
+  function attachRemoteTrack(
+    track: RemoteTrack,
+    _publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void {
+    setRemoteParticipantTiles((currentTiles) => upsertParticipantTile(currentTiles, participant));
+
     if (track.kind === Track.Kind.Video) {
-      setRemoteVideoTrack(track);
+      setRemoteParticipantTiles((currentTiles) => setParticipantVideoTrack(currentTiles, participant, track));
       return;
     }
 
@@ -374,15 +377,20 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
     const element = track.attach();
     element.autoplay = true;
     element.dataset.puddleRemoteAudio = "true";
+    element.dataset.puddleRemoteParticipantIdentity = participant.identity;
     remoteAudioRef.current.appendChild(element);
     void element.play().catch(() => {
       setError("Interviewer audio was blocked by the browser. Click Leave, then rejoin the interview.");
     });
   }
 
-  function detachRemoteTrack(track: RemoteTrack): void {
+  function detachRemoteTrack(
+    track: RemoteTrack,
+    _publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void {
     if (track.kind === Track.Kind.Video) {
-      setRemoteVideoTrack((currentTrack) => (currentTrack === track ? null : currentTrack));
+      setRemoteParticipantTiles((currentTiles) => setParticipantVideoTrack(currentTiles, participant, null));
       return;
     }
 
@@ -428,13 +436,12 @@ export function InterviewJoinClient({ token }: InterviewJoinClientProps) {
           join={join}
           roomStatus={roomStatus}
           elapsedLabel={elapsedLabel}
-          remoteParticipants={remoteParticipants}
           callVideoRef={callVideoRef}
-          remoteVideoRef={remoteVideoRef}
-          hasRemoteVideo={remoteVideoTrack !== null}
+          remoteParticipantTiles={remoteParticipantTiles}
           interviewerDelayed={interviewerDelayed}
           isMicEnabled={isMicEnabled}
           isCameraEnabled={isCameraEnabled}
+          onRemoteVideoBlocked={setError}
           onToggleMic={() => {
             const next = !isMicEnabled;
             void setLocalTrackEnabled(localAudioTrackRef.current, next);
@@ -678,13 +685,12 @@ function LivePanel({
   join,
   roomStatus,
   elapsedLabel,
-  remoteParticipants,
   callVideoRef,
-  remoteVideoRef,
-  hasRemoteVideo,
+  remoteParticipantTiles,
   interviewerDelayed,
   isMicEnabled,
   isCameraEnabled,
+  onRemoteVideoBlocked,
   onToggleMic,
   onToggleCamera,
   onEnd,
@@ -692,17 +698,33 @@ function LivePanel({
   readonly join: JoinResponse | null;
   readonly roomStatus: string;
   readonly elapsedLabel: string;
-  readonly remoteParticipants: number;
   readonly callVideoRef: RefObject<HTMLVideoElement | null>;
-  readonly remoteVideoRef: RefObject<HTMLVideoElement | null>;
-  readonly hasRemoteVideo: boolean;
+  readonly remoteParticipantTiles: readonly LiveKitParticipantTile[];
   readonly interviewerDelayed: boolean;
   readonly isMicEnabled: boolean;
   readonly isCameraEnabled: boolean;
+  readonly onRemoteVideoBlocked: (message: string) => void;
   readonly onToggleMic: () => void;
   readonly onToggleCamera: () => void;
   readonly onEnd: () => void;
 }) {
+  const connectedAiInterviewerTile = findParticipantTile(remoteParticipantTiles, "ai_interviewer");
+  const aiInterviewerIdentity = aiInterviewerParticipantIdentity(join?.sessionId ?? "");
+  const aiInterviewerTile =
+    connectedAiInterviewerTile ?? {
+      ...aiInterviewerPlaceholderTile(join?.sessionId ?? ""),
+      identity: aiInterviewerIdentity,
+      label: "Puddle AI interviewer",
+    };
+  const remoteTiles = [
+    aiInterviewerTile,
+    ...remoteParticipantTiles.filter(
+      (tile) => tile.identity !== aiInterviewerTile.identity && tile.kind !== "candidate",
+    ),
+  ];
+  const gridColumnClass = remoteTiles.length > 1 ? "md:grid-cols-3" : "md:grid-cols-2";
+  const participantCount = remoteParticipantTiles.length + 1;
+
   return (
     <div className="relative flex min-h-[calc(100svh-110px)] flex-col overflow-hidden bg-[#111214] text-white">
       <header className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-4 px-5 py-4 text-sm">
@@ -715,48 +737,32 @@ function LivePanel({
         <div className="flex items-center justify-end gap-2 text-xs font-medium">
           <span className="rounded-full bg-[#5f6368] px-3 py-2 text-[#f1f3f4]">P</span>
           <span className="rounded-full bg-[#2b2c2f] px-3 py-2 text-[#e8eaed]">
-            {remoteParticipants > 0 ? remoteParticipants + 1 : 1}
+            {participantCount}
           </span>
         </div>
       </header>
 
       <main className="flex flex-1 items-center justify-center px-3 pb-28 pt-20 sm:px-5 md:pb-24">
-        <div className="grid h-[min(72svh,760px)] min-h-[460px] w-full max-w-[1500px] grid-rows-2 gap-3 md:grid-cols-2 md:grid-rows-1">
-          <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
-            <video
-              ref={remoteVideoRef}
-              aria-label="Interviewer video"
-              autoPlay
-              playsInline
-              className={`h-full w-full object-cover transition ${hasRemoteVideo ? "opacity-100" : "opacity-0"}`}
+        <div
+          className={`grid h-[min(72svh,760px)] min-h-[460px] w-full max-w-[1500px] auto-rows-fr gap-3 ${gridColumnClass}`}
+        >
+          {remoteTiles.map((tile) => (
+            <RemoteParticipantTileCard
+              key={tile.identity}
+              tile={tile}
+              roomStatus={
+                tile.identity === aiInterviewerTile.identity && interviewerDelayed ? "Connecting interviewer..." : roomStatus
+              }
+              noVideoDetail={
+                tile.identity === aiInterviewerTile.identity && connectedAiInterviewerTile === null
+                  ? interviewerDelayed
+                    ? "Connecting interviewer..."
+                    : "Waiting for interviewer"
+                  : "Connected without video"
+              }
+              onPlaybackBlocked={onRemoteVideoBlocked}
             />
-
-            {!hasRemoteVideo ? (
-              <div className="absolute inset-0 grid place-items-center bg-[#202124] px-6 text-center">
-                <div>
-                  <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[#8ab4f8] text-4xl font-medium text-[#202124]">
-                    P
-                  </div>
-                  <div className="mt-5 text-lg font-medium text-[#f1f3f4]">Puddle interviewer</div>
-                  <div className="mt-2 text-sm text-[#bdc1c6]">
-                    {remoteParticipants > 0
-                      ? "Connected without video"
-                      : interviewerDelayed
-                        ? "Connecting interviewer..."
-                        : "Waiting for interviewer"}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
-              {hasRemoteVideo ? "Interviewer video" : interviewerDelayed ? "Connecting interviewer..." : roomStatus}
-            </div>
-
-            <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
-              Puddle interviewer
-            </div>
-          </div>
+          ))}
 
           <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
             <video
@@ -840,6 +846,68 @@ function LivePanel({
           </DisabledUtilityButton>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function RemoteParticipantTileCard({
+  tile,
+  roomStatus,
+  noVideoDetail,
+  onPlaybackBlocked,
+}: {
+  readonly tile: LiveKitParticipantTile;
+  readonly roomStatus: string;
+  readonly noVideoDetail: string;
+  readonly onPlaybackBlocked: (message: string) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hasRemoteVideo = tile.videoTrack !== null;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !tile.videoTrack) {
+      return;
+    }
+
+    tile.videoTrack.attach(video);
+    void video.play().catch(() => {
+      onPlaybackBlocked(`${tile.label} video was blocked by the browser. Click Leave, then rejoin the interview.`);
+    });
+    return () => {
+      tile.videoTrack?.detach(video);
+    };
+  }, [onPlaybackBlocked, tile.label, tile.videoTrack]);
+
+  return (
+    <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
+      <video
+        ref={videoRef}
+        aria-label={`${tile.label} video`}
+        autoPlay
+        playsInline
+        className={`h-full w-full object-cover transition ${hasRemoteVideo ? "opacity-100" : "opacity-0"}`}
+      />
+
+      {!hasRemoteVideo ? (
+        <div className="absolute inset-0 grid place-items-center bg-[#202124] px-6 text-center">
+          <div>
+            <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[#8ab4f8] text-4xl font-medium text-[#202124]">
+              {tile.fallbackInitial}
+            </div>
+            <div className="mt-5 text-lg font-medium text-[#f1f3f4]">{tile.label}</div>
+            <div className="mt-2 text-sm text-[#bdc1c6]">{noVideoDetail}</div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
+        {hasRemoteVideo ? `${tile.label} video` : roomStatus}
+      </div>
+
+      <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
+        {tile.label}
+      </div>
     </div>
   );
 }

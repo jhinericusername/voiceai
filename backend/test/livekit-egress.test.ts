@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AccessToken, EgressStatus, EncodedFileType } from "livekit-server-sdk";
+import { AccessToken, EgressStatus, EncodedFileType, TwirpError } from "livekit-server-sdk";
 import {
   buildRoomCompositeFileOutput,
   liveKitEgressStorageConfigFromEnv,
@@ -17,8 +17,12 @@ import {
   sessionStatusForFinalizedEgress,
 } from "../src/livekit/webhooks.js";
 import {
+  createInterviewAgentDispatch,
   ensureRoomReady,
+  interviewAgentParticipantIdentity,
+  listInterviewAgentDispatches,
   liveKitApiUrl,
+  removeInterviewAgentParticipant,
   roomName,
   sessionIdFromRoomName,
 } from "../src/livekit/provision.js";
@@ -272,6 +276,142 @@ describe("LiveKit room readiness", () => {
     expect(liveKitApiUrl("https://livekit.example")).toBe("https://livekit.example");
   });
 
+  it("derives a deterministic AI participant identity for removal", () => {
+    expect(interviewAgentParticipantIdentity("sess1")).toBe("puddle-interviewer-sess1");
+  });
+
+  it("lists Puddle interviewer dispatches for the interview room", async () => {
+    const dispatch = {
+      listDispatch: async (room: string) => {
+        expect(room).toBe("interview-sess1");
+        return [
+          { agentName: "puddle-interviewer", id: "dispatch1" },
+          { agentName: "other-agent", id: "dispatch2" },
+          { agent_name: "puddle-interviewer", id: "dispatch3" },
+        ];
+      },
+      createDispatch: async () => {
+        throw new Error("should not create dispatch");
+      },
+    };
+
+    const dispatches = await listInterviewAgentDispatches(liveKitConfig, "sess1", {
+      dispatch,
+    });
+
+    expect(dispatches).toEqual([
+      { agentName: "puddle-interviewer", id: "dispatch1" },
+      { agent_name: "puddle-interviewer", id: "dispatch3" },
+    ]);
+  });
+
+  it("creates a Puddle interviewer dispatch with the deterministic participant identity in metadata", async () => {
+    const createdDispatches: unknown[] = [];
+    const dispatch = {
+      listDispatch: async () => [],
+      createDispatch: async (room: string, agentName: string, options: unknown) => {
+        createdDispatches.push({ room, agentName, options });
+        return { id: "dispatch1", agentName };
+      },
+    };
+
+    const result = await createInterviewAgentDispatch(
+      liveKitConfig,
+      "sess1",
+      "{\"session_id\":\"sess1\"}",
+      { dispatch },
+    );
+
+    expect(result).toEqual({ id: "dispatch1", agentName: "puddle-interviewer" });
+    expect(createdDispatches).toHaveLength(1);
+    expect(createdDispatches[0]).toMatchObject({
+      room: "interview-sess1",
+      agentName: "puddle-interviewer",
+      options: { metadata: expect.any(String) },
+    });
+    expect(
+      JSON.parse(
+        String((createdDispatches[0] as { options: { metadata: string } }).options.metadata),
+      ),
+    ).toEqual({
+      session_id: "sess1",
+      participant_identity: "puddle-interviewer-sess1",
+    });
+  });
+
+  it("removes the deterministic Puddle interviewer participant from the room", async () => {
+    const removals: unknown[] = [];
+    const rooms = {
+      removeParticipant: async (room: string, identity: string) => {
+        removals.push({ room, identity });
+      },
+    };
+
+    const result = await removeInterviewAgentParticipant(liveKitConfig, "sess1", {
+      rooms,
+    });
+
+    expect(result).toEqual({
+      room: "interview-sess1",
+      participantIdentity: "puddle-interviewer-sess1",
+      removed: true,
+    });
+    expect(removals).toEqual([
+      { room: "interview-sess1", identity: "puddle-interviewer-sess1" },
+    ]);
+  });
+
+  it.each([
+    new TwirpError("Not Found", "participant not found", 404, "not_found"),
+    new TwirpError("Not Found", "room does not exist", 404, "not_found"),
+    new TwirpError("Not Found", "identity puddle-interviewer-sess1 not found", 404),
+  ])(
+    "treats missing AI participant or room as an idempotent removal",
+    async (error) => {
+      const rooms = {
+        removeParticipant: async () => {
+          throw error;
+        },
+      };
+
+      const result = await removeInterviewAgentParticipant(liveKitConfig, "sess1", {
+        rooms,
+      });
+
+      expect(result).toEqual({
+        room: "interview-sess1",
+        participantIdentity: "puddle-interviewer-sess1",
+        removed: false,
+      });
+    },
+  );
+
+  it("keeps unexpected LiveKit participant removal errors fatal", async () => {
+    const error = new TwirpError("Internal", "LiveKit unavailable", 500, "internal");
+    const rooms = {
+      removeParticipant: async () => {
+        throw error;
+      },
+    };
+
+    await expect(
+      removeInterviewAgentParticipant(liveKitConfig, "sess1", { rooms }),
+    ).rejects.toBe(error);
+  });
+
+  it("keeps unrelated LiveKit 404 removal errors fatal", async () => {
+    const error = new TwirpError("Not Found", "twirp endpoint not found", 404, "bad_route");
+    const rooms = {
+      removeParticipant: async () => {
+        throw error;
+      },
+    };
+
+    await expect(
+      removeInterviewAgentParticipant(liveKitConfig, "sess1", { rooms }),
+    ).rejects.toBe(error);
+  });
+
   it("creates a missing room and dispatches the interviewer on candidate join", async () => {
     const createdRooms: unknown[] = [];
     const createdDispatches: unknown[] = [];
@@ -307,13 +447,20 @@ describe("LiveKit room readiness", () => {
         maxParticipants: 8,
       },
     ]);
-    expect(createdDispatches).toEqual([
-      {
-        room: "interview-sess1",
-        agentName: "puddle-interviewer",
-        options: { metadata: "{\"session_id\":\"sess1\"}" },
-      },
-    ]);
+    expect(createdDispatches).toHaveLength(1);
+    expect(createdDispatches[0]).toMatchObject({
+      room: "interview-sess1",
+      agentName: "puddle-interviewer",
+      options: { metadata: expect.any(String) },
+    });
+    expect(
+      JSON.parse(
+        String((createdDispatches[0] as { options: { metadata: string } }).options.metadata),
+      ),
+    ).toEqual({
+      session_id: "sess1",
+      participant_identity: "puddle-interviewer-sess1",
+    });
   });
 
   it("can prepare an interviewer-led room without dispatching the AI interviewer", async () => {

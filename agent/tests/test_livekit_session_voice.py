@@ -22,6 +22,7 @@ class FakeSession:
         self.handlers = {}
         self.handle = FakeSpeechHandle()
         self.say_calls = []
+        self.start = AsyncMock(return_value=None)
         self.interrupt = AsyncMock(return_value=None)
         self.aclose = AsyncMock(return_value=None)
         self.room_io = SimpleNamespace(set_participant=MagicMock())
@@ -41,6 +42,7 @@ class FakeSession:
 class FakeRoom:
     def __init__(self) -> None:
         self.handlers = {}
+        self.text_handlers = {}
 
     def on(self, event: str, callback) -> None:  # noqa: ANN001
         self.handlers[event] = callback
@@ -48,6 +50,12 @@ class FakeRoom:
     def off(self, event: str, callback) -> None:  # noqa: ANN001
         if self.handlers.get(event) == callback:
             del self.handlers[event]
+
+    def register_text_stream_handler(self, topic: str, callback) -> None:  # noqa: ANN001
+        self.text_handlers[topic] = callback
+
+    def unregister_text_stream_handler(self, topic: str) -> None:
+        self.text_handlers.pop(topic, None)
 
 
 def test_livekit_session_voice_agent_satisfies_contract() -> None:
@@ -275,3 +283,89 @@ async def test_livekit_session_interrupt_and_close_delegate_to_session() -> None
     session.aclose.assert_awaited_once()
     assert "user_input_transcribed" not in session.handlers
     assert room.handlers == {}
+
+
+async def test_livekit_session_start_links_candidate_identity(
+    monkeypatch,
+) -> None:
+    import livekit.agents as agents
+
+    session = FakeSession()
+    room_options_created: list[object] = []
+
+    class FakeAgent:
+        def __init__(self, *, instructions: str) -> None:
+            self.instructions = instructions
+
+    class FakeRoomOptions:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+            room_options_created.append(self)
+
+    monkeypatch.setattr(agents, "Agent", FakeAgent)
+    monkeypatch.setattr(agents, "AgentSession", lambda **_kwargs: session)
+    monkeypatch.setattr(agents, "room_io", SimpleNamespace(RoomOptions=FakeRoomOptions))
+
+    room = FakeRoom()
+    room.name = "interview-sess1"
+    participant = SimpleNamespace(identity="candidate-1")
+    job = SimpleNamespace(
+        room=room,
+        wait_for_participant=AsyncMock(return_value=participant),
+    )
+
+    voice = await LiveKitSessionVoiceAgent.start(
+        job,
+        stt=object(),
+        tts=object(),
+        participant_identity="candidate-1",
+    )
+
+    job.wait_for_participant.assert_awaited_once_with(identity="candidate-1")
+    assert (
+        room_options_created[0].kwargs["participant_identity"]
+        == "candidate-1"
+    )
+    session.room_io.set_participant.assert_called_once_with("candidate-1")
+    assert voice._participant_identity == "candidate-1"
+
+
+async def test_livekit_session_start_waits_for_any_participant_without_candidate_identity(
+    monkeypatch,
+) -> None:
+    import livekit.agents as agents
+
+    session = FakeSession()
+    room_options_created: list[object] = []
+
+    class FakeAgent:
+        def __init__(self, *, instructions: str) -> None:
+            self.instructions = instructions
+
+    class FakeRoomOptions:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+            room_options_created.append(self)
+
+    monkeypatch.setattr(agents, "Agent", FakeAgent)
+    monkeypatch.setattr(agents, "AgentSession", lambda **_kwargs: session)
+    monkeypatch.setattr(agents, "room_io", SimpleNamespace(RoomOptions=FakeRoomOptions))
+
+    room = FakeRoom()
+    room.name = "interview-sess1"
+    participant = SimpleNamespace(identity="candidate-from-room")
+    job = SimpleNamespace(
+        room=room,
+        wait_for_participant=AsyncMock(return_value=participant),
+    )
+
+    voice = await LiveKitSessionVoiceAgent.start(
+        job,
+        stt=object(),
+        tts=object(),
+    )
+
+    job.wait_for_participant.assert_awaited_once_with()
+    assert "participant_identity" not in room_options_created[0].kwargs
+    session.room_io.set_participant.assert_called_once_with("candidate-from-room")
+    assert voice._participant_identity == "candidate-from-room"

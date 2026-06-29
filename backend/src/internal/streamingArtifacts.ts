@@ -42,7 +42,12 @@ export interface ScoreCheckpointBody {
   readonly assessments: readonly ScoreCheckpointAssessment[];
 }
 
-export type CompletionReason = "completed" | "candidate_disconnected" | "agent_error" | "timeout";
+export type CompletionReason =
+  | "completed"
+  | "candidate_disconnected"
+  | "agent_error"
+  | "timeout"
+  | "ai_ended_by_host";
 
 export interface FinalizationBody {
   readonly completionReason: CompletionReason;
@@ -58,6 +63,7 @@ const completionReasons = new Set<string>([
   "candidate_disconnected",
   "agent_error",
   "timeout",
+  "ai_ended_by_host",
 ]);
 
 function isNonEmptyString(value: unknown): value is string {

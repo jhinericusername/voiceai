@@ -54,6 +54,13 @@ function exitAfterChild(label, code, signal, { allowZero = false } = {}) {
   process.exit(code && code !== 0 ? code : 1);
 }
 
+function removeChild(child) {
+  const index = children.indexOf(child);
+  if (index >= 0) {
+    children.splice(index, 1);
+  }
+}
+
 try {
   console.log(`Using stack ${stackName} in ${region}`);
   const outputs = getStackOutputs(options);
@@ -67,21 +74,31 @@ try {
   const backendHost = backendHostFromBaseUrl(backendBaseUrl);
 
   await assertPortAvailable(localBackendPort);
-  const backendTunnel = startAwsTunnel({
-    label: "backend-tunnel",
-    options,
-    args: buildRemotePortForwardArgs({
-      target: tunnelInstanceId,
-      remoteHost: backendHost,
-      remotePort: 80,
-      localPort: localBackendPort,
-    }),
-    onError: fail,
-  });
-  children.push(backendTunnel);
-  backendTunnel.on("exit", (code, signal) => {
-    exitAfterChild("backend-tunnel", code, signal);
-  });
+  function startBackendTunnel() {
+    const backendTunnel = startAwsTunnel({
+      label: "backend-tunnel",
+      options,
+      args: buildRemotePortForwardArgs({
+        target: tunnelInstanceId,
+        remoteHost: backendHost,
+        remotePort: 80,
+        localPort: localBackendPort,
+      }),
+      onError: fail,
+    });
+    children.push(backendTunnel);
+    backendTunnel.on("exit", (code, signal) => {
+      removeChild(backendTunnel);
+      if (!exiting && code === 0 && !signal) {
+        console.warn("[backend-tunnel] exited with code 0; restarting.");
+        startBackendTunnel();
+        return;
+      }
+      exitAfterChild("backend-tunnel", code, signal);
+    });
+    return backendTunnel;
+  }
+  startBackendTunnel();
 
   const localBackendUrl = `http://127.0.0.1:${localBackendPort}`;
   await waitForHttpOk(`${localBackendUrl}/healthz`);

@@ -28,6 +28,7 @@ export function roomRecordingListStatement(input: {
 }): SqlStatement {
   return {
     sql:
+      "WITH limited_recordings AS (" +
       "SELECT s.session_id, s.org_id, s.candidate_email, s.script_version, " +
       "s.status, s.room_name, s.scheduled_at, s.started_at, s.ended_at, " +
       "s.external_source, s.external_id, s.source_metadata, " +
@@ -36,17 +37,31 @@ export function roomRecordingListStatement(input: {
       "composite.status AS composite_video_status, " +
       "composite.size_bytes AS composite_video_size_bytes, " +
       "composite.duration_seconds AS composite_video_duration_seconds, " +
-      "COALESCE(transcripts.turn_count, 0)::integer AS transcript_turn_count " +
+      "COALESCE(r.ended_at, r.started_at, s.started_at, s.scheduled_at, s.created_at) AS recording_sort_at " +
       "FROM sessions s " +
       "JOIN recordings r ON r.session_id = s.session_id " +
       "LEFT JOIN recording_artifacts composite ON composite.session_id = s.session_id " +
       "AND composite.kind = 'composite_video' " +
-      "LEFT JOIN LATERAL (" +
-      "SELECT count(*) AS turn_count FROM transcript_turns tt WHERE tt.session_id = s.session_id" +
-      ") transcripts ON true " +
       "WHERE s.org_id = $2 " +
       "ORDER BY COALESCE(r.ended_at, r.started_at, s.started_at, s.scheduled_at, s.created_at) DESC " +
-      "LIMIT $1",
+      "LIMIT $1" +
+      "), transcript_counts AS (" +
+      "SELECT tt.session_id, count(*) AS turn_count " +
+      "FROM transcript_turns tt " +
+      "JOIN limited_recordings base ON tt.session_id = base.session_id " +
+      "GROUP BY tt.session_id" +
+      ") " +
+      "SELECT base.session_id, base.org_id, base.candidate_email, base.script_version, " +
+      "base.status, base.room_name, base.scheduled_at, base.started_at, base.ended_at, " +
+      "base.external_source, base.external_id, base.source_metadata, " +
+      "base.recording_status, base.egress_id, base.recording_started_at, " +
+      "base.recording_ended_at, base.error_message, " +
+      "base.composite_video_status, base.composite_video_size_bytes, " +
+      "base.composite_video_duration_seconds, " +
+      "COALESCE(transcripts.turn_count, 0)::integer AS transcript_turn_count " +
+      "FROM limited_recordings base " +
+      "LEFT JOIN transcript_counts transcripts ON transcripts.session_id = base.session_id " +
+      "ORDER BY base.recording_sort_at DESC",
     params: [input.limit, input.orgId],
   };
 }

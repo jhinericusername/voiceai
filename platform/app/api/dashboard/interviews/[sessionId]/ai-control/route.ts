@@ -11,8 +11,8 @@ interface RouteContext {
   }>;
 }
 
-const AI_CONTROL_ACTIONS = new Set(["start", "stop", "resume"]);
-const AI_INTERVIEWER_STATES = new Set(["running", "stopped"]);
+const AI_CONTROL_ACTIONS = new Set(["start", "stop", "resume", "end"]);
+const AI_INTERVIEWER_STATES = new Set(["running", "stopped", "ended"]);
 
 interface AiControlResponse {
   readonly sessionId: string;
@@ -49,7 +49,7 @@ export async function POST(request: Request, context: RouteContext) {
   const encodedSessionId = encodeURIComponent(sessionId);
   const action = actionFromBody(await request.json().catch(() => ({})));
   if (!AI_CONTROL_ACTIONS.has(action)) {
-    return NextResponse.json({ error: "Choose start, stop, or resume." }, { status: 400 });
+    return NextResponse.json({ error: "Choose start, stop, resume, or end." }, { status: 400 });
   }
 
   let backendResponse: Response;
