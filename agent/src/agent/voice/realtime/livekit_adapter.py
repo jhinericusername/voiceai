@@ -54,10 +54,10 @@ _CANDIDATE_IDENTITY_PREFIX = "candidate-"
 # "medium" (balanced) or "low" (most patient).
 _VAD_EAGERNESS = "high"
 
-# Agent speech rate as a multiple of natural pace. gpt-realtime allows 0.25–1.5;
-# 1.5 is the MAX (≈50% faster than the 1.0 default). Dial toward ~1.3 if 1.5
-# sounds rushed or clipped.
-_SPEECH_SPEED = 1.5
+# Agent speech rate as a multiple of natural pace. gpt-realtime allows 0.25–1.5
+# (1.5 is the MAX). 1.2 = ~20% faster than the 1.0 default — 1.5 sounded rushed,
+# so dialed back. Raise toward 1.5 to speed up; lower toward 1.0 to slow down.
+_SPEECH_SPEED = 1.2
 
 # gpt-realtime output voice. Picked by ear-test (2026-06-25): "ash" carried the
 # steered Australian accent best of the 10 realtime voices. gpt-realtime has NO

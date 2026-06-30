@@ -3,6 +3,22 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Stale-tree guard: refuse to deploy a checkout that is missing the realtime
+# interviewer. This is the failure mode that has repeatedly killed prod — a
+# `main` that lost the realtime agent gets deployed and ships a dead interviewer
+# silently. Fail loudly here instead. (Add new must-exist sentinels below.)
+for required in \
+  "agent/src/agent/voice/realtime/livekit_adapter.py" \
+  "agent/src/agent/controller/realtime/plan_builder.py"; do
+  if [[ ! -f "$ROOT_DIR/$required" ]]; then
+    echo "FATAL: required file missing: $required" >&2
+    echo "Refusing to deploy — this tree is missing the realtime interviewer." >&2
+    echo "You are almost certainly on a stale branch. Check out main with the" >&2
+    echo "realtime work merged in, then redeploy." >&2
+    exit 1
+  fi
+done
+
 AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-851725544921}"
 REGION="${REGION:-us-west-1}"
 CERT_ARN="${CERT_ARN:-arn:aws:acm:us-west-1:851725544921:certificate/c84bf5ed-cfff-4fe9-9d05-8887d1f71711}"
