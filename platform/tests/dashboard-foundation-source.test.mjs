@@ -6,6 +6,14 @@ async function source(relativePath) {
   return readFile(new URL(relativePath, import.meta.url), "utf8");
 }
 
+async function optionalSource(relativePath) {
+  try {
+    return await source(relativePath);
+  } catch {
+    return "";
+  }
+}
+
 async function pathExists(relativePath) {
   try {
     await access(new URL(relativePath, import.meta.url));
@@ -17,6 +25,7 @@ async function pathExists(relativePath) {
 
 const layoutSource = await source("../app/dashboard/layout.tsx");
 const chromeSource = await source("../app/dashboard/DashboardChrome.tsx");
+const candidateSearchSource = await optionalSource("../app/dashboard/DashboardCandidateSearch.tsx");
 const overviewSource = await source("../app/dashboard/page.tsx");
 const rolesSource = await source("../app/dashboard/roles/page.tsx");
 const activePipelineSource = await source("../app/dashboard/roles/ActivePipelineDashboard.tsx");
@@ -35,6 +44,7 @@ const backendDataSource = await source("../app/dashboard/backend-data.ts");
 const dashboardRoutesSource = await source("../../backend/src/dashboard/routes.ts");
 const wizardSource = await source("../app/dashboard/AshbyOnboardingWizard.tsx");
 const createInterviewLauncherSource = await source("../app/dashboard/DashboardCreateInterviewLauncher.tsx");
+const globalsSource = await source("../app/globals.css");
 
 test("dashboard layout gates operational routes behind completed Ashby onboarding", () => {
   assert.match(layoutSource, /requireDashboardUser/);
@@ -55,13 +65,34 @@ test("dashboard chrome uses Ashby-first navigation without fake role controls", 
     assert.match(chromeSource, new RegExp(label));
   }
 
-  assert.match(chromeSource, /Search candidates/);
+  assert.match(chromeSource, /DashboardCandidateSearch/);
   assert.match(chromeSource, /Cmd\+K/);
+  assert.match(chromeSource, /priority: "primary"/);
+  assert.match(chromeSource, /priority: "secondary"/);
+  assert.match(chromeSource, /Soon/);
+  assert.match(chromeSource, /label: "Analytics"[\s\S]*priority: "secondary"/);
+  assert.match(chromeSource, /label: "Settings"[\s\S]*priority: "secondary"/);
   assert.doesNotMatch(chromeSource, /CreateInterviewCard/);
   assert.doesNotMatch(chromeSource, /CreateTeamInvitationCard/);
   assert.doesNotMatch(chromeSource, /Active role/);
   assert.doesNotMatch(chromeSource, /roles:/);
   assert.doesNotMatch(chromeSource, /demoRoles/);
+});
+
+test("dashboard candidate search opens with Cmd+K and searches Ashby candidates", () => {
+  assert.ok(candidateSearchSource, "DashboardCandidateSearch.tsx should exist");
+  assert.match(candidateSearchSource, /"use client"/);
+  assert.match(candidateSearchSource, /CandidateSearchResult/);
+  assert.match(candidateSearchSource, /document\.addEventListener\("keydown"/);
+  assert.match(candidateSearchSource, /metaKey \|\| event\.ctrlKey/);
+  assert.match(candidateSearchSource, /\/api\/ashby\/applications\/search/);
+  assert.match(candidateSearchSource, /jobId:\s*null/);
+  assert.match(candidateSearchSource, /AbortController/);
+  assert.match(candidateSearchSource, /setTimeout/);
+  assert.match(candidateSearchSource, /href=\{candidateResultHref\(result\)\}/);
+  assert.match(candidateSearchSource, /\/dashboard\/roles\/\$\{encodeURIComponent\(result\.jobId\)\}\/candidates\/\$\{encodeURIComponent\(candidateResultId\(result\)\)\}/);
+  assert.match(candidateSearchSource, /role="dialog"/);
+  assert.match(candidateSearchSource, /aria-modal="true"/);
 });
 
 test("dashboard app content region scrolls while chrome stays fixed", () => {
@@ -195,11 +226,64 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
   assert.match(activePipelineSource, /overflow-y-auto/);
   assert.match(activePipelineSource, /<section className="min-h-0 min-w-0 overflow-hidden/);
   assert.match(activePipelineSource, /"min-h-16 w-full min-w-0 overflow-hidden rounded-md/);
+  assert.match(reviewQueueSource, /getAshbyActivePipeline/);
+  assert.match(reviewQueueSource, /getRealInterviews/);
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);
+  assert.match(reviewQueueSource, /roles=\{ashbyJobReferences\(pipeline\.roles\)\}/);
+  assert.match(reviewQueueSource, /needsHumanReview/);
+  assert.match(reviewQueueSource, /signed_off_at/);
+  assert.match(reviewQueueSource, /category_scores/);
+  assert.match(reviewQueueSource, /Review score/);
+  assert.match(reviewQueueSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(session\.session_id\)\}`\}/);
   assert.match(ashbyFirstSectionsSource, /role picker/i);
   assert.match(ashbyFirstSectionsSource, /<select/);
+  assert.match(ashbyFirstSectionsSource, /roles\.map/);
+  assert.match(ashbyFirstSectionsSource, /role\.name/);
   assert.doesNotMatch(ashbyFirstSectionsSource, /Role picker appears after role names sync/);
-  assert.doesNotMatch(reviewQueueSource, /getRealInterviews/);
+  assert.doesNotMatch(ashbyFirstSectionsSource, /Selected role \$\{index \+ 1\}/);
+});
+
+test("role-scoped dashboard pages use real Ashby role names instead of ordinal placeholders", () => {
+  for (const [name, pageSource] of [
+    ["role detail", roleDetailSource],
+    ["candidate detail", roleCandidateSource],
+    ["rubric detail", roleRubricSource],
+  ]) {
+    assert.match(pageSource, /getAshbyActivePipeline/, `${name} should load active pipeline role names`);
+    assert.match(pageSource, /selectedRole\.name/, `${name} should render the selected role name`);
+    assert.doesNotMatch(pageSource, /Selected role \$\{selectedIndex \+ 1\}/, `${name} should not render ordinal role labels`);
+    assert.doesNotMatch(pageSource, /state\.selectedJobIds/, `${name} should not rely on ID-only company state`);
+  }
+
+  assert.match(roleTabsSource, /readonly selectedRole: AshbyJobReference/);
+  assert.match(roleTabsSource, /selectedRole\.name/);
+  assert.match(scoreTabSource, /availableJobs/);
+  assert.match(scoreTabSource, /ashbyJob\.name/);
+  assert.doesNotMatch(scoreTabSource, /Ashby job \$\{index \+ 1\}/);
+});
+
+test("candidate detail page renders the synced Ashby application record", () => {
+  assert.match(roleCandidateSource, /const \{ roleId, candidateId \} = await params/);
+  assert.match(roleCandidateSource, /selectedRole\.candidates\.find/);
+  assert.match(roleCandidateSource, /candidateMatchesRoute/);
+  assert.match(roleCandidateSource, /selectedCandidate\.candidateName/);
+  assert.match(roleCandidateSource, /selectedCandidate\.candidateEmail/);
+  assert.match(roleCandidateSource, /selectedCandidate\.currentStage/);
+  assert.match(roleCandidateSource, /selectedCandidate\.applicationId/);
+  assert.match(roleCandidateSource, /selectedCandidate\.source/);
+  assert.match(roleCandidateSource, /selectedCandidate\.updatedAt/);
+  assert.match(roleCandidateSource, /interviewContext=\{\{/);
+  assert.doesNotMatch(roleCandidateSource, /No synced application record yet/);
+  assert.doesNotMatch(roleCandidateSource, /will populate from the selected role's real Ashby applications/);
+});
+
+test("review queue prefers explicit backend review flags over score-shape inference", () => {
+  assert.match(backendDataSource, /readonly has_recommendation_packet: boolean/);
+  assert.match(backendDataSource, /readonly needs_human_review: boolean/);
+  assert.match(reviewQueueSource, /session\.needs_human_review === true/);
+  assert.match(reviewQueueSource, /hasRecommendationPacket/);
+  assert.match(dashboardRoutesSource, /has_recommendation_packet/);
+  assert.match(dashboardRoutesSource, /needs_human_review/);
 });
 
 test("interview detail is Fireflies-like, real-only, and hides raw internal identifiers", () => {
@@ -257,7 +341,16 @@ test("dashboard backend signs audio fallback media for audio-only interviews", (
 
 test("visible dashboard controls use readable labels instead of raw Ashby identifiers", () => {
   assert.doesNotMatch(scoreTabSource, /Job \$\{index \+ 1\}: \$\{ashbyJobId\}/);
-  assert.match(scoreTabSource, /Ashby job \${index \+ 1}/);
+  assert.match(scoreTabSource, /ashbyJob\.name/);
+  assert.doesNotMatch(scoreTabSource, /Ashby job \${index \+ 1}/);
+});
+
+test("passive dashboard cards do not use generic hover lift effects", () => {
+  assert.doesNotMatch(globalsSource, /\.puddle-panel:hover,\s*\.puddle-dashboard-card:hover,\s*\.puddle-metric-card:hover/s);
+  assert.doesNotMatch(globalsSource, /\.puddle-empty-state:hover/);
+  assert.doesNotMatch(globalsSource, /\.puddle-dashboard-hero-card:hover/);
+  assert.match(globalsSource, /\.puddle-interactive-card:hover/);
+  assert.match(globalsSource, /\.puddle-search-affordance:hover/);
 });
 
 test("Ashby onboarding setup is friendly without exposing unreadable job identifiers", () => {
