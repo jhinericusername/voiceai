@@ -1,6 +1,6 @@
 import "server-only";
 
-import { backendBaseUrl, backendHeaders } from "@/lib/backend-api";
+import { backendBaseUrl, backendFetch, backendHeaders } from "@/lib/backend-api";
 import { emailDomain } from "@/lib/auth/email-domain";
 
 export interface CompanyIdentityPayload {
@@ -105,7 +105,7 @@ function backendErrorMessage(payload: unknown): string {
 }
 
 async function postBackend<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${backendBaseUrl()}${path}`, {
+  const response = await backendFetch(`${backendBaseUrl()}${path}`, {
     method: "POST",
     headers: backendHeaders(),
     body: JSON.stringify(body),

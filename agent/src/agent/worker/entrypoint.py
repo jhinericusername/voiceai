@@ -55,6 +55,8 @@ class InterviewJobContext(BaseModel):
     script_version: str
     candidate_email: str
     room_name: str
+    agent_participant_identity: str | None = None
+    candidate_participant_identity: str | None = None
 
 
 def build_session_context(job: Any) -> InterviewJobContext:
@@ -76,6 +78,8 @@ def build_session_context(job: Any) -> InterviewJobContext:
         script_version=meta["script_version"],
         candidate_email=meta["candidate_email"],
         room_name=job.room.name,
+        agent_participant_identity=_agent_participant_identity(meta),
+        candidate_participant_identity=_candidate_participant_identity(meta),
     )
 
 
@@ -85,6 +89,30 @@ def _job_metadata(job: Any) -> str:
     if metadata is None:
         metadata = getattr(getattr(job, "job", None), "metadata", None)
     return metadata or "{}"
+
+
+def _optional_metadata_string(meta: dict[str, Any], field: str) -> str | None:
+    value = meta.get(field)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _agent_participant_identity(meta: dict[str, Any]) -> str | None:
+    return (
+        _optional_metadata_string(meta, "participant_identity")
+        or _optional_metadata_string(meta, "agent_participant_identity")
+        or _optional_metadata_string(meta, "agent_identity")
+        or _optional_metadata_string(meta, "ai_participant_identity")
+    )
+
+
+def _candidate_participant_identity(meta: dict[str, Any]) -> str | None:
+    return (
+        _optional_metadata_string(meta, "candidate_participant_identity")
+        or _optional_metadata_string(meta, "linked_participant_identity")
+    )
 
 
 RunInterview = Callable[[InterviewJobContext, Any], Awaitable[None]]
@@ -108,14 +136,22 @@ async def entrypoint(
     ctx = build_session_context(job)
     if _run_interview is not None:
         await job.connect()
-        voice = await job.wait_for_participant()
+        if ctx.candidate_participant_identity:
+            voice = await job.wait_for_participant(
+                identity=ctx.candidate_participant_identity
+            )
+        else:
+            voice = await job.wait_for_participant()
         try:
             await _run_interview(ctx, voice)
         finally:
             await _close_voice_if_present(voice)
         return
 
-    voice = await _build_realtime_session(job)
+    voice = await _build_realtime_session(
+        job,
+        participant_identity=ctx.candidate_participant_identity,
+    )
     try:
         await _realtime_run_interview(ctx, voice)
     finally:
@@ -233,7 +269,11 @@ async def _realtime_run_interview(
     )
 
 
-async def _build_realtime_session(job: Any) -> Any:  # pragma: no cover — vendor wiring
+async def _build_realtime_session(
+    job: Any,
+    *,
+    participant_identity: str | None = None,
+) -> Any:  # pragma: no cover — vendor wiring
     """Construct and return a LiveKitRealtimeSession for the room.
 
     Does NOT call .start() — the runner's run() starts the session.
@@ -243,7 +283,7 @@ async def _build_realtime_session(job: Any) -> Any:  # pragma: no cover — vend
     return LiveKitRealtimeSession(
         job,
         model=REALTIME.model,
-        participant_identity=None,
+        participant_identity=participant_identity,
     )
 
 
@@ -309,5 +349,4 @@ def _runner_agent_event_count(runner: Any) -> int:
     if not callable(events):
         return 0
     return len(events())
-
 

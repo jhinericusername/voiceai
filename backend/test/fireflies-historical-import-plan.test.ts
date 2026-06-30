@@ -437,6 +437,69 @@ describe("Fireflies historical import plan", () => {
     expect(plan.session.candidateEmail).toBe("attendee-candidate@example.com");
   });
 
+  it("uses the Fireflies event title as the stored session room name", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          targetEmail: "candidate@example.com",
+          meetingStartedAt: "2026-04-09T15:30:00.000Z",
+          durationSeconds: 1800,
+          title: "Metadata fallback title",
+          event: {
+            title: "Fireflies calendar event title",
+          },
+        },
+        transcript: {
+          title: "Transcript title",
+          sentences: [],
+        },
+      }),
+    );
+
+    expect(plan.session.roomName).toBe("Fireflies calendar event title");
+    expect(plan.session.sourceMetadata.fireflies.title).toBe("Fireflies calendar event title");
+  });
+
+  it("ignores scalar Fireflies event labels when choosing the stored session room name", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          event: "backfill",
+          title: "Metadata event title",
+        },
+        transcript: {
+          title: "Transcript title",
+        },
+      }),
+    );
+
+    expect(plan.session.roomName).toBe("Metadata event title");
+    expect(plan.session.sourceMetadata.fireflies.title).toBe("Metadata event title");
+  });
+
+  it("does not use Fireflies or LiveKit URLs as imported video titles", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          targetEmail: "candidate@example.com",
+          meetingStartedAt: "2026-04-09T15:30:00.000Z",
+          durationSeconds: 1800,
+          title: "https://app.fireflies.ai/view/transcript/01ABC",
+          event: {
+            title: "wss://livekit.example/rooms/interview-01ABC",
+          },
+        },
+        transcript: {
+          title: "Candidate technical screen",
+          sentences: [],
+        },
+      }),
+    );
+
+    expect(plan.session.roomName).toBe("Candidate technical screen");
+    expect(plan.session.sourceMetadata.fireflies.title).toBe("Candidate technical screen");
+  });
+
   it("falls back to the unknown placeholder instead of ownerEmail when candidate email is unavailable", () => {
     const plan = buildHistoricalImportPlan(
       planInput({

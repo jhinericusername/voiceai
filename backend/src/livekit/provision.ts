@@ -1,7 +1,7 @@
 import { RoomServiceClient, AgentDispatchClient } from "livekit-server-sdk";
 
 const INTERVIEW_ROOM_PREFIX = "interview-";
-const INTERVIEW_AGENT_NAME = "puddle-interviewer";
+export const INTERVIEW_AGENT_NAME = "puddle-interviewer";
 const ROOM_EMPTY_TIMEOUT_SECONDS = 600;
 const ROOM_DEPARTURE_TIMEOUT_SECONDS = 300;
 const ROOM_MAX_PARTICIPANTS = 8;
@@ -16,7 +16,7 @@ interface LiveKitRoom {
   readonly name?: string;
 }
 
-interface AgentDispatch {
+export interface AgentDispatch {
   readonly agentName?: string;
   readonly agent_name?: string;
 }
@@ -29,6 +29,10 @@ interface RoomClient {
     readonly departureTimeout?: number;
     readonly maxParticipants?: number;
   }): Promise<unknown>;
+}
+
+interface ParticipantRemovalClient {
+  removeParticipant(roomName: string, identity: string): Promise<void>;
 }
 
 interface DispatchClient {
@@ -47,6 +51,16 @@ export interface RoomReadinessInput {
   readonly dispatchAgent?: boolean;
 }
 
+export interface InterviewAgentDispatchInput {
+  readonly dispatch?: DispatchClient;
+  readonly room?: string;
+}
+
+export interface RemoveInterviewAgentParticipantInput {
+  readonly rooms?: ParticipantRemovalClient;
+  readonly room?: string;
+}
+
 export interface RoomReadinessResult {
   readonly room: string;
   readonly roomCreated: boolean;
@@ -56,6 +70,10 @@ export interface RoomReadinessResult {
 
 export function roomName(sessionId: string): string {
   return `${INTERVIEW_ROOM_PREFIX}${sessionId}`;
+}
+
+export function interviewAgentParticipantIdentity(sessionId: string): string {
+  return `${INTERVIEW_AGENT_NAME}-${sessionId}`;
 }
 
 export function sessionIdFromRoomName(name: string): string | null {
@@ -78,7 +96,7 @@ export function liveKitApiUrl(host: string): string {
 }
 
 function liveKitClients(config: LiveKitConfig): {
-  readonly rooms: RoomClient;
+  readonly rooms: RoomClient & ParticipantRemovalClient;
   readonly dispatch: DispatchClient;
 } {
   const apiUrl = liveKitApiUrl(config.host);
@@ -98,6 +116,101 @@ function roomAlreadyExists(error: unknown): boolean {
 
 function dispatchMatchesPuddleInterviewer(dispatch: AgentDispatch): boolean {
   return (dispatch.agentName ?? dispatch.agent_name) === INTERVIEW_AGENT_NAME;
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function dispatchMetadataWithParticipantIdentity(
+  sessionId: string,
+  workerMetadata: string,
+): string {
+  const participantIdentity = interviewAgentParticipantIdentity(sessionId);
+  try {
+    const parsed = JSON.parse(workerMetadata) as unknown;
+    if (isJsonRecord(parsed)) {
+      return JSON.stringify({
+        ...parsed,
+        participant_identity: participantIdentity,
+      });
+    }
+  } catch {
+    // The worker requires JSON metadata; keep the LiveKit participant identity
+    // contract deterministic even when a caller supplies malformed metadata.
+  }
+
+  return JSON.stringify({
+    participant_identity: participantIdentity,
+  });
+}
+
+function isMissingLiveKitRoomOrParticipantError(error: unknown): boolean {
+  const record = isJsonRecord(error) ? error : {};
+  const code = typeof record.code === "string" ? record.code.toLowerCase() : "";
+  const status = typeof record.status === "number" ? record.status : undefined;
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+
+  if (code === "not_found") {
+    return true;
+  }
+
+  const mentionsRemovedTarget =
+    message.includes("participant") ||
+    message.includes("room") ||
+    message.includes("identity");
+  const missingTarget = mentionsRemovedTarget && (
+    message.includes("not found") ||
+    message.includes("does not exist")
+  );
+  return status === 404 && missingTarget;
+}
+
+export async function listInterviewAgentDispatches(
+  config: LiveKitConfig,
+  sessionId: string,
+  input: InterviewAgentDispatchInput = {},
+): Promise<AgentDispatch[]> {
+  const dispatch = input.dispatch ?? liveKitClients(config).dispatch;
+  const room = input.room?.trim() || roomName(sessionId);
+  const dispatches = await dispatch.listDispatch(room);
+  return dispatches.filter(dispatchMatchesPuddleInterviewer);
+}
+
+export async function createInterviewAgentDispatch(
+  config: LiveKitConfig,
+  sessionId: string,
+  workerMetadata: string,
+  input: InterviewAgentDispatchInput = {},
+): Promise<unknown> {
+  const dispatch = input.dispatch ?? liveKitClients(config).dispatch;
+  const room = input.room?.trim() || roomName(sessionId);
+  return dispatch.createDispatch(room, INTERVIEW_AGENT_NAME, {
+    metadata: dispatchMetadataWithParticipantIdentity(sessionId, workerMetadata),
+  });
+}
+
+export async function removeInterviewAgentParticipant(
+  config: LiveKitConfig,
+  sessionId: string,
+  input: RemoveInterviewAgentParticipantInput = {},
+): Promise<{
+  readonly room: string;
+  readonly participantIdentity: string;
+  readonly removed: boolean;
+}> {
+  const rooms = input.rooms ?? liveKitClients(config).rooms;
+  const room = input.room?.trim() || roomName(sessionId);
+  const participantIdentity = interviewAgentParticipantIdentity(sessionId);
+  try {
+    await rooms.removeParticipant(room, participantIdentity);
+    return { room, participantIdentity, removed: true };
+  } catch (error) {
+    if (isMissingLiveKitRoomOrParticipantError(error)) {
+      return { room, participantIdentity, removed: false };
+    }
+    throw error;
+  }
 }
 
 // Ensures the SFU room exists and, unless disabled for interviewer-led setup,
@@ -133,11 +246,15 @@ export async function ensureRoomReady(
 
   let dispatchCreated = false;
   if (input.dispatchAgent !== false) {
-    const dispatches = await dispatch.listDispatch(room);
-    dispatchCreated = !dispatches.some(dispatchMatchesPuddleInterviewer);
+    const dispatches = await listInterviewAgentDispatches(config, sessionId, {
+      dispatch,
+      room,
+    });
+    dispatchCreated = dispatches.length === 0;
     if (dispatchCreated) {
-      await dispatch.createDispatch(room, INTERVIEW_AGENT_NAME, {
-        metadata: workerMetadata,
+      await createInterviewAgentDispatch(config, sessionId, workerMetadata, {
+        dispatch,
+        room,
       });
     }
   }

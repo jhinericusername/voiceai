@@ -92,6 +92,65 @@ describe("Fireflies reconciliation import", () => {
     expect(JSON.stringify(recording.sourceSummary)).not.toContain("do not copy me");
   });
 
+  it("prefers a nested Fireflies event title over transcript title", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fireflies-event-title-"));
+    const folder = join(root, "org", "session");
+    await mkdir(folder, { recursive: true });
+    await writeFile(
+      join(folder, "metadata.json"),
+      JSON.stringify({
+        transcriptId: "tx_event_title",
+        event: {
+          title: "Fireflies calendar event title",
+        },
+      }),
+    );
+    await writeFile(
+      join(folder, "transcript.json"),
+      JSON.stringify({
+        id: "tx_event_title",
+        title: "Transcript fallback title",
+      }),
+    );
+
+    const recording = await readFirefliesRecordingFolder(folder, {
+      bucket: "weave-fireflies",
+      rootDir: root,
+      s3RootPrefix: "raw/fireflies/",
+    });
+
+    expect(recording.title).toBe("Fireflies calendar event title");
+  });
+
+  it("ignores scalar Fireflies event labels when reading recording titles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fireflies-scalar-event-title-"));
+    const folder = join(root, "org", "session");
+    await mkdir(folder, { recursive: true });
+    await writeFile(
+      join(folder, "metadata.json"),
+      JSON.stringify({
+        transcriptId: "tx_scalar_event",
+        event: "backfill",
+        title: "Metadata event title",
+      }),
+    );
+    await writeFile(
+      join(folder, "transcript.json"),
+      JSON.stringify({
+        id: "tx_scalar_event",
+        title: "Transcript fallback title",
+      }),
+    );
+
+    const recording = await readFirefliesRecordingFolder(folder, {
+      bucket: "weave-fireflies",
+      rootDir: root,
+      s3RootPrefix: "raw/fireflies/",
+    });
+
+    expect(recording.title).toBe("Metadata event title");
+  });
+
   it("generates idempotent reconciliation SQL with escaped values", () => {
     const sql = generateReconciliationSql(
       [

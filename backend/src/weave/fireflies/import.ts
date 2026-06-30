@@ -118,7 +118,7 @@ export async function readFirefliesRecordingFolder(
     metadataKey: `${s3Prefix}metadata.json`,
     transcriptKey: `${s3Prefix}transcript.json`,
     ingestionResultKey: ingestion ? `${s3Prefix}ingestion-result.json` : null,
-    title: stringValue(transcript.title) ?? stringValue(metadata.title),
+    title: firefliesTitleFrom(metadata, transcript),
     meetingStartedAt: startedAt,
     meetingDate: startedAt ? startedAt.slice(0, 10) : null,
     durationSeconds: integerValue(transcript.duration),
@@ -793,8 +793,57 @@ function compactObject(input: Record<string, unknown>): Record<string, unknown> 
   );
 }
 
+function firefliesTitleFrom(metadata: JsonRecord, transcript: JsonRecord): string | null {
+  return (
+    eventTitleFrom(metadata.event) ??
+    firstDisplayTitle(metadata, ["eventTitle", "meetingTitle", "title"]) ??
+    firstDisplayTitle(transcript, ["title", "meetingTitle"])
+  );
+}
+
+function eventTitleFrom(value: unknown): string | null {
+  const parsed = parsedRecord(value);
+  if (parsed) {
+    return firstDisplayTitle(parsed, ["title", "summary", "name", "subject"]);
+  }
+  return null;
+}
+
+function firstDisplayTitle(record: JsonRecord, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = displayTitleString(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function parsedRecord(value: unknown): JsonRecord | null {
+  if (isRecord(value)) {
+    return value;
+  }
+  if (typeof value !== "string" || !value.trim().startsWith("{")) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function displayTitleString(value: unknown): string | null {
+  const title = stringValue(value);
+  if (!title || /^(?:https?|wss?):\/\//i.test(title)) {
+    return null;
+  }
+  return title;
 }
 
 function integerValue(value: unknown): number | null {

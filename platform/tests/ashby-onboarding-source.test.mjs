@@ -352,6 +352,14 @@ test("deploy-platform forwards Ashby onboarding admin emails through environment
   }
 });
 
+test("deploy-platform keeps recording artifacts enabled by default", () => {
+  assert.match(deployPlatformScript, /REQUESTED_ENABLE_LIVEKIT_RECORDINGS/);
+  assert.match(deployPlatformScript, /ALLOW_RECORDINGS_DISABLED_DEPLOY/);
+  assert.match(deployPlatformScript, /ENABLE_LIVEKIT_RECORDINGS="true"/);
+  assert.match(deployPlatformScript, /puddle-videoagent-artifacts-\$AWS_ACCOUNT_ID-\$REGION/);
+  assert.match(deployPlatformScript, /-c enableLiveKitRecordings="\$ENABLE_LIVEKIT_RECORDINGS"/);
+});
+
 test("Ashby webhook proxy forwards raw body and signature to backend", () => {
   assert.match(webhookRoute, /request\.text\(\)/);
   assert.match(webhookRoute, /request\.headers\.get\("ashby-signature"\)/);

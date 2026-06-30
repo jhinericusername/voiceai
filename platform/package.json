@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test tests/*source.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@workos-inc/authkit-nextjs": "^4.1.0",

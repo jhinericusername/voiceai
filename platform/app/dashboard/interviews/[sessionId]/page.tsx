@@ -10,11 +10,11 @@ import {
   EmptyState,
   SectionPanel,
   StatusPill,
-  cx,
   formatDateTime,
   primaryButtonClass,
   secondaryButtonClass,
 } from "../../dashboard-ui";
+import { InterviewPlaybackReview } from "./InterviewPlaybackReview";
 import { HumanScoreReviewEditor } from "./HumanScoreReviewEditor";
 import {
   normalizeReviewScore,
@@ -135,32 +135,14 @@ function RealInterviewDetailView({
         />
       </section>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
-        <main className="grid min-w-0 gap-5">
-          <SectionPanel
-            title="Video and audio review"
-            eyebrow="Recording"
-            action={
-              <div className="flex flex-wrap gap-2">
-                <StatusPill status={videoArtifact ? formatBackendStatus(videoArtifact.status, "Video") : "Video missing"} />
-                <StatusPill status={audioArtifact ? formatBackendStatus(audioArtifact.status, "Audio") : "Audio missing"} />
-              </div>
-            }
-          >
-            {realInterview.compositeVideoUrl ? (
-              <video className="aspect-video w-full rounded-md bg-slate-950" controls src={realInterview.compositeVideoUrl} />
-            ) : realInterview.candidateAudioUrl ? (
-              <div className="grid min-h-56 place-items-center rounded-md bg-slate-950 px-4 py-8">
-                <div className="w-full max-w-xl">
-                  <div className="mb-4 text-center text-sm font-semibold text-white">Audio recording</div>
-                  <audio className="w-full" controls src={realInterview.candidateAudioUrl} />
-                </div>
-              </div>
-            ) : (
-              <EmptyState title="Playable media unavailable" detail="The interview packet has no available playback URL yet." />
-            )}
-          </SectionPanel>
-
+      <InterviewPlaybackReview
+        compositeVideoUrl={realInterview.compositeVideoUrl}
+        candidateAudioUrl={realInterview.candidateAudioUrl}
+        videoStatus={videoArtifact ? formatBackendStatus(videoArtifact.status, "Video") : "Video missing"}
+        audioStatus={audioArtifact ? formatBackendStatus(audioArtifact.status, "Audio") : "Audio missing"}
+        transcriptTurns={transcriptTurns}
+        startedAt={completedAt}
+      >
           <SectionPanel
             title="AI recommendation"
             eyebrow="Generated scorecard"
@@ -289,36 +271,7 @@ function RealInterviewDetailView({
               <EmptyState title="Artifacts not created yet" detail="Recording and transcript artifacts appear here as the session moves through the lifecycle." />
             )}
           </SectionPanel>
-        </main>
-
-        <aside aria-label="Transcript" className="grid min-w-0 gap-5 xl:content-start">
-          <SectionPanel title="Transcript" eyebrow="Evidence">
-            {transcriptTurns.length ? (
-              <div className="grid gap-3 xl:max-h-[calc(100svh-12rem)] xl:overflow-y-auto xl:pr-1">
-                {transcriptTurns.map((turn) => (
-                  <article
-                    key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`}
-                    className={cx(
-                      "rounded-md border px-3 py-3",
-                      turn.speaker === "candidate" ? "border-cyan-200 bg-cyan-50/40" : "border-slate-200 bg-slate-50",
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-slate-500">
-                        {formatOffset(turn.offsetMs) ?? formatDateTime(turn.occurredAt)}
-                      </span>
-                      <StatusPill status={formatSpeaker(turn.speaker)} />
-                    </div>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{turn.text}</p>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <EmptyState title="Transcript unavailable" detail="Transcript turns appear here after recording finalization and post-processing complete." />
-            )}
-          </SectionPanel>
-        </aside>
-      </div>
+      </InterviewPlaybackReview>
     </div>
   );
 }
@@ -1091,21 +1044,6 @@ function formatDuration(value: number | null): string {
 
 function formatArtifactDetail(contentType: string, sizeBytes: number | null, durationSeconds: number | null): string {
   return [contentType, formatBytes(sizeBytes), formatDuration(durationSeconds)].join(" / ");
-}
-
-function formatOffset(value: number | null): string | null {
-  if (value === null) {
-    return null;
-  }
-
-  const totalSeconds = Math.max(0, Math.round(value / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-function formatSpeaker(value: "agent" | "candidate"): string {
-  return value === "agent" ? "Interviewer" : "Candidate";
 }
 
 function artifactKindLabel(value: string): string {

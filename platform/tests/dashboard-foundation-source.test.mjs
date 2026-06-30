@@ -30,6 +30,7 @@ const reviewQueueSource = await source("../app/dashboard/review-queue/page.tsx")
 const recordingsSource = await source("../app/dashboard/recordings/page.tsx");
 const ashbyFirstSectionsSource = await source("../app/dashboard/AshbyFirstDashboardSections.tsx");
 const interviewDetailSource = await source("../app/dashboard/interviews/[sessionId]/page.tsx");
+const interviewPlaybackReviewSource = await source("../app/dashboard/interviews/[sessionId]/InterviewPlaybackReview.tsx");
 const backendDataSource = await source("../app/dashboard/backend-data.ts");
 const dashboardRoutesSource = await source("../../backend/src/dashboard/routes.ts");
 const wizardSource = await source("../app/dashboard/AshbyOnboardingWizard.tsx");
@@ -78,6 +79,9 @@ test("recordings page lists historical Fireflies and room recordings with links 
   assert.match(recordingsSource, /getRoomRecordings/);
   assert.match(recordingsSource, /Historical Fireflies/);
   assert.match(recordingsSource, /Fireflies recording/);
+  assert.match(recordingsSource, /firefliesRecordingTitle/);
+  assert.match(recordingsSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"fireflies",\s*"title"\s*\]\)/);
+  assert.match(recordingsSource, /isSyntheticFirefliesRoomName/);
   assert.match(recordingsSource, /recordings\.map/);
   assert.match(recordingsSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(recording\.session_id\)\}`\}/);
   assert.match(recordingsSource, /recording\.composite_video_status/);
@@ -85,6 +89,19 @@ test("recordings page lists historical Fireflies and room recordings with links 
   assert.match(recordingsSource, /data-recordings-scroll-region/);
   assert.match(recordingsSource, /overflow-y-auto/);
   assert.doesNotMatch(recordingsSource, /OperationalPlaceholderPage/);
+});
+
+test("recordings page uses Fireflies meeting titles as the primary row label", () => {
+  assert.match(recordingsSource, /recordingPrimaryLabel\(recording\)/);
+  assert.match(recordingsSource, /recordingSecondaryLabel\(recording\)/);
+  assert.match(
+    recordingsSource,
+    /function recordingPrimaryLabel\([^)]*recording[^)]*\)[^{]*{\s*return isHistoricalFirefliesRecording\(recording\)\s*\?\s*roomLabel\(recording\)\s*:\s*candidateLabel\(recording\);/s,
+  );
+  assert.match(
+    recordingsSource,
+    /function recordingSecondaryLabel\([^)]*recording[^)]*\)[^{]*{\s*const candidate = candidateLabel\(recording\);/s,
+  );
 });
 
 test("recordings page surfaces native Puddle session records even before full finalization", () => {
@@ -188,9 +205,10 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
 test("interview detail is Fireflies-like, real-only, and hides raw internal identifiers", () => {
   assert.match(interviewDetailSource, /getRealInterview/);
   assert.match(interviewDetailSource, /candidateAudioUrl/);
-  assert.match(interviewDetailSource, /<audio/);
-  assert.match(interviewDetailSource, /aria-label="Transcript"/);
-  assert.match(interviewDetailSource, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(360px,420px\)\]/);
+  assert.match(interviewDetailSource, /InterviewPlaybackReview/);
+  assert.match(interviewPlaybackReviewSource, /<audio/);
+  assert.match(interviewPlaybackReviewSource, /aria-label="Transcript"/);
+  assert.match(interviewPlaybackReviewSource, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(360px,420px\)\]/);
   assert.match(interviewDetailSource, /Historical Fireflies import/);
   assert.match(interviewDetailSource, /Fireflies historical import/);
   assert.match(backendDataSource, /recommendation_packet/);
@@ -216,6 +234,18 @@ test("interview detail is Fireflies-like, real-only, and hides raw internal iden
   assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Script"/);
   assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Storage"/);
   assert.doesNotMatch(interviewDetailSource, /<span[^>]*>\{turn\.questionId\}/);
+});
+
+test("interview transcript timestamps seek media playback", () => {
+  assert.match(interviewPlaybackReviewSource, /"use client"/);
+  assert.match(interviewPlaybackReviewSource, /useRef<HTMLVideoElement/);
+  assert.match(interviewPlaybackReviewSource, /useRef<HTMLAudioElement/);
+  assert.match(interviewPlaybackReviewSource, /playbackOffsetSeconds/);
+  assert.match(interviewPlaybackReviewSource, /turn\.offsetMs/);
+  assert.match(interviewPlaybackReviewSource, /Date\.parse\(turn\.occurredAt\)/);
+  assert.match(interviewPlaybackReviewSource, /currentTime\s*=/);
+  assert.match(interviewPlaybackReviewSource, /\.play\(\)/);
+  assert.match(interviewPlaybackReviewSource, /aria-label=\{`Jump playback to/);
 });
 
 test("dashboard backend signs audio fallback media for audio-only interviews", () => {

@@ -5,16 +5,23 @@ import {
   Room,
   RoomEvent,
   Track,
-  createAudioAnalyser,
   createLocalAudioTrack,
   createLocalVideoTrack,
   type LocalAudioTrack,
   type LocalVideoTrack,
-  type RemoteAudioTrack,
   type RemoteParticipant,
   type RemoteTrack,
   type RemoteTrackPublication,
 } from "livekit-client";
+import {
+  aiInterviewerPlaceholderTile,
+  findParticipantTile,
+  removeParticipantTile,
+  setParticipantVideoTrack,
+  syncParticipantTiles,
+  upsertParticipantTile,
+  type LiveKitParticipantTile,
+} from "@/lib/livekit-participant-tiles";
 
 interface InterviewerJoinClientProps {
   readonly sessionId: string;
@@ -44,20 +51,25 @@ interface AiControlResponse {
   readonly requestedAt: string;
 }
 
-type AiInterviewerState = "not_started" | "running" | "stopped";
-type AiControlAction = "start" | "stop" | "resume";
+type AiInterviewerState = "not_started" | "running" | "stopped" | "ended";
+type AiControlAction = "start" | "stop" | "resume" | "end";
+type AiControlCommand = "pause" | "resume" | "end";
 type RoomStage = "waiting" | "connecting" | "live" | "left" | "ended";
 type CheckStatus = "idle" | "checking" | "passed" | "failed";
 type InviteStatus = "idle" | "loading" | "ready" | "error";
 type CopyStatus = "idle" | "copied" | "failed";
 
-const AI_INTERVIEWER_STATES = new Set<AiInterviewerState>(["not_started", "running", "stopped"]);
+const AI_INTERVIEWER_STATES = new Set<AiInterviewerState>(["not_started", "running", "stopped", "ended"]);
 const HOST_ROOM_OPEN_ERROR = "The host room could not be opened. Refresh and try again.";
+const PUDDLE_AI_CONTROL_TOPIC = "puddle_ai_control";
 
-const AI_CONTROL_BY_STATE: Record<
-  AiInterviewerState,
-  { readonly action: AiControlAction; readonly label: string }
-> = {
+interface AiControlConfig {
+  readonly action: AiControlAction;
+  readonly label: string;
+  readonly command?: AiControlCommand;
+}
+
+const AI_CONTROL_BY_STATE: Record<AiInterviewerState, AiControlConfig> = {
   not_started: {
     action: "start",
     label: "Start AI",
@@ -65,11 +77,23 @@ const AI_CONTROL_BY_STATE: Record<
   running: {
     action: "stop",
     label: "Stop AI",
+    command: "pause",
   },
   stopped: {
     action: "resume",
     label: "Resume AI",
+    command: "resume",
   },
+  ended: {
+    action: "start",
+    label: "Start AI",
+  },
+};
+
+const AI_END_CONTROL: AiControlConfig = {
+  action: "end",
+  label: "End AI",
+  command: "end",
 };
 
 export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps) {
@@ -86,12 +110,10 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
   const [isJoining, setIsJoining] = useState(false);
   const [roomStatus, setRoomStatus] = useState("Not connected");
   const [roomError, setRoomError] = useState<string | null>(null);
-  const [remoteParticipants, setRemoteParticipants] = useState(0);
+  const [remoteParticipantTiles, setRemoteParticipantTiles] = useState<readonly LiveKitParticipantTile[]>([]);
   const [candidateDelayed, setCandidateDelayed] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack | null>(null);
-  const [remoteVideoTrack, setRemoteVideoTrack] = useState<RemoteTrack | null>(null);
-  const [agentAudioTrack, setAgentAudioTrack] = useState<RemoteAudioTrack | null>(null);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [aiInterviewerState, setAiInterviewerState] = useState<AiInterviewerState>("not_started");
@@ -103,7 +125,6 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
   const previewStreamRef = useRef<MediaStream | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const callVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLDivElement | null>(null);
   const inviteRequestedRef = useRef(false);
   const copyResetTimerRef = useRef<number | null>(null);
@@ -129,17 +150,12 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
     localVideoTrackRef.current?.stop();
     localVideoTrackRef.current = null;
     setLocalVideoTrack(null);
-    setRemoteVideoTrack(null);
-    setAgentAudioTrack(null);
+    setRemoteParticipantTiles([]);
     setCandidateDelayed(false);
-    setRemoteParticipants(0);
     setIsMicEnabled(true);
     setIsCameraEnabled(true);
     liveKitRoomRef.current?.disconnect();
     liveKitRoomRef.current = null;
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
     if (remoteAudioRef.current) {
       remoteAudioRef.current.replaceChildren();
     }
@@ -179,60 +195,46 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
     }
   }, [encodedSessionId]);
 
-  const attachRemoteTrack = useCallback(
-    (track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant): void => {
-      const isAgent = participant?.isAgent === true;
+  const attachRemoteTrack = useCallback((
+    track: RemoteTrack,
+    _publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void => {
+    setRemoteParticipantTiles((currentTiles) => upsertParticipantTile(currentTiles, participant));
 
-      if (track.kind === Track.Kind.Video) {
-        // Only the candidate publishes video; the agent has none.
-        if (!isAgent) {
-          setRemoteVideoTrack(track);
-        }
-        return;
-      }
+    if (track.kind === Track.Kind.Video) {
+      setRemoteParticipantTiles((currentTiles) => setParticipantVideoTrack(currentTiles, participant, track));
+      return;
+    }
 
-      if (track.kind !== Track.Kind.Audio) {
-        return;
-      }
+    if (track.kind !== Track.Kind.Audio || !remoteAudioRef.current) {
+      return;
+    }
 
-      // The agent's audio drives the live waveform on its tile (it still plays
-      // back through the hidden audio element below).
-      if (isAgent) {
-        setAgentAudioTrack(track as RemoteAudioTrack);
-      }
+    const element = track.attach();
+    element.autoplay = true;
+    element.dataset.puddleRemoteAudio = "true";
+    element.dataset.puddleRemoteParticipantIdentity = participant.identity;
+    remoteAudioRef.current.appendChild(element);
+    void element.play().catch(() => {
+      setRoomError("Candidate audio was blocked by the browser. Leave, then rejoin the room.");
+    });
+  }, []);
 
-      if (!remoteAudioRef.current) {
-        return;
-      }
+  const detachRemoteTrack = useCallback((
+    track: RemoteTrack,
+    _publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+  ): void => {
+    if (track.kind === Track.Kind.Video) {
+      setRemoteParticipantTiles((currentTiles) => setParticipantVideoTrack(currentTiles, participant, null));
+      return;
+    }
 
-      const element = track.attach();
-      element.autoplay = true;
-      element.dataset.puddleRemoteAudio = "true";
-      remoteAudioRef.current.appendChild(element);
-      void element.play().catch(() => {
-        setRoomError("Candidate audio was blocked by the browser. Leave, then rejoin the room.");
-      });
-    },
-    [],
-  );
-
-  const detachRemoteTrack = useCallback(
-    (track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant): void => {
-      if (track.kind === Track.Kind.Video) {
-        setRemoteVideoTrack((currentTrack) => (currentTrack === track ? null : currentTrack));
-        return;
-      }
-
-      if (participant?.isAgent === true) {
-        setAgentAudioTrack((current) => (current === track ? null : current));
-      }
-
-      for (const element of track.detach()) {
-        element.remove();
-      }
-    },
-    [],
-  );
+    for (const element of track.detach()) {
+      element.remove();
+    }
+  }, []);
 
   const runPreflight = useCallback(async (): Promise<void> => {
     setPreflightStatus("checking");
@@ -359,12 +361,17 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
 
       const updateParticipants = () => {
         setCandidateDelayed(false);
-        setRemoteParticipants(room.remoteParticipants.size);
+        setRemoteParticipantTiles((currentTiles) => syncParticipantTiles(currentTiles, room.remoteParticipants.values()));
       };
       room.on(RoomEvent.Connected, () => setRoomStatus("Connected"));
       room.on(RoomEvent.Disconnected, () => setRoomStatus("Disconnected"));
-      room.on(RoomEvent.ParticipantConnected, updateParticipants);
-      room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
+      room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+        setCandidateDelayed(false);
+        setRemoteParticipantTiles((currentTiles) => upsertParticipantTile(currentTiles, participant));
+      });
+      room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+        setRemoteParticipantTiles((currentTiles) => removeParticipantTile(currentTiles, participant));
+      });
       room.on(RoomEvent.TrackSubscribed, attachRemoteTrack);
       room.on(RoomEvent.TrackUnsubscribed, detachRemoteTrack);
 
@@ -457,16 +464,52 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
     });
   }, []);
 
-  const requestAiControl = useCallback(async (): Promise<void> => {
+  const publishAiControlCommand = useCallback(async (command: AiControlCommand): Promise<boolean> => {
+    const room = liveKitRoomRef.current;
+    if (!room) {
+      return false;
+    }
+
+    try {
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(
+          JSON.stringify({
+            type: PUDDLE_AI_CONTROL_TOPIC,
+            action: command,
+          }),
+        ),
+        {
+          reliable: true,
+          topic: PUDDLE_AI_CONTROL_TOPIC,
+        },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const requestAiControl = useCallback(async (controlOverride?: AiControlConfig): Promise<void> => {
     if (aiControlPending) {
       return;
     }
 
-    const control = AI_CONTROL_BY_STATE[aiInterviewerState];
+    const control = controlOverride ?? AI_CONTROL_BY_STATE[aiInterviewerState];
     setAiControlPending(true);
     setRoomError(null);
 
     try {
+      const commandRequired = control.command && control.action !== "end";
+      if (commandRequired && control.command) {
+        const commandDelivered = await publishAiControlCommand(control.command);
+        if (!commandDelivered) {
+          setRoomError("AI interviewer command could not be delivered.");
+          return;
+        }
+      } else if (control.command) {
+        void publishAiControlCommand(control.command);
+      }
+
       const response = await fetch(`/api/dashboard/interviews/${encodedSessionId}/ai-control`, {
         method: "POST",
         headers: {
@@ -492,7 +535,7 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
     } finally {
       setAiControlPending(false);
     }
-  }, [aiControlPending, aiInterviewerState, encodedSessionId]);
+  }, [aiControlPending, aiInterviewerState, encodedSessionId, publishAiControlCommand]);
 
   const endCall = useCallback((): void => {
     cleanupRoom();
@@ -533,13 +576,14 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
   }, [stage]);
 
   useEffect(() => {
-    if (stage !== "live" || remoteParticipants > 0) {
+    const candidateTile = findParticipantTile(remoteParticipantTiles, "candidate");
+    if (stage !== "live" || candidateTile !== null) {
       return;
     }
 
     const timeout = window.setTimeout(() => setCandidateDelayed(true), 15_000);
     return () => window.clearTimeout(timeout);
-  }, [remoteParticipants, stage]);
+  }, [remoteParticipantTiles, stage]);
 
   useEffect(() => {
     const video = callVideoRef.current;
@@ -552,21 +596,6 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
       localVideoTrack.detach(video);
     };
   }, [localVideoTrack, stage]);
-
-  useEffect(() => {
-    const video = remoteVideoRef.current;
-    if (!video || !remoteVideoTrack || stage !== "live") {
-      return;
-    }
-
-    remoteVideoTrack.attach(video);
-    void video.play().catch(() => {
-      setRoomError("Candidate video was blocked by the browser. Leave, then rejoin the room.");
-    });
-    return () => {
-      remoteVideoTrack.detach(video);
-    };
-  }, [remoteVideoTrack, stage]);
 
   useEffect(() => {
     const video = previewVideoRef.current;
@@ -612,22 +641,25 @@ export function InterviewerJoinClient({ sessionId }: InterviewerJoinClientProps)
 
       {stage === "live" ? (
         <LivePanel
-          agentAudioTrack={agentAudioTrack}
           aiControlPending={aiControlPending}
           aiInterviewerState={aiInterviewerState}
           candidateDelayed={candidateDelayed}
           callVideoRef={callVideoRef}
           elapsedLabel={elapsedLabel}
-          hasRemoteVideo={remoteVideoTrack !== null}
           isCameraEnabled={isCameraEnabled}
           isMicEnabled={isMicEnabled}
           join={join}
-          remoteParticipants={remoteParticipants}
-          remoteVideoRef={remoteVideoRef}
+          remoteParticipantTiles={remoteParticipantTiles}
           roomError={roomError}
           roomStatus={roomStatus}
-          onAiControl={requestAiControl}
+          onAiControl={() => {
+            void requestAiControl();
+          }}
           onEnd={endCall}
+          onEndAiControl={() => {
+            void requestAiControl(AI_END_CONTROL);
+          }}
+          onRemoteVideoBlocked={setRoomError}
           onToggleCamera={toggleLiveCamera}
           onToggleMic={toggleLiveMic}
         />
@@ -851,46 +883,63 @@ function ConnectingPanel({ roomStatus }: { readonly roomStatus: string }) {
 }
 
 function LivePanel({
-  agentAudioTrack,
   aiControlPending,
   aiInterviewerState,
   candidateDelayed,
   callVideoRef,
   elapsedLabel,
-  hasRemoteVideo,
   isCameraEnabled,
   isMicEnabled,
   join,
-  remoteParticipants,
-  remoteVideoRef,
+  remoteParticipantTiles,
   roomError,
   roomStatus,
   onAiControl,
   onEnd,
+  onEndAiControl,
+  onRemoteVideoBlocked,
   onToggleCamera,
   onToggleMic,
 }: {
-  readonly agentAudioTrack: RemoteAudioTrack | null;
   readonly aiControlPending: boolean;
   readonly aiInterviewerState: AiInterviewerState;
   readonly candidateDelayed: boolean;
   readonly callVideoRef: RefObject<HTMLVideoElement | null>;
   readonly elapsedLabel: string;
-  readonly hasRemoteVideo: boolean;
   readonly isCameraEnabled: boolean;
   readonly isMicEnabled: boolean;
   readonly join: InterviewerJoinResponse | null;
-  readonly remoteParticipants: number;
-  readonly remoteVideoRef: RefObject<HTMLVideoElement | null>;
+  readonly remoteParticipantTiles: readonly LiveKitParticipantTile[];
   readonly roomError: string | null;
   readonly roomStatus: string;
   readonly onAiControl: () => void;
   readonly onEnd: () => void;
+  readonly onEndAiControl: () => void;
+  readonly onRemoteVideoBlocked: (message: string) => void;
   readonly onToggleCamera: () => void;
   readonly onToggleMic: () => void;
 }) {
   const aiControl = AI_CONTROL_BY_STATE[aiInterviewerState];
-  const showAgentTile = aiInterviewerState !== "not_started";
+  const candidateTile = findParticipantTile(remoteParticipantTiles, "candidate") ?? {
+    identity: "candidate-placeholder",
+    kind: "candidate" as const,
+    label: "Candidate",
+    fallbackInitial: "C",
+    videoTrack: null,
+  };
+  const connectedAiInterviewerTile = findParticipantTile(remoteParticipantTiles, "ai_interviewer");
+  const aiInterviewerTile = connectedAiInterviewerTile ?? aiInterviewerPlaceholderTile(join?.sessionId ?? "");
+  const aiNoVideoDetail =
+    connectedAiInterviewerTile !== null
+      ? "Connected without video"
+      : aiInterviewerState === "not_started"
+        ? "AI interviewer not started"
+        : aiInterviewerState === "stopped"
+          ? "AI interviewer paused"
+          : aiInterviewerState === "ended"
+            ? "AI interviewer ended"
+            : "Waiting for AI interviewer";
+  const participantCount = remoteParticipantTiles.length + 1;
 
   return (
     <div className="relative flex min-h-svh flex-col overflow-hidden bg-[#111214] text-white">
@@ -904,58 +953,28 @@ function LivePanel({
         <div className="flex items-center justify-end gap-2 text-xs font-medium">
           <span className="rounded-full bg-[#5f6368] px-3 py-2 text-[#f1f3f4]">Host</span>
           <span className="rounded-full bg-[#2b2c2f] px-3 py-2 text-[#e8eaed]">
-            {remoteParticipants > 0 ? remoteParticipants + 1 : 1}
+            {participantCount}
           </span>
         </div>
       </header>
 
       <main className="flex flex-1 items-center justify-center px-3 pb-32 pt-20 sm:px-5 md:pb-28">
-        <div
-          className={`grid h-[min(72svh,760px)] min-h-[460px] w-full max-w-[1500px] gap-3 ${
-            showAgentTile
-              ? "grid-rows-3 md:grid-cols-3 md:grid-rows-1"
-              : "grid-rows-2 md:grid-cols-2 md:grid-rows-1"
-          }`}
-        >
-          <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
-            <video
-              ref={remoteVideoRef}
-              aria-label="Candidate video"
-              autoPlay
-              playsInline
-              className={`h-full w-full object-cover transition ${hasRemoteVideo ? "opacity-100" : "opacity-0"}`}
+        <div className="grid h-[min(72svh,760px)] min-h-[460px] w-full max-w-[1500px] auto-rows-fr gap-3 md:grid-cols-3">
+          {[candidateTile, aiInterviewerTile].map((tile) => (
+            <RemoteParticipantTileCard
+              key={tile.identity}
+              tile={tile}
+              roomStatus={tile.kind === "candidate" && candidateDelayed ? "Waiting for candidate" : roomStatus}
+              noVideoDetail={
+                tile.kind === "candidate" && candidateDelayed
+                  ? "Candidate has not joined yet"
+                  : tile.kind === "ai_interviewer"
+                    ? aiNoVideoDetail
+                    : "Connected without video"
+              }
+              onPlaybackBlocked={onRemoteVideoBlocked}
             />
-
-            {!hasRemoteVideo ? (
-              <div className="absolute inset-0 grid place-items-center bg-[#202124] px-6 text-center">
-                <div>
-                  <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[#8ab4f8] text-4xl font-medium text-[#202124]">
-                    C
-                  </div>
-                  <div className="mt-5 text-lg font-medium text-[#f1f3f4]">Candidate</div>
-                  <div className="mt-2 text-sm text-[#bdc1c6]">
-                    {remoteParticipants > 0
-                      ? "Connected without video"
-                      : candidateDelayed
-                        ? "Candidate has not joined yet"
-                        : "Waiting for candidate"}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
-              {hasRemoteVideo ? "Candidate video" : candidateDelayed ? "Waiting for candidate" : roomStatus}
-            </div>
-
-            <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
-              Candidate
-            </div>
-          </div>
-
-          {showAgentTile ? (
-            <AgentTile aiInterviewerState={aiInterviewerState} agentAudioTrack={agentAudioTrack} />
-          ) : null}
+          ))}
 
           <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
             <video
@@ -1029,12 +1048,21 @@ function LivePanel({
             type="button"
             aria-busy={aiControlPending}
             disabled={aiControlPending}
-            onClick={onAiControl}
+            onClick={() => onAiControl()}
             className={`h-12 min-w-[104px] rounded-full px-5 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-70 ${
               aiInterviewerState === "running" ? "bg-[#3c4043] hover:bg-[#4a4d51]" : "bg-[#1a73e8] hover:bg-[#1765cc]"
             }`}
           >
             {aiControl.label}
+          </button>
+          <button
+            type="button"
+            aria-busy={aiControlPending}
+            disabled={aiControlPending || aiInterviewerState === "ended"}
+            onClick={() => onEndAiControl()}
+            className="h-12 min-w-[96px] rounded-full border border-[#5f6368] px-5 text-sm font-medium text-[#f1f3f4] transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {AI_END_CONTROL.label}
           </button>
         </div>
 
@@ -1048,164 +1076,65 @@ function LivePanel({
   );
 }
 
-const AGENT_WAVE_BARS = [0, 0.18, 0.36, 0.12, 0.3, 0.06, 0.24];
-const AGENT_WAVE_KEYFRAMES =
-  "@keyframes puddleWave { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }";
-
-function AgentTile({
-  aiInterviewerState,
-  agentAudioTrack,
+function RemoteParticipantTileCard({
+  tile,
+  roomStatus,
+  noVideoDetail,
+  onPlaybackBlocked,
 }: {
-  readonly aiInterviewerState: AiInterviewerState;
-  readonly agentAudioTrack: RemoteAudioTrack | null;
+  readonly tile: LiveKitParticipantTile;
+  readonly roomStatus: string;
+  readonly noVideoDetail: string;
+  readonly onPlaybackBlocked: (message: string) => void;
 }) {
-  const isStopped = aiInterviewerState === "stopped";
-  const barRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hasRemoteVideo = tile.videoTrack !== null;
 
-  // Drive the waveform bars. Three modes:
-  //  - stopped         -> flat bars (deafened);
-  //  - running, audio   -> real-time bars from the agent's live audio spectrum;
-  //  - running, no audio yet -> gentle idle pulse (agent still connecting).
   useEffect(() => {
-    const bars = barRefs.current.filter((el): el is HTMLSpanElement => el !== null);
-    if (bars.length === 0) {
+    const video = videoRef.current;
+    if (!video || !tile.videoTrack) {
       return;
     }
 
-    if (isStopped) {
-      bars.forEach((el) => {
-        el.style.animation = "none";
-        el.style.transform = "scaleY(0.18)";
-      });
-      return;
-    }
-
-    if (!agentAudioTrack) {
-      bars.forEach((el, i) => {
-        el.style.transform = "";
-        el.style.animation = `puddleWave 1s ease-in-out ${AGENT_WAVE_BARS[i] ?? 0}s infinite`;
-      });
-      return;
-    }
-
-    bars.forEach((el) => {
-      el.style.animation = "none";
+    tile.videoTrack.attach(video);
+    void video.play().catch(() => {
+      onPlaybackBlocked(`${tile.label} video was blocked by the browser. Leave, then rejoin the room.`);
     });
-
-    let raf = 0;
-    let stopAnalyser: (() => void) | undefined;
-    let analyser: AnalyserNode;
-    try {
-      const created = createAudioAnalyser(agentAudioTrack, {
-        cloneTrack: true,
-        smoothingTimeConstant: 0.65,
-      });
-      analyser = created.analyser;
-      analyser.fftSize = 128;
-      stopAnalyser = () => {
-        void created.cleanup();
-      };
-      const ctx = analyser.context as AudioContext;
-      if (ctx.state === "suspended") {
-        void ctx.resume();
-      }
-    } catch {
-      return;
-    }
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const binFor = bars.map((_, i) => 2 + i * 2); // low-mid bins where the voice sits
-    const loop = () => {
-      analyser.getByteFrequencyData(data);
-      bars.forEach((el, i) => {
-        const level = Math.min(1, (data[binFor[i]] ?? 0) / 170);
-        el.style.transform = `scaleY(${0.16 + level * 0.84})`;
-      });
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-
     return () => {
-      cancelAnimationFrame(raf);
-      stopAnalyser?.();
+      tile.videoTrack?.detach(video);
     };
-  }, [isStopped, agentAudioTrack]);
+  }, [onPlaybackBlocked, tile.label, tile.videoTrack]);
 
   return (
-    <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#1b1c1f] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
-      <style>{AGENT_WAVE_KEYFRAMES}</style>
+    <div className="relative min-h-0 overflow-hidden rounded-[16px] bg-[#202124] shadow-[0_16px_44px_rgba(0,0,0,0.35)]">
+      <video
+        ref={videoRef}
+        aria-label={`${tile.label} video`}
+        autoPlay
+        playsInline
+        className={`h-full w-full object-cover transition ${hasRemoteVideo ? "opacity-100" : "opacity-0"}`}
+      />
 
-      <div className="absolute inset-0 grid place-items-center px-6 text-center">
-        <div className="flex flex-col items-center">
-          <div
-            className={`relative grid h-28 w-28 place-items-center rounded-full ring-4 transition ${
-              isStopped ? "bg-[#2b2c2f] ring-[#3c4043]" : "bg-[#16305c] ring-[#1a73e8]/70"
-            }`}
-          >
-            {!isStopped ? (
-              <span
-                aria-hidden="true"
-                className="absolute inset-0 animate-ping rounded-full ring-2 ring-[#1a73e8]/40"
-              />
-            ) : null}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/puddle-symbol-white-nobg.svg"
-              alt="Puddle AI interviewer"
-              className={`h-14 w-14 transition ${isStopped ? "opacity-40" : "opacity-100"}`}
-            />
+      {!hasRemoteVideo ? (
+        <div className="absolute inset-0 grid place-items-center bg-[#202124] px-6 text-center">
+          <div>
+            <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[#8ab4f8] text-4xl font-medium text-[#202124]">
+              {tile.fallbackInitial}
+            </div>
+            <div className="mt-5 text-lg font-medium text-[#f1f3f4]">{tile.label}</div>
+            <div className="mt-2 text-sm text-[#bdc1c6]">{noVideoDetail}</div>
           </div>
-
-          <div className="mt-5 flex h-9 items-end justify-center gap-1.5" aria-hidden="true">
-            {AGENT_WAVE_BARS.map((_, index) => (
-              <span
-                key={index}
-                ref={(el) => {
-                  barRefs.current[index] = el;
-                }}
-                className="w-1.5 rounded-full"
-                style={{
-                  height: "100%",
-                  transformOrigin: "bottom",
-                  transform: "scaleY(0.18)",
-                  backgroundColor: isStopped ? "#5f6368" : "#8ab4f8",
-                  transition: "transform 80ms linear",
-                }}
-              />
-            ))}
-          </div>
-
-          <div className="mt-4 text-lg font-medium text-[#f1f3f4]">Puddle AI</div>
-          <div className="mt-1 text-sm text-[#bdc1c6]">
-            {isStopped ? "Stopped — not listening" : "Listening"}
-          </div>
-        </div>
-      </div>
-
-      <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
-        AI interviewer
-      </div>
-      <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
-        Puddle AI
-      </div>
-
-      {isStopped ? (
-        <div className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full bg-[#ea4335] px-3 py-1.5 text-xs font-semibold text-white shadow-lg">
-          <DeafenIcon />
-          Deafened
         </div>
       ) : null}
-    </div>
-  );
-}
 
-function DeafenIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2">
-      <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-      <path d="m16 9 6 6" />
-      <path d="m22 9-6 6" />
-    </svg>
+      <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-[#f1f3f4] backdrop-blur">
+        {hasRemoteVideo ? `${tile.label} video` : roomStatus}
+      </div>
+
+      <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-3 py-1.5 text-sm font-medium text-white backdrop-blur">
+        <span aria-label={tile.label}>{tile.label}</span>
+      </div>
+    </div>
   );
 }
 

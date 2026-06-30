@@ -132,10 +132,10 @@ export default async function RecordingsPage() {
               >
                 <span className="min-w-0">
                   <span className="block truncate font-semibold text-slate-950">
-                    {candidateLabel(recording)}
+                    {recordingPrimaryLabel(recording)}
                   </span>
                   <span className="mt-1 block truncate text-xs text-slate-500">
-                    {roomLabel(recording)}
+                    {recordingSecondaryLabel(recording)}
                   </span>
                 </span>
                 <span>
@@ -178,8 +178,45 @@ function candidateLabel(record: CandidateDisplayRecord): string {
 
 function roomLabel(recording: RealRoomRecordingListItem): string {
   const duration = formatDuration(recording.composite_video_duration_seconds);
-  const room = recording.room_name?.trim() || (isHistoricalFirefliesRecording(recording) ? "Fireflies recording" : "Puddle room");
+  const room = isHistoricalFirefliesRecording(recording)
+    ? firefliesRecordingTitle(recording)
+    : recording.room_name?.trim() || "Puddle room";
   return duration ? `${room} · ${duration}` : room;
+}
+
+function recordingPrimaryLabel(recording: RealRoomRecordingListItem): string {
+  return isHistoricalFirefliesRecording(recording)
+    ? roomLabel(recording)
+    : candidateLabel(recording);
+}
+
+function recordingSecondaryLabel(recording: RealRoomRecordingListItem): string {
+  const candidate = candidateLabel(recording);
+  return isHistoricalFirefliesRecording(recording)
+    ? candidate
+    : roomLabel(recording);
+}
+
+function firefliesRecordingTitle(recording: RealRoomRecordingListItem): string {
+  const metadataTitle = sourceMetadataString(recording.source_metadata, ["fireflies", "title"]);
+  if (metadataTitle) {
+    return metadataTitle;
+  }
+
+  const roomName = recording.room_name?.trim();
+  if (roomName && !isSyntheticFirefliesRoomName(roomName) && !isUrlLikeLabel(roomName)) {
+    return roomName;
+  }
+
+  return "Fireflies recording";
+}
+
+function isSyntheticFirefliesRoomName(value: string): boolean {
+  return /^fireflies-[A-Za-z0-9_-]+$/.test(value);
+}
+
+function isUrlLikeLabel(value: string): boolean {
+  return /^(?:https?|wss?):\/\//i.test(value);
 }
 
 function isHistoricalFirefliesRecording(recording: RealRoomRecordingListItem): boolean {

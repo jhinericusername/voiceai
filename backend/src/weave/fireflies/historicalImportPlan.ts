@@ -116,6 +116,7 @@ export interface HistoricalImportSourceMetadata {
     readonly sourceBucket: string;
     readonly sourcePrefix: string;
     readonly targetBucket: string;
+    readonly title: string | null;
     readonly matchStatus: string | null;
     readonly audioKey: string | null;
     readonly videoKey: string | null;
@@ -186,6 +187,7 @@ export function buildHistoricalImportPlan(
   const durationSeconds = durationSecondsFrom(metadata, transcript);
   const endedAt = endedAtFromDuration(meetingStartedAt, durationSeconds);
   const candidateEmail = candidateEmailFrom(metadata, transcript);
+  const firefliesTitle = firefliesTitleFrom(metadata, transcript);
   const artifacts = plannedArtifactSources(input.recording, root, durationSeconds);
   const sourceJsonCopies = plannedSourceJsonCopies(input.recording, root);
 
@@ -199,10 +201,10 @@ export function buildHistoricalImportPlan(
       scheduledAt: meetingStartedAt,
       startedAt: meetingStartedAt,
       endedAt,
-      roomName: `fireflies-${input.recording.transcriptId}`,
+      roomName: firefliesTitle ?? `fireflies-${input.recording.transcriptId}`,
       externalSource: "fireflies",
       externalId: sourceOccurrenceId,
-      sourceMetadata: sourceMetadata(input),
+      sourceMetadata: sourceMetadata(input, firefliesTitle),
     },
     recording: {
       sessionId,
@@ -379,7 +381,10 @@ function occurredAtFromOffset(startedAt: string | null, offsetMs: number | null)
   return new Date(startMs + offsetMs).toISOString();
 }
 
-function sourceMetadata(input: HistoricalImportPlanInput): HistoricalImportSourceMetadata {
+function sourceMetadata(
+  input: HistoricalImportPlanInput,
+  firefliesTitle: string | null,
+): HistoricalImportSourceMetadata {
   return {
     fireflies: {
       transcriptId: input.recording.transcriptId,
@@ -392,6 +397,7 @@ function sourceMetadata(input: HistoricalImportPlanInput): HistoricalImportSourc
       sourceBucket: input.sourceBucket,
       sourcePrefix: input.recording.prefix,
       targetBucket: input.targetBucket,
+      title: firefliesTitle,
       matchStatus: input.weaveMatch ? input.weaveMatch.matchStatus : "unindexed",
       audioKey: input.recording.audioKey,
       videoKey: input.recording.videoKey,
@@ -452,6 +458,47 @@ function firstString(record: JsonRecord, keys: readonly string[]): string | null
   return null;
 }
 
+function firefliesTitleFrom(metadata: JsonRecord, transcript: JsonRecord): string | null {
+  return (
+    eventTitleFrom(metadata.event) ??
+    firstDisplayTitle(metadata, ["eventTitle", "meetingTitle", "title"]) ??
+    firstDisplayTitle(transcript, ["title", "meetingTitle"])
+  );
+}
+
+function eventTitleFrom(value: unknown): string | null {
+  const parsed = parsedRecord(value);
+  if (parsed) {
+    return firstDisplayTitle(parsed, ["title", "summary", "name", "subject"]);
+  }
+  return null;
+}
+
+function firstDisplayTitle(record: JsonRecord, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = displayTitleString(record[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function parsedRecord(value: unknown): JsonRecord | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as JsonRecord;
+  }
+  if (typeof value !== "string" || !value.trim().startsWith("{")) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as JsonRecord)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function firstNumber(record: JsonRecord, keys: readonly string[]): number | null {
   for (const key of keys) {
     const value = numberValue(record[key]);
@@ -468,6 +515,18 @@ function asRecord(value: unknown): JsonRecord {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function displayTitleString(value: unknown): string | null {
+  const title = stringValue(value);
+  if (!title || isUrlLikeTitle(title)) {
+    return null;
+  }
+  return title;
+}
+
+function isUrlLikeTitle(value: string): boolean {
+  return /^(?:https?|wss?):\/\//i.test(value);
 }
 
 function numberValue(value: unknown): number | null {

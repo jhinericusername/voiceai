@@ -23,6 +23,7 @@ const interviewerJoinRoute = await source(
 );
 const aiControlRoute = await source("../app/api/dashboard/interviews/[sessionId]/ai-control/route.ts");
 const dashboardChrome = await source("../app/dashboard/DashboardChrome.tsx");
+const liveKitParticipantTilesSource = await source("../lib/livekit-participant-tiles.ts");
 
 const interviewerConnectedRoutePath = "../app/api/dashboard/interviews/[sessionId]/interviewer-connected/route.ts";
 const dashboardCreateInterviewLauncherPath = "../app/dashboard/DashboardCreateInterviewLauncher.tsx";
@@ -82,6 +83,7 @@ test("interviewer platform routes fail closed on malformed backend success paylo
   assert.match(interviewerJoinRoute, /not_started/);
   assert.match(interviewerJoinRoute, /running/);
   assert.match(interviewerJoinRoute, /stopped/);
+  assert.match(interviewerJoinRoute, /ended/);
   assert.match(interviewerJoinRoute, /has\(value\.aiInterviewerState\)/);
   for (const field of ["sessionId", "room", "liveKitUrl", "token", "aiInterviewerState"]) {
     assert.match(interviewerJoinRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
@@ -95,6 +97,9 @@ test("interviewer platform routes fail closed on malformed backend success paylo
 
   assert.match(aiControlRoute, /AI interviewer control response was malformed\./);
   assert.match(aiControlRoute, /isAiControlResponse\(payload\)/);
+  assert.match(aiControlRoute, /end/);
+  assert.match(aiControlRoute, /ended/);
+  assert.match(aiControlRoute, /Choose start, stop, resume, or end\./);
   for (const field of ["sessionId", "aiInterviewerState", "requestedAt"]) {
     assert.match(aiControlRoute, new RegExp(`typeof \\w+\\.${field} === "string"`));
   }
@@ -153,6 +158,7 @@ test("interviewer join client exposes host invite, join, and AI controls without
     "Start AI",
     "Stop AI",
     "Resume AI",
+    "End AI",
   ]) {
     assert.match(clientSource, new RegExp(expectedSource));
   }
@@ -206,6 +212,38 @@ test("interviewer join client exposes host invite, join, and AI controls without
   assert.match(clientSource, /liveKitRoomRef\.current\?\.disconnect\(\)/);
 
   assert.match(clientSource, /body: JSON\.stringify\(\{ action: control\.action \}\)/);
+  assert.match(clientSource, /publishData/);
+  assert.match(clientSource, /TextEncoder/);
+  assert.match(clientSource, /puddle_ai_control/);
+  assert.match(clientSource, /command: "pause"/);
+  assert.match(clientSource, /command: "resume"/);
+  assert.match(clientSource, /command: "end"/);
+  assert.match(clientSource, /action: "end"/);
+  assert.match(clientSource, /AI interviewer ended/);
+  const requestAiControlSource = clientSource.slice(
+    clientSource.indexOf("const requestAiControl = useCallback"),
+    clientSource.indexOf("const endCall = useCallback"),
+  );
+  assert.match(requestAiControlSource, /const commandRequired = control\.command && control\.action !== "end"/);
+  assert.match(requestAiControlSource, /const commandDelivered = await publishAiControlCommand\(control\.command\)/);
+  assert.match(requestAiControlSource, /AI interviewer command could not be delivered\./);
+  assert.match(requestAiControlSource, /void publishAiControlCommand\(control\.command\)/);
+  assert.doesNotMatch(requestAiControlSource, /AI interviewer state was saved/);
+  assert.ok(
+    requestAiControlSource.indexOf("const commandDelivered = await publishAiControlCommand(control.command)") <
+      requestAiControlSource.indexOf("const response = await fetch"),
+    "stop and resume commands should be delivered before persisting backend state",
+  );
+  assert.ok(
+    requestAiControlSource.indexOf("AI interviewer command could not be delivered.") <
+      requestAiControlSource.indexOf("const response = await fetch"),
+    "command delivery failure should return before the backend state is persisted",
+  );
+  assert.ok(
+    requestAiControlSource.indexOf("void publishAiControlCommand(control.command)") <
+      requestAiControlSource.indexOf("const response = await fetch"),
+    "end should publish best-effort before the authoritative backend end request",
+  );
   assert.match(clientSource, /setAiInterviewerState\(payload\.aiInterviewerState\)/);
   assert.match(clientSource, /parseJsonResponse\(response\)/);
   assert.match(clientSource, /return await response\.json\(\)/);
@@ -214,4 +252,67 @@ test("interviewer join client exposes host invite, join, and AI controls without
 
   assert.doesNotMatch(clientSource, /AI interview disclosure/);
   assert.doesNotMatch(clientSource, /Accept all required interview notices/);
+});
+
+test("candidate join client assigns media cleanup refs during sequential acquisition", async () => {
+  const clientSource = await requiredSource("../app/interview/[token]/InterviewJoinClient.tsx");
+
+  assert.match(clientSource, /createLocalAudioTrack/);
+  assert.match(clientSource, /createLocalVideoTrack/);
+  assert.doesNotMatch(clientSource, /const \[audioTrack, videoTrack\] = await Promise\.all/);
+
+  const audioCreateIndex = clientSource.indexOf("const audioTrack = await createLocalAudioTrack");
+  const audioRefIndex = clientSource.indexOf("localAudioTrackRef.current = audioTrack", audioCreateIndex);
+  const videoCreateIndex = clientSource.indexOf("const videoTrack = await createLocalVideoTrack", audioCreateIndex);
+  const videoRefIndex = clientSource.indexOf("localVideoTrackRef.current = videoTrack", videoCreateIndex);
+  const setupIndex = clientSource.indexOf("await Promise.all([\n        setLocalTrackEnabled", videoCreateIndex);
+
+  assert.notEqual(audioCreateIndex, -1, "candidate audio track should be created before video acquisition");
+  assert.notEqual(audioRefIndex, -1, "candidate audio track should be assigned to cleanup ref");
+  assert.notEqual(videoCreateIndex, -1, "candidate video track should be created after audio ref assignment");
+  assert.notEqual(videoRefIndex, -1, "candidate video track should be assigned to cleanup ref");
+  assert.notEqual(setupIndex, -1, "candidate local track setup should happen after refs are assigned");
+  assert.ok(
+    audioCreateIndex < audioRefIndex && audioRefIndex < videoCreateIndex,
+    "candidate audio track should be assigned to its cleanup ref before video acquisition can throw",
+  );
+  assert.ok(
+    videoCreateIndex < videoRefIndex && videoRefIndex < setupIndex,
+    "candidate video track should be assigned to its cleanup ref before later setup can throw",
+  );
+});
+
+test("host and candidate clients model the AI interviewer as a visible LiveKit participant tile", async () => {
+  const hostClientSource = await requiredSource(
+    "../app/dashboard/interviews/[sessionId]/join/InterviewerJoinClient.tsx",
+  );
+  const candidateClientSource = await requiredSource("../app/interview/[token]/InterviewJoinClient.tsx");
+
+  assert.match(liveKitParticipantTilesSource, /AI_INTERVIEWER_IDENTITY_PREFIX = "puddle-interviewer-"/);
+  assert.match(liveKitParticipantTilesSource, /aiInterviewerParticipantIdentity\(sessionId: string\)/);
+  assert.match(liveKitParticipantTilesSource, /participant\.isAgent/);
+  assert.match(liveKitParticipantTilesSource, /participant_kind/);
+  assert.match(liveKitParticipantTilesSource, /puddle\.role/);
+  assert.match(liveKitParticipantTilesSource, /syncParticipantTiles/);
+  assert.match(liveKitParticipantTilesSource, /setParticipantVideoTrack/);
+
+  for (const clientSource of [hostClientSource, candidateClientSource]) {
+    assert.match(clientSource, /RemoteParticipantTileCard/);
+    assert.match(clientSource, /remoteParticipantTiles/);
+    assert.match(clientSource, /syncParticipantTiles/);
+    assert.match(clientSource, /setParticipantVideoTrack/);
+    assert.match(clientSource, /RemoteParticipant/);
+    assert.match(clientSource, /RemoteTrackPublication/);
+    assert.match(clientSource, /participant: RemoteParticipant/);
+  }
+
+  assert.match(hostClientSource, /findParticipantTile\(remoteParticipantTiles, "ai_interviewer"\)/);
+  assert.match(hostClientSource, /aiInterviewerPlaceholderTile/);
+  assert.match(hostClientSource, /label=\{tile\.label\}/);
+
+  assert.match(candidateClientSource, /aiInterviewerParticipantIdentity\(join\?\.sessionId/);
+  assert.match(candidateClientSource, /findParticipantTile\(remoteParticipantTiles, "ai_interviewer"\)/);
+  assert.match(candidateClientSource, /aiInterviewerTile/);
+  assert.match(candidateClientSource, /Puddle AI interviewer/);
+  assert.doesNotMatch(candidateClientSource, /setRemoteVideoTrack/);
 });

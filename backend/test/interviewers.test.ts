@@ -20,6 +20,7 @@ const {
   connectMock,
   releaseMock,
   ensureRoomReadyMock,
+  removeInterviewAgentParticipantMock,
   startRecordingMock,
 } = vi.hoisted(() => ({
   queryMock: vi.fn(),
@@ -27,6 +28,7 @@ const {
   connectMock: vi.fn(),
   releaseMock: vi.fn(),
   ensureRoomReadyMock: vi.fn(),
+  removeInterviewAgentParticipantMock: vi.fn(),
   startRecordingMock: vi.fn(),
 }));
 
@@ -41,6 +43,7 @@ vi.mock("../src/livekit/provision.js", async () => {
   return {
     ...actual,
     ensureRoomReady: ensureRoomReadyMock,
+    removeInterviewAgentParticipant: removeInterviewAgentParticipantMock,
   };
 });
 
@@ -106,6 +109,12 @@ beforeEach(() => {
     roomCreated: true,
     dispatchCreated: false,
     roomRecreated: false,
+  });
+  removeInterviewAgentParticipantMock.mockReset();
+  removeInterviewAgentParticipantMock.mockResolvedValue({
+    room: "interview-sess1",
+    participantIdentity: "puddle-interviewer-sess1",
+    removed: true,
   });
   startRecordingMock.mockReset();
   startRecordingMock.mockResolvedValue({
@@ -696,7 +705,87 @@ describe("interviewer internal routes", () => {
     },
   );
 
-  it("records AI control state and ops audit event", async () => {
+  it.each(["start", "resume"] as const)(
+    "dispatches the AI interviewer idempotently and records %s control state",
+    async (action) => {
+      queryMock.mockImplementation(async (sql: string) => {
+        if (sql.includes("FROM sessions")) {
+          return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 1 };
+      });
+      clientQueryMock.mockImplementation(async (sql: string) => {
+        if (sql.includes("SELECT entry_hash")) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 1 };
+      });
+      ensureRoomReadyMock.mockResolvedValue({
+        room: "interview-sess1",
+        roomCreated: false,
+        dispatchCreated: false,
+        roomRecreated: false,
+      });
+      const app = Fastify();
+      registerInterviewerRoutes(app, FAKE_LK);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/internal/interviews/sess1/ai-control",
+        payload: {
+          orgId: "org1",
+          interviewerEmail: "interviewer@example.com",
+          interviewerUserId: "user1",
+          action,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        sessionId: "sess1",
+        aiInterviewerState: "running",
+        requestedAt: expect.any(String),
+      });
+      expect(ensureRoomReadyMock).toHaveBeenCalledWith(
+        FAKE_LK,
+        "sess1",
+        expect.any(String),
+        { hadPreviousRoom: true, dispatchAgent: true },
+      );
+      expect(removeInterviewAgentParticipantMock).not.toHaveBeenCalled();
+      expectClientSqlOrder(
+        "BEGIN",
+        "INSERT INTO interview_ai_control_state",
+        "INSERT INTO events",
+        "INSERT INTO audit_log",
+        "COMMIT",
+      );
+      const stateCall = clientQueryMock.mock.calls.find(([sql]) =>
+        String(sql).includes("INSERT INTO interview_ai_control_state"),
+      );
+      expect(stateCall?.[1]).toEqual([
+        "sess1",
+        "running",
+        "user1",
+        "interviewer@example.com",
+        expect.any(String),
+      ]);
+      const eventCall = clientQueryMock.mock.calls.find(([sql, params]) =>
+        String(sql).includes("INSERT INTO events") &&
+        String(params?.[2] ?? "").includes(`ai_interviewer_${action}_requested`),
+      );
+      expect(eventCall).toBeDefined();
+      expect(JSON.parse(eventCall?.[1]?.[2] as string)).toMatchObject({
+        event_type: `ai_interviewer_${action}_requested`,
+        interviewer_email: "interviewer@example.com",
+        interviewer_user_id: "user1",
+        requested_state: "running",
+      });
+      await app.close();
+    },
+  );
+
+  it("updates the session room when AI start creates or recreates the room", async () => {
     queryMock.mockImplementation(async (sql: string) => {
       if (sql.includes("FROM sessions")) {
         return { rows: [sessionRow()], rowCount: 1 };
@@ -719,16 +808,56 @@ describe("interviewer internal routes", () => {
         orgId: "org1",
         interviewerEmail: "interviewer@example.com",
         interviewerUserId: "user1",
-        action: "resume",
+        action: "start",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(ensureRoomReadyMock).toHaveBeenCalledWith(
+      FAKE_LK,
+      "sess1",
+      expect.any(String),
+      { hadPreviousRoom: false, dispatchAgent: true },
+    );
+    expect(queryMock.mock.calls.some(([sql]) => String(sql).includes("UPDATE sessions SET room_name"))).toBe(true);
+    await app.close();
+  });
+
+  it("records AI stop intent without dispatching or removing the participant", async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM sessions")) {
+        return { rows: [sessionRow()], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    clientQueryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT entry_hash")) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const app = Fastify();
+    registerInterviewerRoutes(app, FAKE_LK);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/internal/interviews/sess1/ai-control",
+      payload: {
+        orgId: "org1",
+        interviewerEmail: "interviewer@example.com",
+        interviewerUserId: "user1",
+        action: "stop",
       },
     });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
       sessionId: "sess1",
-      aiInterviewerState: "running",
+      aiInterviewerState: "stopped",
       requestedAt: expect.any(String),
     });
+    expect(ensureRoomReadyMock).not.toHaveBeenCalled();
+    expect(removeInterviewAgentParticipantMock).not.toHaveBeenCalled();
     expectClientSqlOrder(
       "BEGIN",
       "INSERT INTO interview_ai_control_state",
@@ -741,29 +870,92 @@ describe("interviewer internal routes", () => {
     );
     expect(stateCall?.[1]).toEqual([
       "sess1",
-      "running",
+      "stopped",
       "user1",
       "interviewer@example.com",
       expect.any(String),
     ]);
     const eventCall = clientQueryMock.mock.calls.find(([sql, params]) =>
       String(sql).includes("INSERT INTO events") &&
-      String(params?.[2] ?? "").includes("ai_interviewer_resume_requested"),
+      String(params?.[2] ?? "").includes("ai_interviewer_stop_requested"),
     );
     expect(eventCall).toBeDefined();
     expect(JSON.parse(eventCall?.[1]?.[2] as string)).toMatchObject({
-      event_type: "ai_interviewer_resume_requested",
+      event_type: "ai_interviewer_stop_requested",
       interviewer_email: "interviewer@example.com",
       interviewer_user_id: "user1",
-      requested_state: "running",
+      requested_state: "stopped",
     });
-    // running intent must actually dispatch the puddle-interviewer worker into the room
-    expect(ensureRoomReadyMock).toHaveBeenCalledWith(
+    await app.close();
+  });
+
+  it("removes the AI participant and records ended state on AI end", async () => {
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM sessions")) {
+        return { rows: [sessionRow({ room_name: "interview-sess1" })], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    clientQueryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT entry_hash")) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const app = Fastify();
+    registerInterviewerRoutes(app, FAKE_LK);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/internal/interviews/sess1/ai-control",
+      payload: {
+        orgId: "org1",
+        interviewerEmail: "interviewer@example.com",
+        interviewerUserId: "user1",
+        action: "end",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      sessionId: "sess1",
+      aiInterviewerState: "ended",
+      requestedAt: expect.any(String),
+    });
+    expect(ensureRoomReadyMock).not.toHaveBeenCalled();
+    expect(removeInterviewAgentParticipantMock).toHaveBeenCalledWith(
       FAKE_LK,
       "sess1",
-      expect.any(String),
-      expect.objectContaining({ dispatchAgent: true }),
+      { room: "interview-sess1" },
     );
+    expectClientSqlOrder(
+      "BEGIN",
+      "INSERT INTO interview_ai_control_state",
+      "INSERT INTO events",
+      "INSERT INTO audit_log",
+      "COMMIT",
+    );
+    const stateCall = clientQueryMock.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO interview_ai_control_state"),
+    );
+    expect(stateCall?.[1]).toEqual([
+      "sess1",
+      "ended",
+      "user1",
+      "interviewer@example.com",
+      expect.any(String),
+    ]);
+    const eventCall = clientQueryMock.mock.calls.find(([sql, params]) =>
+      String(sql).includes("INSERT INTO events") &&
+      String(params?.[2] ?? "").includes("ai_interviewer_end_requested"),
+    );
+    expect(eventCall).toBeDefined();
+    expect(JSON.parse(eventCall?.[1]?.[2] as string)).toMatchObject({
+      event_type: "ai_interviewer_end_requested",
+      interviewer_email: "interviewer@example.com",
+      interviewer_user_id: "user1",
+      requested_state: "ended",
+    });
     await app.close();
   });
 
