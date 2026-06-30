@@ -138,8 +138,8 @@ test("dashboard topbar exposes a generic create-and-join room launcher", async (
   assert.match(launcherSource, /fetch\("\/api\/interviews"/);
   assert.match(launcherSource, /interviewerJoinUrl/);
   assert.match(launcherSource, /router\.push\(interviewerJoinUrl\)/);
+  assert.match(launcherSource, /interviewContext \?\? \{\}/);
   assert.doesNotMatch(launcherSource, /roleLabel/);
-  assert.doesNotMatch(launcherSource, /candidateEmail/);
 });
 
 test("interviewer join client exposes host invite, join, and AI controls without candidate notices", async () => {

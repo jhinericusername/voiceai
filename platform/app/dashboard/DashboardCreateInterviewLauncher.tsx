@@ -10,7 +10,20 @@ interface CreateInterviewResponse {
   readonly error?: unknown;
 }
 
-export function DashboardCreateInterviewLauncher() {
+interface InterviewContext {
+  readonly applicationId: string;
+  readonly candidateId?: string | null;
+  readonly candidateName?: string | null;
+  readonly candidateEmail?: string | null;
+  readonly jobId: string;
+  readonly currentStage?: string | null;
+}
+
+export function DashboardCreateInterviewLauncher({
+  interviewContext,
+}: {
+  readonly interviewContext?: InterviewContext;
+}) {
   const router = useRouter();
   const [isCreating, setIsCreating] = useState(false);
   const [message, setMessage] = useState("");
@@ -27,7 +40,7 @@ export function DashboardCreateInterviewLauncher() {
       const response = await fetch("/api/interviews", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(interviewContext ?? {}),
       });
       const payload = (await response.json().catch(() => ({}))) as CreateInterviewResponse;
       const interviewerJoinUrl =
