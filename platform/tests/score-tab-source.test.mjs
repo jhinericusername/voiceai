@@ -39,7 +39,7 @@ test("score tab requires a concrete Ashby job before search or save", () => {
   assert.match(scoreTabSource, /normalizedJobId/);
   assert.match(scoreTabSource, /hasAshbyJob/);
   assert.match(scoreTabSource, /!hasAshbyJob/);
-  assert.match(scoreTabSource, /availableJobIds/);
+  assert.match(scoreTabSource, /availableJobs/);
   assert.match(scoreTabSource, /selectedJobId/);
   assert.match(scoreTabSource, /jobId:\s*normalizedJobId/);
   assert.match(scoreTabSource, /roleId:\s*normalizedJobId/);
@@ -47,13 +47,21 @@ test("score tab requires a concrete Ashby job before search or save", () => {
 });
 
 test("role page supplies selected Ashby jobs to the score tab only after onboarding is complete", () => {
-  assert.match(rolePageSource, /getAshbyCompanyState/);
-  assert.match(rolePageSource, /state\?\.setupStatus === "connected" && state\.connected && Boolean\(state\.lastSyncAt\)/);
-  assert.match(rolePageSource, /state\.selectedJobIds/);
-  assert.match(rolePageSource, /ashbyJobIds=\{ashbyJobIds\}/);
-  assert.doesNotMatch(rolePageSource, /state\?\.connected \? state\.selectedJobIds : \[\]/);
-  assert.match(roleWorkspaceSource, /readonly ashbyJobIds: readonly string\[\]/);
-  assert.match(roleWorkspaceSource, /availableJobIds=\{ashbyJobIds\}/);
+  assert.match(rolePageSource, /getAshbyActivePipeline/);
+  assert.match(rolePageSource, /pipeline\.roles/);
+  assert.match(rolePageSource, /selectedRole\.name/);
+  assert.match(rolePageSource, /ashbyJobs=\{ashbyJobs\}/);
+  assert.doesNotMatch(rolePageSource, /state\.selectedJobIds/);
+  assert.doesNotMatch(rolePageSource, /Selected role \$\{selectedIndex \+ 1\}/);
+  assert.match(roleWorkspaceSource, /readonly ashbyJobs: readonly AshbyJobReference\[\]/);
+  assert.match(roleWorkspaceSource, /jobId=\{selectedRole\.jobId\}/);
+  assert.match(roleWorkspaceSource, /availableJobs=\{ashbyJobs\}/);
+});
+
+test("score tab renders selectable Ashby jobs by name instead of placeholders", () => {
+  assert.match(scoreTabSource, /availableJobs/);
+  assert.match(scoreTabSource, /ashbyJob\.name/);
+  assert.doesNotMatch(scoreTabSource, /Ashby job \$\{index \+ 1\}/);
 });
 
 test("score tab status feedback is announced and action copy matches score saving", () => {

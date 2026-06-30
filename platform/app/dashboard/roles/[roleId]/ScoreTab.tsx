@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cx, primaryButtonClass } from "../../dashboard-ui";
+import type { AshbyJobReference } from "../ashby-role-labels";
 
 interface AshbyApplicationOption {
   readonly application_id: string;
@@ -55,14 +56,20 @@ function candidateLabel(option: AshbyApplicationOption): string {
   return option.candidate_email ? `${option.candidate_name} - ${option.candidate_email}` : option.candidate_name;
 }
 
-function normalizeJobIds(values: readonly string[]): string[] {
-  return [
-    ...new Set(
-      values
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0),
-    ),
-  ];
+function normalizeJobs(values: readonly AshbyJobReference[]): AshbyJobReference[] {
+  const jobsById = new Map<string, AshbyJobReference>();
+  for (const value of values) {
+    const jobId = value.jobId.trim();
+    if (!jobId || jobsById.has(jobId)) {
+      continue;
+    }
+    jobsById.set(jobId, {
+      jobId,
+      name: value.name.trim() || "Ashby role",
+    });
+  }
+
+  return [...jobsById.values()];
 }
 
 function ScoreSelect({
@@ -97,10 +104,10 @@ function ScoreSelect({
 
 export function ScoreTab({
   jobId,
-  availableJobIds = [],
+  availableJobs = [],
 }: {
   readonly jobId?: string | null;
-  readonly availableJobIds?: readonly string[];
+  readonly availableJobs?: readonly AshbyJobReference[];
 }) {
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<AshbyApplicationOption[]>([]);
@@ -120,12 +127,12 @@ export function ScoreTab({
   const searchAbortRef = useRef<AbortController | null>(null);
 
   const configuredJobId = jobId?.trim() ?? "";
-  const availableAshbyJobIds = normalizeJobIds(availableJobIds);
-  const selectedAvailableJobId = availableAshbyJobIds.includes(selectedJobId) ? selectedJobId : "";
+  const availableAshbyJobs = normalizeJobs(availableJobs);
+  const selectedAvailableJobId = availableAshbyJobs.some((ashbyJob) => ashbyJob.jobId === selectedJobId) ? selectedJobId : "";
   const normalizedJobId =
-    configuredJobId || (availableAshbyJobIds.length === 1 ? availableAshbyJobIds[0] : selectedAvailableJobId);
+    configuredJobId || (availableAshbyJobs.length === 1 ? availableAshbyJobs[0]?.jobId ?? "" : selectedAvailableJobId);
   const hasAshbyJob = normalizedJobId.length > 0;
-  const canChooseAshbyJob = !configuredJobId && availableAshbyJobIds.length > 1;
+  const canChooseAshbyJob = !configuredJobId && availableAshbyJobs.length > 1;
   const missingJobMessage = canChooseAshbyJob
     ? "Choose an Ashby job before scoring."
     : "Connect this role to an Ashby job before scoring.";
@@ -303,9 +310,9 @@ export function ScoreTab({
             className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
           >
             <option value="">Select Ashby job</option>
-            {availableAshbyJobIds.map((ashbyJobId, index) => (
-              <option key={ashbyJobId} value={ashbyJobId}>
-                {`Ashby job ${index + 1}`}
+            {availableAshbyJobs.map((ashbyJob) => (
+              <option key={ashbyJob.jobId} value={ashbyJob.jobId}>
+                {ashbyJob.name}
               </option>
             ))}
           </select>

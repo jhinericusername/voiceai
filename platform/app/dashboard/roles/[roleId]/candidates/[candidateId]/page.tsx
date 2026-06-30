@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { companyIdentityFromUser, getAshbyCompanyState } from "@/lib/ashby/server";
+import { companyIdentityFromUser, getAshbyActivePipeline } from "@/lib/ashby/server";
+import { ashbyJobReferences } from "../../../ashby-role-labels";
 import { requireDashboardUser } from "../../../../auth";
 import {
   EmptyState,
@@ -22,17 +23,14 @@ export default async function CandidateReportPage({
 }) {
   const { roleId } = await params;
   const { user, organizationId } = await requireDashboardUser(`/dashboard/roles/${roleId}`);
-  const state = await getAshbyCompanyState(
+  const pipeline = await getAshbyActivePipeline(
     companyIdentityFromUser({ email: user.email, organizationId }),
   );
-  const selectedJobIds = state.selectedJobIds.map((jobId) => jobId.trim()).filter(Boolean);
-  const selectedIndex = selectedJobIds.indexOf(roleId);
+  const selectedRole = ashbyJobReferences(pipeline.roles).find((role) => role.jobId === roleId.trim());
 
-  if (selectedIndex === -1) {
+  if (!selectedRole) {
     notFound();
   }
-
-  const roleLabel = `Selected role ${selectedIndex + 1}`;
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
@@ -41,7 +39,7 @@ export default async function CandidateReportPage({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill status="Candidate profile" />
-              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">{roleLabel}</span>
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">{selectedRole.name}</span>
             </div>
             <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">Candidate application</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">

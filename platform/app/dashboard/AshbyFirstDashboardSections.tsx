@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRightIcon, ClipboardCheckIcon, SendIcon, UsersIcon, VideoIcon } from "./dashboard-icons";
 import { EmptyState, formatDateTime, SectionPanel, StatusPill, secondaryButtonClass } from "./dashboard-ui";
+import type { AshbyJobReference } from "./roles/ashby-role-labels";
 
 export function SetupProgressSummary({
   selectedJobCount,
@@ -125,12 +126,10 @@ export function CandidateApplicationsFoundation({
 }
 
 export function ReviewRolePickerFoundation({
-  selectedJobCount,
+  roles,
 }: {
-  readonly selectedJobCount: number;
+  readonly roles: readonly AshbyJobReference[];
 }) {
-  const roleOptions = Array.from({ length: selectedJobCount }, (_, index) => `Selected role ${index + 1}`);
-
   return (
     <SectionPanel
       title="Review Queue"
@@ -147,19 +146,19 @@ export function ReviewRolePickerFoundation({
             Role
             <select
               defaultValue=""
-              disabled={selectedJobCount === 0}
+              disabled={roles.length === 0}
               className="min-h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
             >
-              <option value="">{selectedJobCount > 0 ? "Choose a role" : "No selected roles yet"}</option>
-              {roleOptions.map((roleLabel, index) => (
-                <option key={roleLabel} value={`selected-role-${index + 1}`}>
-                  {roleLabel}
+              <option value="">{roles.length > 0 ? "Choose a role" : "No selected roles yet"}</option>
+              {roles.map((role) => (
+                <option key={role.jobId} value={role.jobId}>
+                  {role.name}
                 </option>
               ))}
             </select>
           </label>
         </div>
-        {selectedJobCount === 0 ? (
+        {roles.length === 0 ? (
           <EmptyState
             title="No selected Ashby roles yet"
             detail="Finish Ashby job selection before review queues are available."

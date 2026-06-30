@@ -6,6 +6,7 @@ import {
   StatusPill,
   cx,
 } from "../../dashboard-ui";
+import type { AshbyJobReference } from "../ashby-role-labels";
 import { ScoreTab } from "./ScoreTab";
 
 type RoleTab = "Pipeline" | "Score" | "Rubric" | "Interviews" | "Reports";
@@ -13,13 +14,14 @@ type RoleTab = "Pipeline" | "Score" | "Rubric" | "Interviews" | "Reports";
 const tabs: readonly RoleTab[] = ["Pipeline", "Score", "Rubric", "Interviews", "Reports"];
 
 export function RoleWorkspaceTabs({
-  roleLabel,
-  ashbyJobIds,
+  selectedRole,
+  ashbyJobs,
 }: {
-  readonly roleLabel: string;
-  readonly ashbyJobIds: readonly string[];
+  readonly selectedRole: AshbyJobReference;
+  readonly ashbyJobs: readonly AshbyJobReference[];
 }) {
   const [activeTab, setActiveTab] = useState<RoleTab>("Pipeline");
+  const roleLabel = selectedRole.name;
 
   return (
     <section className="puddle-panel overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -47,7 +49,7 @@ export function RoleWorkspaceTabs({
 
       <div className="p-4">
         {activeTab === "Pipeline" ? <PipelineTab roleLabel={roleLabel} /> : null}
-        {activeTab === "Score" ? <ScoreTab availableJobIds={ashbyJobIds} /> : null}
+        {activeTab === "Score" ? <ScoreTab jobId={selectedRole.jobId} availableJobs={ashbyJobs} /> : null}
         {activeTab === "Rubric" ? <RubricTab roleLabel={roleLabel} /> : null}
         {activeTab === "Interviews" ? <InterviewsTab roleLabel={roleLabel} /> : null}
         {activeTab === "Reports" ? <ReportsTab roleLabel={roleLabel} /> : null}

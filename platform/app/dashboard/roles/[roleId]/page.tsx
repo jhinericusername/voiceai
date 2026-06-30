@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { companyIdentityFromUser, getAshbyCompanyState } from "@/lib/ashby/server";
+import { companyIdentityFromUser, getAshbyActivePipeline } from "@/lib/ashby/server";
 import { requireDashboardUser } from "../../auth";
 import { RoleWorkspaceTabs } from "./RoleWorkspaceTabs";
+import { ashbyJobReferences } from "../ashby-role-labels";
 import {
   SectionPanel,
   StatusPill,
@@ -18,22 +19,15 @@ export function generateStaticParams() {
 export default async function RoleDetailPage({ params }: { readonly params: Promise<{ roleId: string }> }) {
   const { roleId } = await params;
   const { user, organizationId } = await requireDashboardUser(`/dashboard/roles/${roleId}`);
-  const state = await getAshbyCompanyState(
+  const pipeline = await getAshbyActivePipeline(
     companyIdentityFromUser({ email: user.email, organizationId }),
   );
-  const onboardingComplete = state?.setupStatus === "connected" && state.connected && Boolean(state.lastSyncAt);
-  if (!onboardingComplete) {
+  const ashbyJobs = ashbyJobReferences(pipeline.roles);
+  const selectedRole = ashbyJobs.find((role) => role.jobId === roleId.trim());
+
+  if (!selectedRole) {
     notFound();
   }
-
-  const ashbyJobIds = state.selectedJobIds.map((jobId) => jobId.trim()).filter(Boolean);
-  const selectedIndex = ashbyJobIds.indexOf(roleId);
-
-  if (selectedIndex === -1) {
-    notFound();
-  }
-
-  const roleLabel = `Selected role ${selectedIndex + 1}`;
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
@@ -44,7 +38,7 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
               <StatusPill status="Ashby role" />
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Role workspace</span>
             </div>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">{roleLabel}</h1>
+            <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">{selectedRole.name}</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
               This workspace is reserved for the role-specific Puddle interview pipeline: send interviews, track scheduled
               interviews, and review completed packets with a job-specific rubric.
@@ -58,7 +52,7 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
-          <RoleWorkspaceTabs roleLabel={roleLabel} ashbyJobIds={ashbyJobIds} />
+          <RoleWorkspaceTabs selectedRole={selectedRole} ashbyJobs={ashbyJobs} />
         </div>
 
         <aside className="grid min-w-0 gap-5 xl:content-start">
