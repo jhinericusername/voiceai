@@ -43,7 +43,7 @@ export default async function ReviewQueuePage() {
               Review Queue
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Confirm AI-generated scores for interviews that have generated scoring data and have not been signed off by a human reviewer.
+              Confirm AI-generated scores for interviews with a recommendation packet that has not been reviewed by a human.
             </p>
           </div>
         </div>
@@ -80,7 +80,7 @@ export default async function ReviewQueuePage() {
                 </span>
                 <span className="text-slate-600">{formatNullableDate(session.started_at ?? session.scheduled_at)}</span>
                 <span>
-                  <StatusPill status="AI score ready" />
+                  <StatusPill status={hasRecommendationPacket(session) ? "AI score ready" : "Score pending"} />
                 </span>
                 <span className="inline-flex min-h-9 items-center justify-center rounded-md bg-slate-950 px-3 text-sm font-semibold text-white">
                   Review score
@@ -102,28 +102,11 @@ export default async function ReviewQueuePage() {
 }
 
 function needsHumanReview(session: RealInterviewListItem): boolean {
-  return !session.signed_off_at && hasAiScoreSignal(session.category_scores);
+  return session.needs_human_review === true;
 }
 
-function hasAiScoreSignal(value: unknown): boolean {
-  if (value === null || value === undefined) {
-    return false;
-  }
-
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-
-  if (typeof value === "object") {
-    return Object.keys(value).length > 0;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 && trimmed !== "{}" && trimmed !== "[]";
-  }
-
-  return typeof value === "number" && Number.isFinite(value);
+function hasRecommendationPacket(session: RealInterviewListItem): boolean {
+  return session.has_recommendation_packet === true;
 }
 
 function candidateLabel(session: RealInterviewListItem): string {

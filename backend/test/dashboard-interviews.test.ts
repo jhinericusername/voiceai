@@ -13,6 +13,11 @@ describe("dashboard interview read model", () => {
     expect(stmt.sql).toContain("FROM sessions s");
     expect(stmt.sql).toContain("LEFT JOIN recordings r");
     expect(stmt.sql).toContain("LEFT JOIN assessments a");
+    expect(stmt.sql).toContain("LEFT JOIN LATERAL");
+    expect(stmt.sql).toContain("latest_recommendation.recommendation_id IS NOT NULL AS has_recommendation_packet");
+    expect(stmt.sql).toContain("latest_recommendation.latest_feedback_id IS NULL AS needs_human_review");
+    expect(stmt.sql).toContain("FROM interview_recommendations rec");
+    expect(stmt.sql).toContain("FROM reviewer_feedback feedback");
     expect(stmt.sql).toContain("s.external_source");
     expect(stmt.sql).toContain("s.external_id");
     expect(stmt.sql).toContain("s.source_metadata");

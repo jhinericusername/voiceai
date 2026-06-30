@@ -41,6 +41,7 @@ const ashbyFirstSectionsSource = await source("../app/dashboard/AshbyFirstDashbo
 const interviewDetailSource = await source("../app/dashboard/interviews/[sessionId]/page.tsx");
 const interviewPlaybackReviewSource = await source("../app/dashboard/interviews/[sessionId]/InterviewPlaybackReview.tsx");
 const backendDataSource = await source("../app/dashboard/backend-data.ts");
+const backendDashboardInterviewsSource = await source("../../backend/src/dashboard/interviews.ts");
 const dashboardRoutesSource = await source("../../backend/src/dashboard/routes.ts");
 const wizardSource = await source("../app/dashboard/AshbyOnboardingWizard.tsx");
 const createInterviewLauncherSource = await source("../app/dashboard/DashboardCreateInterviewLauncher.tsx");
@@ -231,8 +232,8 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);
   assert.match(reviewQueueSource, /roles=\{ashbyJobReferences\(pipeline\.roles\)\}/);
   assert.match(reviewQueueSource, /needsHumanReview/);
-  assert.match(reviewQueueSource, /signed_off_at/);
-  assert.match(reviewQueueSource, /category_scores/);
+  assert.match(reviewQueueSource, /needs_human_review/);
+  assert.match(reviewQueueSource, /has_recommendation_packet/);
   assert.match(reviewQueueSource, /Review score/);
   assert.match(reviewQueueSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(session\.session_id\)\}`\}/);
   assert.match(ashbyFirstSectionsSource, /role picker/i);
@@ -282,8 +283,8 @@ test("review queue prefers explicit backend review flags over score-shape infere
   assert.match(backendDataSource, /readonly needs_human_review: boolean/);
   assert.match(reviewQueueSource, /session\.needs_human_review === true/);
   assert.match(reviewQueueSource, /hasRecommendationPacket/);
-  assert.match(dashboardRoutesSource, /has_recommendation_packet/);
-  assert.match(dashboardRoutesSource, /needs_human_review/);
+  assert.match(backendDashboardInterviewsSource, /has_recommendation_packet/);
+  assert.match(backendDashboardInterviewsSource, /needs_human_review/);
 });
 
 test("interview detail is Fireflies-like, real-only, and hides raw internal identifiers", () => {

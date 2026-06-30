@@ -11,10 +11,29 @@ export function interviewListStatement(input: {
       "s.external_source, s.external_id, s.source_metadata, " +
       "r.status AS recording_status, r.egress_id, " +
       "a.category_scores, a.meets_bare_minimum, a.integrity_flags, " +
-      "a.reviewer_email, a.signed_off_at " +
+      "a.reviewer_email, a.signed_off_at, " +
+      "latest_recommendation.recommendation_id IS NOT NULL AS has_recommendation_packet, " +
+      "latest_recommendation.recommendation_id IS NOT NULL " +
+      "AND latest_recommendation.latest_feedback_id IS NULL AS needs_human_review " +
       "FROM sessions s " +
       "LEFT JOIN recordings r ON r.session_id = s.session_id " +
       "LEFT JOIN assessments a ON a.session_id = s.session_id " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT rec.recommendation_id, latest_feedback.feedback_id AS latest_feedback_id " +
+      "FROM interview_recommendations rec " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT feedback.feedback_id " +
+      "FROM reviewer_feedback feedback " +
+      "WHERE feedback.recommendation_id = rec.recommendation_id " +
+      "AND feedback.session_id = rec.session_id " +
+      "AND feedback.organization_id = rec.organization_id " +
+      "ORDER BY feedback.created_at DESC " +
+      "LIMIT 1" +
+      ") latest_feedback ON true " +
+      "WHERE rec.session_id = s.session_id AND rec.organization_id = s.org_id " +
+      "ORDER BY rec.updated_at DESC, rec.created_at DESC " +
+      "LIMIT 1" +
+      ") latest_recommendation ON true " +
       "WHERE s.org_id = $2 " +
       "ORDER BY COALESCE(s.started_at, s.scheduled_at, s.created_at) DESC " +
       "LIMIT $1",

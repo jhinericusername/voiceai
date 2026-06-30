@@ -32,6 +32,8 @@ export interface RealInterviewListItem {
   readonly integrity_flags: unknown;
   readonly reviewer_email: string | null;
   readonly signed_off_at: string | null;
+  readonly has_recommendation_packet: boolean;
+  readonly needs_human_review: boolean;
 }
 
 export interface RealRoomRecordingListItem {
