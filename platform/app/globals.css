@@ -151,7 +151,8 @@ button {
 .puddle-dashboard-card,
 .puddle-metric-card,
 .puddle-empty-state,
-.puddle-dashboard-hero-card {
+.puddle-dashboard-hero-card,
+.puddle-interactive-card {
   position: relative;
   isolation: isolate;
   transform: translateY(0);
@@ -166,7 +167,8 @@ button {
 .puddle-dashboard-card::before,
 .puddle-metric-card::before,
 .puddle-empty-state::before,
-.puddle-dashboard-hero-card::before {
+.puddle-dashboard-hero-card::before,
+.puddle-interactive-card::before {
   pointer-events: none;
   content: "";
   position: absolute;
@@ -180,11 +182,8 @@ button {
   transition: opacity 220ms ease;
 }
 
-.puddle-panel:hover,
-.puddle-dashboard-card:hover,
-.puddle-metric-card:hover,
-.puddle-empty-state:hover,
-.puddle-dashboard-hero-card:hover {
+.puddle-interactive-card:hover,
+.puddle-interactive-card:focus-visible {
   border-color: rgba(103, 232, 249, 0.62);
   box-shadow:
     0 18px 54px rgba(15, 23, 42, 0.07),
@@ -192,11 +191,8 @@ button {
   transform: translateY(-1px);
 }
 
-.puddle-panel:hover::before,
-.puddle-dashboard-card:hover::before,
-.puddle-metric-card:hover::before,
-.puddle-empty-state:hover::before,
-.puddle-dashboard-hero-card:hover::before {
+.puddle-interactive-card:hover::before,
+.puddle-interactive-card:focus-visible::before {
   opacity: 1;
 }
 

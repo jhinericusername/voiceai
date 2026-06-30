@@ -1,11 +1,10 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import {
   BarChartIcon,
   BriefcaseIcon,
   ClipboardCheckIcon,
-  SearchIcon,
   SettingsIcon,
   UsersIcon,
   VideoIcon,
@@ -14,6 +13,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { DashboardCandidateSearch } from "./DashboardCandidateSearch";
 import { DashboardCreateInterviewLauncher } from "./DashboardCreateInterviewLauncher";
 import { cx, secondaryButtonClass } from "./dashboard-ui";
 
@@ -28,13 +28,15 @@ const navItems: ReadonlyArray<{
   readonly label: string;
   readonly icon: DashboardIcon;
   readonly match: "roles" | "candidates" | "review" | "recordings" | "analytics" | "settings";
+  readonly priority: "primary" | "secondary";
+  readonly status?: "Soon";
 }> = [
-  { href: "/dashboard/roles", label: "Roles", icon: BriefcaseIcon, match: "roles" },
-  { href: "/dashboard/candidates", label: "Candidates", icon: UsersIcon, match: "candidates" },
-  { href: "/dashboard/review-queue", label: "Review Queue", icon: ClipboardCheckIcon, match: "review" },
-  { href: "/dashboard/recordings", label: "Recordings", icon: VideoIcon, match: "recordings" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChartIcon, match: "analytics" },
-  { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon, match: "settings" },
+  { href: "/dashboard/roles", label: "Roles", icon: BriefcaseIcon, match: "roles", priority: "primary" },
+  { href: "/dashboard/candidates", label: "Candidates", icon: UsersIcon, match: "candidates", priority: "primary" },
+  { href: "/dashboard/review-queue", label: "Review Queue", icon: ClipboardCheckIcon, match: "review", priority: "primary" },
+  { href: "/dashboard/recordings", label: "Recordings", icon: VideoIcon, match: "recordings", priority: "primary" },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChartIcon, match: "analytics", priority: "secondary", status: "Soon" },
+  { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon, match: "settings", priority: "secondary", status: "Soon" },
 ] as const;
 
 function navIsActive(pathname: string, match: (typeof navItems)[number]["match"]): boolean {
@@ -48,23 +50,6 @@ function navIsActive(pathname: string, match: (typeof navItems)[number]["match"]
     return pathname.startsWith("/dashboard/review-queue") || pathname.startsWith("/dashboard/interviews");
   }
   return pathname.startsWith(`/dashboard/${match}`);
-}
-
-function SearchAffordance() {
-  return (
-    <div
-      aria-label="Candidate and application search"
-      className="puddle-search-affordance flex min-h-9 w-full max-w-md items-center justify-between gap-3 rounded-md border border-slate-200 bg-white/94 px-3 text-sm text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-    >
-      <span className="inline-flex min-w-0 items-center gap-2 truncate">
-        <SearchIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="truncate">Search candidates or applications</span>
-      </span>
-      <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
-        Cmd+K
-      </span>
-    </div>
-  );
 }
 
 export function DashboardChrome({ children, displayName, email }: DashboardChromeProps) {
@@ -85,24 +70,44 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
           </div>
 
           <nav className="grid flex-1 content-start gap-1 overflow-y-auto px-3 py-4" aria-label="Dashboard">
-            {navItems.map((item) => {
+            {navItems.map((item, index) => {
               const Icon = item.icon;
               const active = navIsActive(pathname, item.match);
+              const firstSecondaryItem = item.priority === "secondary" && navItems[index - 1]?.priority !== "secondary";
               return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={cx(
-                    "flex min-h-10 items-center gap-3 rounded-md border px-3 text-sm font-medium transition",
-                    active
-                      ? "border-cyan-200 bg-white text-slate-950 shadow-[0_12px_32px_rgba(8,145,178,0.08)]"
-                      : "border-transparent text-slate-600 hover:border-cyan-100 hover:bg-white/82 hover:text-slate-950",
-                  )}
-                >
-                  <Icon className={cx("h-4 w-4 shrink-0", active ? "text-cyan-700" : "text-slate-500")} aria-hidden="true" />
-                  <span className="truncate">{item.label}</span>
-                </Link>
+                <Fragment key={item.label}>
+                  {firstSecondaryItem ? (
+                    <div className="px-3 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      Later
+                    </div>
+                  ) : null}
+                  <Link
+                    href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    className={cx(
+                      "flex min-h-10 items-center gap-3 rounded-md border px-3 text-sm font-medium transition",
+                      active
+                        ? "border-cyan-200 bg-white text-slate-950 shadow-[0_12px_32px_rgba(8,145,178,0.08)]"
+                        : item.priority === "secondary"
+                          ? "border-transparent text-slate-400 hover:border-slate-200 hover:bg-white/74 hover:text-slate-700"
+                          : "border-transparent text-slate-600 hover:border-cyan-100 hover:bg-white/82 hover:text-slate-950",
+                    )}
+                  >
+                    <Icon
+                      className={cx(
+                        "h-4 w-4 shrink-0",
+                        active ? "text-cyan-700" : item.priority === "secondary" ? "text-slate-400" : "text-slate-500",
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.status ? (
+                      <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                        {item.status}
+                      </span>
+                    ) : null}
+                  </Link>
+                </Fragment>
               );
             })}
           </nav>
@@ -144,7 +149,7 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
 
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-end">
                 <DashboardCreateInterviewLauncher />
-                <SearchAffordance />
+                <DashboardCandidateSearch shortcutLabel="Cmd+K" />
               </div>
             </div>
 
@@ -161,11 +166,18 @@ export function DashboardChrome({ children, displayName, email }: DashboardChrom
                       "inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-md border px-3 text-sm font-medium transition",
                       active
                         ? "border-slate-950 bg-slate-950 !text-white shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
-                        : "border-transparent text-slate-600 hover:border-cyan-100 hover:bg-white/82 hover:text-slate-950",
+                        : item.priority === "secondary"
+                          ? "border-transparent text-slate-400 hover:border-slate-200 hover:bg-white/74 hover:text-slate-700"
+                          : "border-transparent text-slate-600 hover:border-cyan-100 hover:bg-white/82 hover:text-slate-950",
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                    {item.label}
+                    <span>{item.label}</span>
+                    {item.status ? (
+                      <span className="rounded border border-slate-200 bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                        {item.status}
+                      </span>
+                    ) : null}
                   </Link>
                 );
               })}
