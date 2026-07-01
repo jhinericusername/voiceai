@@ -42,6 +42,7 @@ describe("historical Fireflies import CLI argument parsing", () => {
 
     expect(options).toEqual({
       mode: "apply",
+      metadataOnly: false,
       sourceBucket: "weave-fireflies-prod-851725544921-us-west-2",
       sourcePrefix: "raw/fireflies/",
       sourceRegion: "us-west-2",
@@ -69,6 +70,7 @@ describe("historical Fireflies import CLI argument parsing", () => {
 
     expect(options).toMatchObject({
       mode: "dry-run",
+      metadataOnly: false,
       sourceBucket: "weave-default-bucket",
       sourcePrefix: "raw/fireflies/",
       sourceRegion: "us-west-2",
@@ -78,6 +80,28 @@ describe("historical Fireflies import CLI argument parsing", () => {
       batchSize: 25,
       requireWeaveMatchEnrichment: true,
       confirmApply: false,
+    });
+  });
+
+  it("parses metadata-only backfill mode without requiring Weave enrichment", () => {
+    const options = parseHistoricalImportCliArgs(
+      [
+        "--metadata-only",
+        "--org-id",
+        orgId,
+        "--source-bucket",
+        "weave-fireflies-prod-851725544921-us-west-2",
+        "--target-bucket",
+        "puddle-videoagent-artifacts-851725544921-us-west-1",
+      ],
+      {},
+    );
+
+    expect(options).toMatchObject({
+      mode: "dry-run",
+      metadataOnly: true,
+      requireWeaveMatchEnrichment: false,
+      orgId,
     });
   });
 
@@ -317,6 +341,67 @@ describe("historical Fireflies import CLI runner", () => {
     expect(output.join("")).toContain("db_write_count=0");
     expect(output.join("")).not.toContain("do not print this transcript text");
     expect(output.join("")).not.toContain("secret");
+  });
+
+  it("runs metadata-only backfill without opening the Weave database", async () => {
+    const output: string[] = [];
+    const puddleDb = {
+      async query() {
+        return { rows: [] };
+      },
+      async connect() {
+        throw new Error("connect should not be called in dry-run metadata-only test");
+      },
+    };
+    const execute = vi.fn(async () => ({
+      mode: "dry-run",
+      plannedCount: 2,
+      importedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      copyCount: 0,
+      skippedCopyCount: 0,
+      dbWriteCount: 0,
+      selectedMatches: 0,
+      rankedMatchCandidates: 0,
+      unindexedRecordings: 0,
+      plans: [],
+      failures: [],
+    }));
+
+    await runHistoricalFirefliesImportCli(
+      [
+        "--metadata-only",
+        "--org-id",
+        orgId,
+        "--source-bucket",
+        "weave-fireflies-prod-851725544921-us-west-2",
+        "--target-bucket",
+        "puddle-videoagent-artifacts-851725544921-us-west-1",
+      ],
+      {
+        env: {},
+        createS3Client: (region) => ({ region }),
+        getWeavePool() {
+          throw new Error("Weave should not be opened for metadata-only backfill");
+        },
+        getPuddlePool: () => puddleDb,
+        execute,
+        write(message) {
+          output.push(message);
+        },
+      },
+    );
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "dry-run",
+        metadataOnly: true,
+        orgId,
+        puddleDb,
+      }),
+    );
+    expect(output.join("")).toContain("copy_count=0");
   });
 
   it("requires explicit confirmation before apply mode can run", async () => {

@@ -9,10 +9,16 @@ import {
 } from "@aws-sdk/client-s3";
 import { Readable } from "node:stream";
 import { buildHistoricalFirefliesInventory } from "./historicalInventory.js";
-import { buildHistoricalImportPlan } from "./historicalImportPlan.js";
+import {
+  buildHistoricalImportPlan,
+  historicalFirefliesDisplayMetadata,
+} from "./historicalImportPlan.js";
 import type { HistoricalFirefliesRecording } from "./historicalInventory.js";
 import type { HistoricalImportPlan } from "./historicalImportPlan.js";
 import {
+  historicalFirefliesMetadataBackfillRowsStatement,
+  historicalFirefliesRecordingMetadataBackfillStatement,
+  historicalFirefliesSessionMetadataBackfillStatement,
   historicalImportRunFinishStatement,
   historicalImportRunInsertStatement,
   historicalRecordingArtifactUpsertStatement,
@@ -44,6 +50,7 @@ export interface PuddleDb extends Queryable {
 
 export interface ExecuteHistoricalFirefliesImportInput {
   readonly mode?: HistoricalImportMode;
+  readonly metadataOnly?: boolean;
   readonly orgId: string;
   readonly sourceBucket: string;
   readonly sourcePrefix: string;
@@ -96,14 +103,42 @@ interface ExistingHistoricalSessionSource {
   readonly sourceMetadata: unknown;
 }
 
+interface HistoricalFirefliesMetadataBackfillRow {
+  readonly sessionId: string;
+  readonly orgId: string;
+  readonly roomName: string | null;
+  readonly scheduledAt: string | null;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly externalId: string | null;
+  readonly sourceMetadata: unknown;
+  readonly recordingStartedAt: string | null;
+  readonly recordingEndedAt: string | null;
+}
+
+interface HistoricalFirefliesMetadataBackfillPlan {
+  readonly transcriptId: string;
+  readonly sessionId: string;
+  readonly orgId: string;
+  readonly roomName: string;
+  readonly scheduledAt: string | null;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly sourceMetadata: Record<string, unknown>;
+}
+
 const fallbackUploadChunkSize = 64 * 1024;
 
 export async function executeHistoricalFirefliesImport(
   input: ExecuteHistoricalFirefliesImportInput,
 ): Promise<ExecuteHistoricalFirefliesImportResult> {
   const mode = input.mode ?? "dry-run";
-  if (mode === "apply" && !input.puddleDb) {
-    throw new Error("puddleDb is required when historical Fireflies import mode is apply");
+  if ((mode === "apply" || input.metadataOnly) && !input.puddleDb) {
+    throw new Error("puddleDb is required when historical Fireflies import mode is apply or metadataOnly is true");
+  }
+
+  if (input.metadataOnly) {
+    return executeHistoricalFirefliesMetadataBackfill(input, mode);
   }
 
   const sourceObjects = await listSourceObjects(input.sourceS3, input.sourceBucket, input.sourcePrefix);
@@ -163,6 +198,197 @@ export async function executeHistoricalFirefliesImport(
     plans,
     failures,
   };
+}
+
+async function executeHistoricalFirefliesMetadataBackfill(
+  input: ExecuteHistoricalFirefliesImportInput,
+  mode: HistoricalImportMode,
+): Promise<ExecuteHistoricalFirefliesImportResult> {
+  const puddleDb = input.puddleDb;
+  if (!puddleDb) {
+    throw new Error("puddleDb is required when metadataOnly is true");
+  }
+
+  const rowsResult = await executeStatement(
+    puddleDb,
+    historicalFirefliesMetadataBackfillRowsStatement({
+      orgId: input.orgId,
+      sourceBucket: input.sourceBucket,
+      sourcePrefix: input.sourcePrefix,
+      limit: input.limit ?? input.batchSize ?? 100,
+    }),
+  );
+  const rows = rowsResult.rows.map(historicalFirefliesMetadataBackfillRow).filter(isNonNull);
+  const failures: { transcriptId: string; message: string }[] = [];
+  const plans: HistoricalFirefliesMetadataBackfillPlan[] = [];
+  const counters: MutableCounters = {
+    importedCount: 0,
+    skippedCount: 0,
+    copyCount: 0,
+    skippedCopyCount: 0,
+    dbWriteCount: 0,
+  };
+
+  for (const row of rows) {
+    try {
+      plans.push(await buildMetadataBackfillPlan(input, row));
+    } catch (error) {
+      failures.push({
+        transcriptId: transcriptIdFromMetadata(row.sourceMetadata) ?? row.externalId ?? row.sessionId,
+        message: errorMessage(error),
+      });
+    }
+  }
+
+  if (mode === "apply") {
+    for (const plan of plans) {
+      try {
+        const writes = await writeMetadataBackfill(puddleDb, plan);
+        counters.dbWriteCount += writes;
+        if (writes > 0) {
+          counters.importedCount += 1;
+        } else {
+          counters.skippedCount += 1;
+        }
+      } catch (error) {
+        failures.push({
+          transcriptId: plan.transcriptId,
+          message: errorMessage(error),
+        });
+      }
+    }
+  }
+
+  return {
+    mode,
+    plannedCount: plans.length,
+    importedCount: counters.importedCount,
+    skippedCount: counters.skippedCount,
+    failedCount: failures.length,
+    copyCount: 0,
+    skippedCopyCount: 0,
+    dbWriteCount: counters.dbWriteCount,
+    selectedMatches: 0,
+    rankedMatchCandidates: 0,
+    unindexedRecordings: 0,
+    plans: [],
+    failures,
+  };
+}
+
+async function buildMetadataBackfillPlan(
+  input: ExecuteHistoricalFirefliesImportInput,
+  row: HistoricalFirefliesMetadataBackfillRow,
+): Promise<HistoricalFirefliesMetadataBackfillPlan> {
+  const existingMetadata = asRecord(row.sourceMetadata);
+  const existingFireflies = asRecord(existingMetadata.fireflies);
+  const transcriptId = stringValue(existingFireflies.transcriptId) ?? row.externalId;
+  if (!transcriptId) {
+    throw new Error(`Historical Fireflies session ${row.sessionId} is missing transcriptId`);
+  }
+
+  const sourcePrefix = stringValue(existingFireflies.sourcePrefix);
+  if (!sourcePrefix) {
+    throw new Error(`Historical Fireflies session ${row.sessionId} is missing sourcePrefix`);
+  }
+
+  const sourceBucket = stringValue(existingFireflies.sourceBucket) ?? input.sourceBucket;
+  const metadataKey = stringValue(existingFireflies.metadataKey) ?? `${sourcePrefix}metadata.json`;
+  const transcriptKey = stringValue(existingFireflies.transcriptKey) ?? `${sourcePrefix}transcript.json`;
+  const [metadata, transcript] = await Promise.all([
+    readOptionalJsonObject(input.sourceS3, sourceBucket, metadataKey),
+    readOptionalJsonObject(input.sourceS3, sourceBucket, transcriptKey),
+  ]);
+  const displayMetadata = historicalFirefliesDisplayMetadata({
+    recording: {
+      meetingDate: stringValue(existingFireflies.meetingDate) ?? meetingDateFromSourcePrefix(sourcePrefix),
+    },
+    metadata,
+    transcript,
+  });
+
+  const startedAt =
+    displayMetadata.effectiveStartedAt ??
+    row.startedAt ??
+    row.scheduledAt ??
+    row.recordingStartedAt;
+  const endedAt = displayMetadata.endedAt ?? (
+    displayMetadata.effectiveStartedAt ? null : row.endedAt ?? row.recordingEndedAt
+  );
+  const roomName =
+    displayMetadata.title ??
+    row.roomName?.trim() ??
+    `fireflies-${transcriptId}`;
+
+  return {
+    transcriptId,
+    sessionId: row.sessionId,
+    orgId: row.orgId,
+    roomName,
+    scheduledAt: startedAt,
+    startedAt,
+    endedAt,
+    sourceMetadata: {
+      ...existingMetadata,
+      fireflies: {
+        ...existingFireflies,
+        transcriptId,
+        sourceBucket,
+        sourcePrefix,
+        meetingDate:
+          stringValue(existingFireflies.meetingDate) ?? meetingDateFromSourcePrefix(sourcePrefix),
+        meetingStartedAt: displayMetadata.exactStartedAt,
+        meetingStartedAtSource: displayMetadata.exactStartedAtSource,
+        dateOnlyStartedAt: displayMetadata.dateOnlyStartedAt,
+        dateOnlyStartedAtSource: displayMetadata.dateOnlyStartedAtSource,
+        title: displayMetadata.title,
+        metadataKey,
+        transcriptKey,
+      },
+    },
+  };
+}
+
+async function writeMetadataBackfill(
+  puddleDb: PuddleDb,
+  plan: HistoricalFirefliesMetadataBackfillPlan,
+): Promise<number> {
+  const client = await puddleDb.connect();
+  let writeCount = 0;
+  try {
+    await client.query("BEGIN");
+    const sessionResult = await executeStatement(
+      client,
+      historicalFirefliesSessionMetadataBackfillStatement({
+        sessionId: plan.sessionId,
+        orgId: plan.orgId,
+        roomName: plan.roomName,
+        scheduledAt: plan.scheduledAt,
+        startedAt: plan.startedAt,
+        endedAt: plan.endedAt,
+        sourceMetadata: plan.sourceMetadata,
+      }),
+    );
+    writeCount += sessionResult.rows.length;
+
+    const recordingResult = await executeStatement(
+      client,
+      historicalFirefliesRecordingMetadataBackfillStatement({
+        sessionId: plan.sessionId,
+        startedAt: plan.startedAt,
+        endedAt: plan.endedAt,
+      }),
+    );
+    writeCount += recordingResult.rows.length;
+
+    await client.query("COMMIT");
+    return writeCount;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function buildPlanForRecording(
@@ -614,6 +840,37 @@ function existingHistoricalSessionSource(
     externalId,
     sourceMetadata: row.source_metadata,
   };
+}
+
+function historicalFirefliesMetadataBackfillRow(
+  row: Record<string, unknown>,
+): HistoricalFirefliesMetadataBackfillRow | null {
+  const sessionId = stringValue(row.session_id);
+  const orgId = stringValue(row.org_id);
+  if (!sessionId || !orgId) return null;
+  return {
+    sessionId,
+    orgId,
+    roomName: stringValue(row.room_name),
+    scheduledAt: stringValue(row.scheduled_at),
+    startedAt: stringValue(row.started_at),
+    endedAt: stringValue(row.ended_at),
+    externalId: stringValue(row.external_id),
+    sourceMetadata: row.source_metadata,
+    recordingStartedAt: stringValue(row.recording_started_at),
+    recordingEndedAt: stringValue(row.recording_ended_at),
+  };
+}
+
+function transcriptIdFromMetadata(sourceMetadata: unknown): string | null {
+  return stringValue(asRecord(asRecord(sourceMetadata).fireflies).transcriptId);
+}
+
+function meetingDateFromSourcePrefix(sourcePrefix: string): string | null {
+  const year = /(?:^|\/)year=(\d{4})(?:\/|$)/.exec(sourcePrefix)?.[1];
+  const month = /(?:^|\/)month=(\d{2})(?:\/|$)/.exec(sourcePrefix)?.[1];
+  const day = /(?:^|\/)day=(\d{2})(?:\/|$)/.exec(sourcePrefix)?.[1];
+  return year && month && day ? `${year}-${month}-${day}` : null;
 }
 
 function isCompatibleLegacySource(

@@ -126,8 +126,16 @@ export async function getRealInterviews(input: {
 
 export async function getRoomRecordings(input: {
   readonly orgId: string;
+  readonly limit?: number;
+  readonly offset?: number;
 }): Promise<readonly RealRoomRecordingListItem[]> {
   const params = new URLSearchParams({ orgId: input.orgId });
+  if (typeof input.limit === "number" && Number.isFinite(input.limit)) {
+    params.set("limit", String(input.limit));
+  }
+  if (typeof input.offset === "number" && Number.isFinite(input.offset)) {
+    params.set("offset", String(input.offset));
+  }
   const response = await backendFetch(`${backendBaseUrl()}/internal/room-recordings?${params}`, {
     headers: backendHeaders(),
     cache: "no-store",
@@ -145,6 +153,27 @@ export async function getRoomRecordings(input: {
     readonly recordings?: readonly RealRoomRecordingListItem[];
   };
   return payload.recordings ?? [];
+}
+
+export async function getRoomRecordingsPage(input: {
+  readonly orgId: string;
+  readonly limit: number;
+  readonly offset: number;
+}): Promise<{
+  readonly recordings: readonly RealRoomRecordingListItem[];
+  readonly hasMore: boolean;
+  readonly nextOffset: number;
+}> {
+  const limit = Math.max(1, Math.floor(input.limit));
+  const offset = Math.max(0, Math.floor(input.offset));
+  const rows = await getRoomRecordings({ orgId: input.orgId, limit: limit + 1, offset });
+  const recordings = rows.slice(0, limit);
+
+  return {
+    recordings,
+    hasMore: rows.length > limit,
+    nextOffset: offset + recordings.length,
+  };
 }
 
 export async function getRealInterview(

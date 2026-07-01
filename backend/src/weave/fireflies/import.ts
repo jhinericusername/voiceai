@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { historicalFirefliesDisplayMetadata } from "./historicalImportPlan.js";
 
 export interface FirefliesImportOptions {
   readonly bucket: string;
@@ -98,7 +99,14 @@ export async function readFirefliesRecordingFolder(
   const media = Array.isArray(ingestion?.media) ? ingestion.media : [];
   const videoKey = mediaKey(media, "video");
   const audioKey = mediaKey(media, "audio");
-  const startedAt = timestampValue(transcript.date) ?? timestampValue(metadata.archivedAt);
+  const displayMetadata = historicalFirefliesDisplayMetadata({
+    recording: { meetingDate: null },
+    metadata,
+    transcript,
+  });
+  const exactStartedAt = displayMetadata.exactStartedAt ?? timestampValue(metadata.archivedAt);
+  const meetingDate =
+    (displayMetadata.dateOnlyStartedAt ?? exactStartedAt)?.slice(0, 10) ?? null;
   const attendeeEmails = uniqueStrings([
     ...extractMeetingAttendeeEmails(transcript.meeting_attendees),
     ...extractParticipantEmails(transcript.participants),
@@ -118,10 +126,10 @@ export async function readFirefliesRecordingFolder(
     metadataKey: `${s3Prefix}metadata.json`,
     transcriptKey: `${s3Prefix}transcript.json`,
     ingestionResultKey: ingestion ? `${s3Prefix}ingestion-result.json` : null,
-    title: firefliesTitleFrom(metadata, transcript),
-    meetingStartedAt: startedAt,
-    meetingDate: startedAt ? startedAt.slice(0, 10) : null,
-    durationSeconds: integerValue(transcript.duration),
+    title: displayMetadata.title,
+    meetingStartedAt: exactStartedAt,
+    meetingDate,
+    durationSeconds: displayMetadata.durationSeconds,
     targetEmail: normalizeEmail(metadata.targetEmail),
     hostEmail: normalizeEmail(metadata.hostEmail ?? transcript.host_email),
     organizerEmail: normalizeEmail(metadata.organizerEmail ?? transcript.organizer_email),
@@ -133,6 +141,11 @@ export async function readFirefliesRecordingFolder(
       event: stringValue(metadata.event),
       targetEmail: normalizeEmail(metadata.targetEmail),
       matchedBy: Array.isArray(metadata.matchedBy) ? metadata.matchedBy : undefined,
+      title: displayMetadata.title,
+      meetingStartedAt: displayMetadata.exactStartedAt,
+      meetingStartedAtSource: displayMetadata.exactStartedAtSource,
+      dateOnlyStartedAt: displayMetadata.dateOnlyStartedAt,
+      dateOnlyStartedAtSource: displayMetadata.dateOnlyStartedAtSource,
     }),
     sourceSummary: summaryObject(transcript.summary),
   };

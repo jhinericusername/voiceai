@@ -173,6 +173,76 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("lists all open Ashby jobs for rubric setup without requiring pipeline selection", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    global.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          results: [
+            { id: "job_eng", name: "Forward Deployed Engineering Manager", status: "Open" },
+            { id: "job_sales", name: "Account Executive", status: "Open" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    ) as unknown as typeof fetch;
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        {
+          integration_id: "int_1",
+          email_domain: "usepuddle.com",
+          ashby_api_key_ciphertext: encryptIntegrationSecret("ashby-key", "test-secret"),
+          selected_job_ids: ["job_eng"],
+          ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          connected_at: "2026-06-10T14:00:00.000Z",
+          last_ping_at: "2026-06-10T14:05:00.000Z",
+          last_sync_at: "2026-06-10T14:10:00.000Z",
+          setup_status: "connected",
+        },
+      ],
+      rowCount: 1,
+    });
+    clientQueryMock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/jobs",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          reviewerEmail: "admin@usepuddle.com",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        integrationId: "int_1",
+        selectedJobIds: ["job_eng"],
+        jobs: [
+          { id: "job_sales", name: "Account Executive", status: "Open" },
+          { id: "job_eng", name: "Forward Deployed Engineering Manager", status: "Open" },
+        ],
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(connectMock).toHaveBeenCalledTimes(1);
+      const sqlCalls = clientQueryMock.mock.calls.map((call) => String(call[0]));
+      expect(sqlCalls.filter((sql) => sql.includes("INSERT INTO role_grading_profiles"))).toHaveLength(2);
+      expect(clientQueryMock.mock.calls[1]?.[1]?.[3]).toBe("job_sales");
+      expect(clientQueryMock.mock.calls[2]?.[1]?.[3]).toBe("job_eng");
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
   it("rejects webhook envelopes without signed raw bodies after resolving the integration", async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ integration_id: "int_1" }], rowCount: 1 });
 
@@ -1722,6 +1792,14 @@ describe("Ashby backend routes", () => {
             source: "Referral",
             ashby_updated_at: new Date("2026-06-10T14:09:00.000Z"),
             updated_at: new Date("2026-06-10T14:09:30.000Z"),
+            raw_payload: {
+              candidate: {
+                linkedInUrl: "https://www.linkedin.com/in/maya-chen",
+              },
+              resume: {
+                url: "https://files.example.com/maya-chen-resume.pdf",
+              },
+            },
           },
           {
             application_id: "app_2",
@@ -1733,6 +1811,7 @@ describe("Ashby backend routes", () => {
             source: "Inbound",
             ashby_updated_at: null,
             updated_at: new Date("2026-06-10T14:08:00.000Z"),
+            raw_payload: {},
           },
           {
             application_id: "app_3",
@@ -1744,6 +1823,7 @@ describe("Ashby backend routes", () => {
             source: null,
             ashby_updated_at: "2026-06-10T14:07:00.000Z",
             updated_at: null,
+            raw_payload: {},
           },
         ],
         rowCount: 3,
@@ -1791,6 +1871,9 @@ describe("Ashby backend routes", () => {
                 currentStage: "Initial Screen",
                 source: "Referral",
                 updatedAt: "2026-06-10T14:09:00.000Z",
+                ashbyUrl: "https://app.ashbyhq.com/candidates/cand_1",
+                linkedInUrl: "https://www.linkedin.com/in/maya-chen",
+                resumeUrl: "https://files.example.com/maya-chen-resume.pdf",
               },
               {
                 applicationId: "app_2",
@@ -1801,6 +1884,9 @@ describe("Ashby backend routes", () => {
                 currentStage: "Take Home",
                 source: "Inbound",
                 updatedAt: "2026-06-10T14:08:00.000Z",
+                ashbyUrl: "https://app.ashbyhq.com/candidates/cand_2",
+                linkedInUrl: null,
+                resumeUrl: null,
               },
             ],
           },
@@ -1820,6 +1906,9 @@ describe("Ashby backend routes", () => {
                 currentStage: "Initial Screen",
                 source: null,
                 updatedAt: "2026-06-10T14:07:00.000Z",
+                ashbyUrl: "https://app.ashbyhq.com/candidates/cand_3",
+                linkedInUrl: null,
+                resumeUrl: null,
               },
             ],
           },

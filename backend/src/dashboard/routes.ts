@@ -23,6 +23,8 @@ type PlayableArtifactKind = "composite_video" | "candidate_audio";
 
 type DashboardQuery = {
   readonly orgId?: string;
+  readonly limit?: string;
+  readonly offset?: string;
 };
 
 function artifactsBucketFromEnv(env: NodeJS.ProcessEnv = process.env): string {
@@ -134,6 +136,27 @@ function orgIdFromQuery(query: DashboardQuery): string | null {
   return orgId || null;
 }
 
+function boundedIntegerFromQuery(
+  value: string | undefined,
+  fallback: number,
+  input: { readonly min: number; readonly max: number },
+): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(input.max, Math.max(input.min, Math.floor(parsed)));
+}
+
+function limitFromQuery(query: DashboardQuery): number {
+  return boundedIntegerFromQuery(query.limit, 50, { min: 1, max: 100 });
+}
+
+function offsetFromQuery(query: DashboardQuery): number {
+  return boundedIntegerFromQuery(query.offset, 0, { min: 0, max: 100_000 });
+}
+
 export function registerDashboardRoutes(app: FastifyInstance): void {
   app.get<{ Querystring: DashboardQuery }>("/internal/interviews", async (request, reply) => {
     const orgId = orgIdFromQuery(request.query);
@@ -152,7 +175,9 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
       return reply.code(400).send({ error: "orgId is required" });
     }
 
-    const stmt = roomRecordingListStatement({ limit: 500, orgId });
+    const limit = limitFromQuery(request.query);
+    const offset = offsetFromQuery(request.query);
+    const stmt = roomRecordingListStatement({ limit, offset, orgId });
     const result = await getPool().query(stmt.sql, [...stmt.params]);
     return reply.code(200).send({ recordings: result.rows });
   });

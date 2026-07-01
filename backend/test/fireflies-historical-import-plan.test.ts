@@ -135,6 +135,10 @@ describe("Fireflies historical import plan", () => {
         sourceOccurrenceId,
         ownerEmail: "owner@example.com",
         meetingDate: "2026-04-09",
+        meetingStartedAt: "2026-04-09T15:30:00.000Z",
+        meetingStartedAtSource: "metadata",
+        dateOnlyStartedAt: null,
+        dateOnlyStartedAtSource: null,
         sourceBucket: "weave-fireflies-raw",
         sourcePrefix:
           "raw/fireflies/owner=prakul@workweave.ai/year=2026/month=04/day=09/transcript_id=01ABC/",
@@ -458,6 +462,142 @@ describe("Fireflies historical import plan", () => {
 
     expect(plan.session.roomName).toBe("Fireflies calendar event title");
     expect(plan.session.sourceMetadata.fireflies.title).toBe("Fireflies calendar event title");
+  });
+
+  it("persists exact transcript meetingStartTime as normalized Fireflies start metadata", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          targetEmail: "candidate@example.com",
+          durationSeconds: 1800,
+        },
+        transcript: {
+          date: "2026-04-09",
+          meetingStartTime: "2026-04-09T18:45:00.000Z",
+          title: "Transcript title",
+          duration: 1800,
+          sentences: [],
+        },
+      }),
+    );
+
+    expect(plan.session.startedAt).toBe("2026-04-09T18:45:00.000Z");
+    expect(plan.session.endedAt).toBe("2026-04-09T19:15:00.000Z");
+    expect(plan.session.sourceMetadata.fireflies).toMatchObject({
+      meetingStartedAt: "2026-04-09T18:45:00.000Z",
+      meetingStartedAtSource: "transcript",
+      dateOnlyStartedAt: null,
+      dateOnlyStartedAtSource: null,
+    });
+  });
+
+  it("persists Fireflies transcript dateString as exact start metadata", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          targetEmail: "candidate@example.com",
+        },
+        transcript: {
+          dateString: "2026-04-09T18:45:00.000Z",
+          title: "Transcript title",
+          duration: 1800,
+          sentences: [],
+        },
+      }),
+    );
+
+    expect(plan.session.startedAt).toBe("2026-04-09T18:45:00.000Z");
+    expect(plan.session.endedAt).toBe("2026-04-09T19:15:00.000Z");
+    expect(plan.session.sourceMetadata.fireflies).toMatchObject({
+      meetingStartedAt: "2026-04-09T18:45:00.000Z",
+      meetingStartedAtSource: "transcript",
+      dateOnlyStartedAt: null,
+      dateOnlyStartedAtSource: null,
+    });
+  });
+
+  it("persists numeric Fireflies transcript date as exact start metadata", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          targetEmail: "candidate@example.com",
+        },
+        transcript: {
+          date: 1775760300000,
+          title: "Transcript title",
+          duration: 1800,
+          sentences: [],
+        },
+      }),
+    );
+
+    expect(plan.session.startedAt).toBe("2026-04-09T18:45:00.000Z");
+    expect(plan.session.endedAt).toBe("2026-04-09T19:15:00.000Z");
+    expect(plan.session.sourceMetadata.fireflies).toMatchObject({
+      meetingStartedAt: "2026-04-09T18:45:00.000Z",
+      meetingStartedAtSource: "transcript",
+      dateOnlyStartedAt: null,
+      dateOnlyStartedAtSource: null,
+    });
+  });
+
+  it("falls back to Fireflies meeting attendance join time when transcript start fields are absent", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          targetEmail: "candidate@example.com",
+        },
+        transcript: {
+          title: "Transcript title",
+          duration: 1800,
+          meeting_attendance: [
+            {
+              join_time: "2026-04-09T18:45:00.000Z",
+            },
+          ],
+          sentences: [],
+        },
+      }),
+    );
+
+    expect(plan.session.startedAt).toBe("2026-04-09T18:45:00.000Z");
+    expect(plan.session.endedAt).toBe("2026-04-09T19:15:00.000Z");
+    expect(plan.session.sourceMetadata.fireflies).toMatchObject({
+      meetingStartedAt: "2026-04-09T18:45:00.000Z",
+      meetingStartedAtSource: "transcript",
+      dateOnlyStartedAt: null,
+      dateOnlyStartedAtSource: null,
+    });
+  });
+
+  it("marks date-only Fireflies starts without storing them as exact meeting timestamps", () => {
+    const plan = buildHistoricalImportPlan(
+      planInput({
+        metadata: {
+          targetEmail: "candidate@example.com",
+          durationSeconds: 1800,
+        },
+        transcript: {
+          date: "2026-04-09",
+          title: "Date-only transcript title",
+          duration: 1800,
+          sentences: [],
+        },
+      }),
+    );
+
+    expect(plan.session.startedAt).toBe("2026-04-09T00:00:00.000Z");
+    expect(plan.session.scheduledAt).toBe("2026-04-09T00:00:00.000Z");
+    expect(plan.session.endedAt).toBeNull();
+    expect(plan.recording.startedAt).toBe("2026-04-09T00:00:00.000Z");
+    expect(plan.recording.endedAt).toBeNull();
+    expect(plan.session.sourceMetadata.fireflies).toMatchObject({
+      meetingStartedAt: null,
+      meetingStartedAtSource: null,
+      dateOnlyStartedAt: "2026-04-09T00:00:00.000Z",
+      dateOnlyStartedAtSource: "transcript",
+      title: "Date-only transcript title",
+    });
   });
 
   it("ignores scalar Fireflies event labels when choosing the stored session room name", () => {

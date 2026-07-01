@@ -2,7 +2,7 @@ import Link from "next/link";
 import {
   dashboardOrgId,
   getRealInterviews,
-  getRoomRecordings,
+  getRoomRecordingsPage,
   type RealInterviewListItem,
   type RealRoomRecordingListItem,
 } from "../backend-data";
@@ -13,16 +13,19 @@ import {
   StatusPill,
   formatDateTime,
 } from "../dashboard-ui";
+import { RecordingsList } from "./RecordingsList";
+import { RECORDINGS_PAGE_SIZE } from "./recordings-pagination";
 
 export const dynamic = "force-dynamic";
 
 export default async function RecordingsPage() {
   const { user, organizationId } = await requireDashboardUser("/dashboard/recordings");
   const orgId = dashboardOrgId({ organizationId, userId: user.id });
-  const [recordings, interviews] = await Promise.all([
-    getRoomRecordings({ orgId }),
+  const [recordingPage, interviews] = await Promise.all([
+    getRoomRecordingsPage({ orgId, limit: RECORDINGS_PAGE_SIZE, offset: 0 }),
     getRealInterviews({ orgId }),
   ]);
+  const recordings = recordingPage.recordings;
   const recordingBySessionId = new Map(recordings.map((recording) => [recording.session_id, recording]));
   const nativeSessions = interviews.filter(isNativePuddleSession);
   const nativeRecordedSessionRows = nativeSessions.filter(hasNativeRecordingSignal);
@@ -32,6 +35,7 @@ export default async function RecordingsPage() {
     ...nativePendingSessionRows,
   ].slice(0, 12);
   const recordingCount = Math.max(recordings.length, nativeRecordedSessionRows.length);
+  const recordingCountSuffix = recordingPage.hasMore ? "+" : "";
   const historicalFirefliesCount = recordings.filter(isHistoricalFirefliesRecording).length;
 
   return (
@@ -40,9 +44,9 @@ export default async function RecordingsPage() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <StatusPill status={`${recordingCount} recordings`} />
+              <StatusPill status={`${recordingCount}${recordingCountSuffix} recordings`} />
               <StatusPill status={`${nativeSessionRows.length} Puddle sessions`} />
-              <StatusPill status={`${historicalFirefliesCount} Fireflies`} />
+              <StatusPill status={`${historicalFirefliesCount}${recordingCountSuffix} Fireflies`} />
               <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Evidence library</span>
             </div>
             <h1 className="mt-2 break-words text-2xl font-semibold text-slate-950 sm:text-3xl">
@@ -55,105 +59,91 @@ export default async function RecordingsPage() {
         </div>
       </header>
 
-      <SectionPanel title="Puddle platform sessions" eyebrow="Native interviews">
-        {nativeSessionRows.length ? (
-          <div
-            data-native-sessions-scroll-region
-            className="grid max-h-[calc(100svh-18rem)] gap-2 overflow-y-auto pr-1"
-            aria-label="Puddle platform sessions"
-          >
-            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 md:grid">
-              <span>Candidate</span>
-              <span>Opened</span>
-              <span>Session</span>
-              <span>Recording</span>
-              <span>Video</span>
+      <details
+        data-native-interviews-collapsible
+        className="group puddle-panel min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+      >
+        <summary
+          data-native-interviews-summary
+          className="puddle-panel-header flex min-w-0 cursor-pointer list-none flex-col gap-3 border-b border-transparent px-4 py-3 transition hover:bg-cyan-50/40 focus:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100 group-open:border-slate-200 sm:flex-row sm:items-center sm:justify-between [&::-webkit-details-marker]:hidden"
+        >
+          <span className="min-w-0">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700">
+              Native interviews
+            </span>
+            <span className="mt-1 block text-base font-semibold text-slate-950">
+              Puddle platform sessions
+            </span>
+          </span>
+          <span className="flex max-w-full shrink-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
+            <StatusPill status={`${nativeSessionRows.length} sessions`} />
+            <span className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <span className="transition-transform group-open:rotate-90" aria-hidden="true">
+                &gt;
+              </span>
+              <span className="group-open:hidden">Show native interviews</span>
+              <span className="hidden group-open:inline">Hide native interviews</span>
+            </span>
+          </span>
+        </summary>
+        <div className="p-4">
+          {nativeSessionRows.length ? (
+            <div
+              data-native-sessions-scroll-region
+              className="grid max-h-[calc(100svh-18rem)] gap-2 overflow-y-auto pr-1"
+              aria-label="Puddle platform sessions"
+            >
+              <div className="sticky top-0 z-10 hidden grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 md:grid">
+                <span>Candidate</span>
+                <span>Opened</span>
+                <span>Session</span>
+                <span>Recording</span>
+                <span>Video</span>
+              </div>
+              {nativeSessionRows.map((session) => {
+                const recording = recordingBySessionId.get(session.session_id);
+                return (
+                  <Link
+                    key={session.session_id}
+                    href={`/dashboard/interviews/${encodeURIComponent(session.session_id)}`}
+                    className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-white/88 px-3 py-3 text-sm transition hover:-translate-y-px hover:border-cyan-200 hover:bg-cyan-50/40 hover:shadow-[0_10px_24px_rgba(8,145,178,0.08)] md:grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] md:items-center"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold text-slate-950">
+                        {candidateLabel(session)}
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-slate-500">
+                        {sessionRoomLabel(session, recording)}
+                      </span>
+                    </span>
+                    <span className="text-slate-600">
+                      {formatNullableDate(session.started_at ?? session.scheduled_at)}
+                    </span>
+                    <span>
+                      <StatusPill status={formatBackendStatus(session.status, "Unknown")} />
+                    </span>
+                    <span>
+                      <StatusPill status={formatBackendStatus(recording?.recording_status ?? session.recording_status, "Missing")} />
+                    </span>
+                    <span>
+                      <StatusPill status={formatBackendStatus(sessionVideoStatus(session, recording), "Missing")} />
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
-            {nativeSessionRows.map((session) => {
-              const recording = recordingBySessionId.get(session.session_id);
-              return (
-                <Link
-                  key={session.session_id}
-                  href={`/dashboard/interviews/${encodeURIComponent(session.session_id)}`}
-                  className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-white/88 px-3 py-3 text-sm transition hover:-translate-y-px hover:border-cyan-200 hover:bg-cyan-50/40 hover:shadow-[0_10px_24px_rgba(8,145,178,0.08)] md:grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] md:items-center"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold text-slate-950">
-                      {candidateLabel(session)}
-                    </span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">
-                      {sessionRoomLabel(session, recording)}
-                    </span>
-                  </span>
-                  <span className="text-slate-600">
-                    {formatNullableDate(session.started_at ?? session.scheduled_at)}
-                  </span>
-                  <span>
-                    <StatusPill status={formatBackendStatus(session.status, "Unknown")} />
-                  </span>
-                  <span>
-                    <StatusPill status={formatBackendStatus(recording?.recording_status ?? session.recording_status, "Missing")} />
-                  </span>
-                  <span>
-                    <StatusPill status={formatBackendStatus(sessionVideoStatus(session, recording), "Missing")} />
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState
-            title="No Puddle sessions yet"
-            detail="Native interview sessions created from the Puddle dashboard will appear here as soon as they are scheduled or opened."
-          />
-        )}
-      </SectionPanel>
+          ) : (
+            <EmptyState
+              title="No Puddle sessions yet"
+              detail="Native interview sessions created from the Puddle dashboard will appear here as soon as they are scheduled or opened."
+            />
+          )}
+        </div>
+      </details>
 
       <SectionPanel title="Recordings" eyebrow="Completed interviews">
         {recordings.length ? (
-          <div
-            data-recordings-scroll-region
-            className="grid max-h-[calc(100svh-18rem)] gap-2 overflow-y-auto pr-1"
-            aria-label="Recordings"
-          >
-            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 md:grid">
-              <span>Meeting</span>
-              <span>Source</span>
-              <span>Started</span>
-              <span>Recording</span>
-              <span>Video</span>
-              <span>Transcript</span>
-            </div>
-            {recordings.map((recording) => (
-              <Link
-                key={recording.session_id}
-                href={`/dashboard/interviews/${encodeURIComponent(recording.session_id)}`}
-                className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-white/88 px-3 py-3 text-sm transition hover:-translate-y-px hover:border-cyan-200 hover:bg-cyan-50/40 hover:shadow-[0_10px_24px_rgba(8,145,178,0.08)] md:grid-cols-[minmax(180px,1.5fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)_minmax(110px,0.7fr)] md:items-center"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold text-slate-950">
-                    {recordingPrimaryLabel(recording)}
-                  </span>
-                  <span className="mt-1 block truncate text-xs text-slate-500">
-                    {recordingSecondaryLabel(recording)}
-                  </span>
-                </span>
-                <span>
-                  <StatusPill status={recordingSourceLabel(recording)} />
-                </span>
-                <span className="text-slate-600">{formatNullableDate(recording.started_at ?? recording.recording_started_at)}</span>
-                <span>
-                  <StatusPill status={formatBackendStatus(recording.recording_status, "Unknown")} />
-                </span>
-                <span>
-                  <StatusPill status={formatBackendStatus(recording.composite_video_status, "Missing")} />
-                </span>
-                <span className="text-slate-600">
-                  {recording.transcript_turn_count} {recording.transcript_turn_count === 1 ? "turn" : "turns"}
-                </span>
-              </Link>
-            ))}
-          </div>
+          <RecordingsList initialRecordings={recordings} initialHasMore={recordingPage.hasMore} />
         ) : (
           <EmptyState
             title="No recordings yet"
@@ -176,55 +166,8 @@ function candidateLabel(record: CandidateDisplayRecord): string {
   return metadataName || record.candidate_email?.trim() || "Candidate";
 }
 
-function roomLabel(recording: RealRoomRecordingListItem): string {
-  const duration = formatDuration(recording.composite_video_duration_seconds);
-  const room = isHistoricalFirefliesRecording(recording)
-    ? firefliesRecordingTitle(recording)
-    : recording.room_name?.trim() || "Puddle room";
-  return duration ? `${room} · ${duration}` : room;
-}
-
-function recordingPrimaryLabel(recording: RealRoomRecordingListItem): string {
-  return isHistoricalFirefliesRecording(recording)
-    ? roomLabel(recording)
-    : candidateLabel(recording);
-}
-
-function recordingSecondaryLabel(recording: RealRoomRecordingListItem): string {
-  const candidate = candidateLabel(recording);
-  return isHistoricalFirefliesRecording(recording)
-    ? candidate
-    : roomLabel(recording);
-}
-
-function firefliesRecordingTitle(recording: RealRoomRecordingListItem): string {
-  const metadataTitle = sourceMetadataString(recording.source_metadata, ["fireflies", "title"]);
-  if (metadataTitle) {
-    return metadataTitle;
-  }
-
-  const roomName = recording.room_name?.trim();
-  if (roomName && !isSyntheticFirefliesRoomName(roomName) && !isUrlLikeLabel(roomName)) {
-    return roomName;
-  }
-
-  return "Fireflies recording";
-}
-
-function isSyntheticFirefliesRoomName(value: string): boolean {
-  return /^fireflies-[A-Za-z0-9_-]+$/.test(value);
-}
-
-function isUrlLikeLabel(value: string): boolean {
-  return /^(?:https?|wss?):\/\//i.test(value);
-}
-
 function isHistoricalFirefliesRecording(recording: RealRoomRecordingListItem): boolean {
   return recording.external_source === "fireflies" || recording.egress_id?.startsWith("fireflies:") === true;
-}
-
-function recordingSourceLabel(recording: RealRoomRecordingListItem): string {
-  return isHistoricalFirefliesRecording(recording) ? "Historical Fireflies" : "Puddle room";
 }
 
 function isNativePuddleSession(session: RealInterviewListItem): boolean {

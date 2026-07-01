@@ -22,6 +22,7 @@ interface EnvLike {
 
 export interface HistoricalImportCliOptions {
   readonly mode: HistoricalImportMode;
+  readonly metadataOnly: boolean;
   readonly sourceBucket: string;
   readonly sourcePrefix: string;
   readonly sourceRegion: string;
@@ -56,6 +57,7 @@ export function parseHistoricalImportCliArgs(
 ): HistoricalImportCliOptions {
   const parsed = parseFlags(argv);
   const mode = parseMode(parsed.value("mode") ?? "dry-run");
+  const metadataOnly = parsed.has("metadata-only");
   const sourceBucket =
     nonEmptyString(parsed.value("source-bucket")) ??
     nonEmptyString(env.WEAVE_HISTORICAL_RECORDINGS_BUCKET);
@@ -88,6 +90,7 @@ export function parseHistoricalImportCliArgs(
 
   return {
     mode,
+    metadataOnly,
     sourceBucket,
     sourcePrefix,
     sourceRegion,
@@ -98,7 +101,7 @@ export function parseHistoricalImportCliArgs(
     sinceDate: parseOptionalDate(parsed.value("since-date"), "--since-date"),
     untilDate: parseOptionalDate(parsed.value("until-date"), "--until-date"),
     batchSize: parseOptionalPositiveInteger(parsed.value("batch-size"), "--batch-size") ?? 25,
-    requireWeaveMatchEnrichment: parsed.has("no-require-weave-match-enrichment")
+    requireWeaveMatchEnrichment: metadataOnly || parsed.has("no-require-weave-match-enrichment")
       ? false
       : true,
     confirmApply: parsed.has("confirm-apply"),
@@ -154,7 +157,8 @@ export async function runHistoricalFirefliesImportCli(
   const execute = deps.execute ?? executeHistoricalFirefliesImport;
   const write = deps.write ?? ((message: string) => process.stdout.write(message));
   const shouldCloseWeavePool = deps.getWeavePool === undefined;
-  const shouldClosePuddlePool = deps.getPuddlePool === undefined && options.mode === "apply";
+  const needsPuddlePool = options.mode === "apply" || options.metadataOnly;
+  const shouldClosePuddlePool = deps.getPuddlePool === undefined && needsPuddlePool;
   let weaveDb: Queryable | undefined;
   let puddleDb: PuddleDb | undefined;
 
@@ -162,7 +166,7 @@ export async function runHistoricalFirefliesImportCli(
     weaveDb = options.requireWeaveMatchEnrichment
       ? resolveWeavePool()
       : emptyWeaveMatchQueryable();
-    puddleDb = options.mode === "apply" ? resolvePuddlePool() : undefined;
+    puddleDb = needsPuddlePool ? resolvePuddlePool() : undefined;
 
     if (options.requireWeaveMatchEnrichment) {
       await assertWeaveMatchCandidateTable(weaveDb);
@@ -170,6 +174,7 @@ export async function runHistoricalFirefliesImportCli(
 
     const result = await execute({
       mode: options.mode,
+      metadataOnly: options.metadataOnly,
       orgId: options.orgId,
       sourceBucket: options.sourceBucket,
       sourcePrefix: options.sourcePrefix,
@@ -214,6 +219,7 @@ function parseFlags(argv: readonly string[]) {
   const booleanFlags = new Set([
     "require-weave-match-enrichment",
     "no-require-weave-match-enrichment",
+    "metadata-only",
     "confirm-apply",
   ]);
 

@@ -27,7 +27,7 @@ describe("dashboard interview read model", () => {
   });
 
   it("queries historical Fireflies and room recordings for the dashboard list", () => {
-    const stmt = roomRecordingListStatement({ limit: 25, orgId: "org1" });
+    const stmt = roomRecordingListStatement({ limit: 25, offset: 50, orgId: "org1" });
 
     expect(stmt.sql).toContain("WITH limited_recordings AS");
     expect(stmt.sql).toContain("FROM limited_recordings base");
@@ -38,10 +38,10 @@ describe("dashboard interview read model", () => {
     expect(stmt.sql).toContain("LEFT JOIN transcript_counts transcripts");
     expect(stmt.sql).toContain("tt.session_id = base.session_id");
     expect(stmt.sql).toContain("WHERE s.org_id = $2");
-    expect(stmt.sql).toContain("LIMIT $1");
+    expect(stmt.sql).toContain("LIMIT $1 OFFSET $3");
     expect(stmt.sql).not.toContain("s.external_source IS DISTINCT FROM 'fireflies'");
     expect(stmt.sql).not.toContain("r.egress_id NOT LIKE 'fireflies:%'");
-    expect(stmt.params).toEqual([25, "org1"]);
+    expect(stmt.params).toEqual([25, "org1", 50]);
   });
 
   it("queries one interview packet detail", () => {

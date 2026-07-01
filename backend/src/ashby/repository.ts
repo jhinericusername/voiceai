@@ -373,7 +373,7 @@ export function activePipelineApplicationsStatement(input: {
     sql:
       "SELECT application_id, candidate_id, candidate_name, candidate_email, job_id, " +
       `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
-      "source, status, ashby_updated_at, updated_at " +
+      "source, status, ashby_updated_at, updated_at, raw_payload " +
       "FROM ashby_applications a " +
       "WHERE integration_id = $1 AND job_id = ANY($2::text[]) AND status = 'Active' " +
       "ORDER BY COALESCE(ashby_updated_at, updated_at) DESC, updated_at DESC LIMIT $3",

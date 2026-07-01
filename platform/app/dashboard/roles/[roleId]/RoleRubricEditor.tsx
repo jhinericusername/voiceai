@@ -87,6 +87,7 @@ export function RoleRubricEditor({
   const [draftVersionId, setDraftVersionId] = useState<string | null>(() => profile?.draft_rubric_version_id ?? null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(() => profile?.active_rubric_version_id ?? null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [approvalConfirmation, setApprovalConfirmation] = useState(false);
 
   const selectedDimensionKeys = dimensions.flatMap((dimension) =>
     isEditableDimensionKey(dimension.key) ? [dimension.key] : [],
@@ -111,11 +112,12 @@ export function RoleRubricEditor({
       : saveState === "approving"
         ? { tone: "info" as const, text: "Approving draft rubric..." }
         : feedback ?? { tone: "info" as const, text: "Draft changes are local until saved." };
-  const statusLabel = draftVersionId ? "Draft ready" : activeVersionId ? "Active rubric" : "Rubric editor";
+  const statusLabel = draftVersionId ? "Draft ready" : activeVersionId ? "Active Rubric" : "Rubric editor";
   const versionLabel = draftVersionId ?? activeVersionId ?? "unsaved";
 
   function toggleDimension(key: WeaveDimensionKey) {
     setFeedback(null);
+    setApprovalConfirmation(false);
     setDimensions((current) => {
       if (current.some((dimension) => dimension.key === key)) {
         return current.filter((dimension) => dimension.key !== key);
@@ -126,6 +128,7 @@ export function RoleRubricEditor({
 
   function updateAnchor(dimensionKey: string, level: AnchorLevel, value: string) {
     setFeedback(null);
+    setApprovalConfirmation(false);
     setDimensions((current) =>
       current.map((dimension) =>
         dimension.key === dimensionKey
@@ -143,6 +146,7 @@ export function RoleRubricEditor({
 
   function updateSubDimensionAnchor(dimensionKey: string, subDimensionKey: string, level: AnchorLevel, value: string) {
     setFeedback(null);
+    setApprovalConfirmation(false);
     setDimensions((current) =>
       current.map((dimension) =>
         dimension.key === dimensionKey
@@ -177,6 +181,7 @@ export function RoleRubricEditor({
 
     setSaveState("saving");
     setFeedback(null);
+    setApprovalConfirmation(false);
     try {
       const response = await fetch(`/api/grading/profiles/${encodeURIComponent(profile.profile_id)}/draft`, {
         method: "POST",
@@ -225,6 +230,7 @@ export function RoleRubricEditor({
 
     setSaveState("approving");
     setFeedback(null);
+    setApprovalConfirmation(false);
     try {
       const response = await fetch(`/api/grading/profiles/${encodeURIComponent(profile.profile_id)}/approve`, {
         method: "POST",
@@ -241,7 +247,7 @@ export function RoleRubricEditor({
       setActiveVersionId(versionId);
       setDraftVersionId(null);
       setFeedback({ tone: "success", text: "Draft rubric approved." });
-      router.refresh();
+      setApprovalConfirmation(true);
     } catch {
       setFeedback({ tone: "error", text: "Could not reach the grading approval API." });
     } finally {
@@ -288,6 +294,32 @@ export function RoleRubricEditor({
       >
         {statusMessage.text}
       </div>
+
+      {approvalConfirmation ? (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed bottom-4 left-4 right-4 z-50 rounded-md border border-emerald-200 bg-white px-4 py-4 text-sm shadow-[0_20px_50px_rgba(15,23,42,0.18)] sm:left-auto sm:max-w-sm"
+        >
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <StatusPill status="Active Rubric" />
+              <h3 className="mt-2 text-sm font-semibold text-slate-950">Draft approved</h3>
+              <p className="mt-1 leading-6 text-slate-600">
+                This rubric is now active for future grading on this role.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss approval confirmation"
+              onClick={() => setApprovalConfirmation(false)}
+              className="shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <section className="grid gap-3 rounded-md border border-slate-200 bg-white px-3 py-3">
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

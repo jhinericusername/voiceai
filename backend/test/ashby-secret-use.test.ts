@@ -11,7 +11,7 @@ import {
 describe("Ashby secret decryption purposes", () => {
   it("documents the complete allowed decrypt purpose list", () => {
     expect(ASHBY_SECRET_DECRYPTION_PURPOSES).toEqual({
-      apiKey: ["selected-job-validation", "active-application-sync"],
+      apiKey: ["selected-job-validation", "active-application-sync", "rubric-job-list"],
       webhookSecret: ["webhook-setup-display", "webhook-signature-verification"],
     });
   });
@@ -31,6 +31,13 @@ describe("Ashby secret decryption purposes", () => {
         ciphertext: encrypted,
         secretKey: "test-secret",
         purpose: "active-application-sync",
+      }),
+    ).toBe("ashby-key");
+    expect(
+      decryptAshbyApiKey({
+        ciphertext: encrypted,
+        secretKey: "test-secret",
+        purpose: "rubric-job-list",
       }),
     ).toBe("ashby-key");
   });

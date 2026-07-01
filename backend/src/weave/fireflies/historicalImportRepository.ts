@@ -45,6 +45,29 @@ export interface HistoricalSessionLegacyIdentityReconcileInput {
   readonly sourceMetadata: HistoricalSessionRow["sourceMetadata"];
 }
 
+export interface HistoricalFirefliesMetadataBackfillRowsInput {
+  readonly orgId: string;
+  readonly sourceBucket: string;
+  readonly sourcePrefix: string;
+  readonly limit: number;
+}
+
+export interface HistoricalFirefliesSessionMetadataBackfillInput {
+  readonly sessionId: string;
+  readonly orgId: string;
+  readonly roomName: string;
+  readonly scheduledAt: string | null;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly sourceMetadata: unknown;
+}
+
+export interface HistoricalFirefliesRecordingMetadataBackfillInput {
+  readonly sessionId: string;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+}
+
 export function historicalSessionUpsertStatement(input: HistoricalSessionRow): SqlStatement {
   return {
     sql:
@@ -127,6 +150,77 @@ export function historicalSessionLegacyIdentityReconcileStatement(
       jsonbParam(input.sourceMetadata),
       input.orgId,
     ],
+  };
+}
+
+export function historicalFirefliesMetadataBackfillRowsStatement(
+  input: HistoricalFirefliesMetadataBackfillRowsInput,
+): SqlStatement {
+  return {
+    sql:
+      "SELECT s.session_id, s.org_id, s.room_name, s.scheduled_at, s.started_at, s.ended_at, " +
+      "s.external_id, s.source_metadata, r.started_at AS recording_started_at, " +
+      "r.ended_at AS recording_ended_at " +
+      "FROM sessions s LEFT JOIN recordings r ON r.session_id = s.session_id " +
+      "WHERE s.org_id = $1 AND s.external_source = 'fireflies' " +
+      "AND s.source_metadata #>> '{fireflies,sourcePrefix}' IS NOT NULL " +
+      "AND s.source_metadata #>> '{fireflies,sourceBucket}' = $2 " +
+      "AND s.source_metadata #>> '{fireflies,sourcePrefix}' LIKE $3 || '%' " +
+      "ORDER BY COALESCE(s.started_at, s.scheduled_at, r.started_at, s.created_at) DESC " +
+      "LIMIT $4",
+    params: [input.orgId, input.sourceBucket, input.sourcePrefix, input.limit],
+  };
+}
+
+export function historicalFirefliesSessionMetadataBackfillStatement(
+  input: HistoricalFirefliesSessionMetadataBackfillInput,
+): SqlStatement {
+  return {
+    sql:
+      "UPDATE sessions SET " +
+      "room_name = $3, " +
+      "scheduled_at = $4::timestamptz, " +
+      "started_at = $5::timestamptz, " +
+      "ended_at = $6::timestamptz, " +
+      "source_metadata = $7::jsonb, " +
+      "updated_at = now() " +
+      "WHERE session_id = $1 AND org_id = $2 AND external_source = 'fireflies' " +
+      "AND (" +
+      "room_name IS DISTINCT FROM $3 OR " +
+      "scheduled_at IS DISTINCT FROM $4::timestamptz OR " +
+      "started_at IS DISTINCT FROM $5::timestamptz OR " +
+      "ended_at IS DISTINCT FROM $6::timestamptz OR " +
+      "source_metadata IS DISTINCT FROM $7::jsonb" +
+      ") " +
+      "RETURNING session_id",
+    params: [
+      input.sessionId,
+      input.orgId,
+      input.roomName,
+      input.scheduledAt,
+      input.startedAt,
+      input.endedAt,
+      jsonbParam(input.sourceMetadata),
+    ],
+  };
+}
+
+export function historicalFirefliesRecordingMetadataBackfillStatement(
+  input: HistoricalFirefliesRecordingMetadataBackfillInput,
+): SqlStatement {
+  return {
+    sql:
+      "UPDATE recordings SET " +
+      "started_at = $2::timestamptz, " +
+      "ended_at = $3::timestamptz, " +
+      "updated_at = now() " +
+      "WHERE session_id = $1 " +
+      "AND (" +
+      "started_at IS DISTINCT FROM $2::timestamptz OR " +
+      "ended_at IS DISTINCT FROM $3::timestamptz" +
+      ") " +
+      "RETURNING session_id",
+    params: [input.sessionId, input.startedAt, input.endedAt],
   };
 }
 

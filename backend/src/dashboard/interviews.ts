@@ -43,6 +43,7 @@ export function interviewListStatement(input: {
 
 export function roomRecordingListStatement(input: {
   readonly limit: number;
+  readonly offset: number;
   readonly orgId: string;
 }): SqlStatement {
   return {
@@ -63,7 +64,7 @@ export function roomRecordingListStatement(input: {
       "AND composite.kind = 'composite_video' " +
       "WHERE s.org_id = $2 " +
       "ORDER BY COALESCE(r.ended_at, r.started_at, s.started_at, s.scheduled_at, s.created_at) DESC " +
-      "LIMIT $1" +
+      "LIMIT $1 OFFSET $3" +
       "), transcript_counts AS (" +
       "SELECT tt.session_id, count(*) AS turn_count " +
       "FROM transcript_turns tt " +
@@ -81,7 +82,7 @@ export function roomRecordingListStatement(input: {
       "FROM limited_recordings base " +
       "LEFT JOIN transcript_counts transcripts ON transcripts.session_id = base.session_id " +
       "ORDER BY base.recording_sort_at DESC",
-    params: [input.limit, input.orgId],
+    params: [input.limit, input.orgId, input.offset],
   };
 }
 

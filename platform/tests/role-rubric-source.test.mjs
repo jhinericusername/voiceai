@@ -19,6 +19,15 @@ const directRubricPageSource = await readFile(
   new URL("../app/dashboard/roles/[roleId]/rubric/page.tsx", import.meta.url),
   "utf8",
 );
+const rubricsIndexSource = await readFile(
+  new URL("../app/dashboard/rubrics/page.tsx", import.meta.url),
+  "utf8",
+).catch(() => "");
+const platformRubricPageSource = await readFile(
+  new URL("../app/dashboard/rubrics/[roleId]/page.tsx", import.meta.url),
+  "utf8",
+).catch(() => "");
+const dashboardUiSource = await readFile(new URL("../app/dashboard/dashboard-ui.tsx", import.meta.url), "utf8");
 
 test("role rubric model contains the six Weave dimensions without accent scoring", () => {
   assert.match(modelSource, /weaveDimensionLibrary/);
@@ -48,6 +57,24 @@ test("role rubric editor saves drafts and approves stored draft versions", () =>
   assert.match(editorSource, /sub_dimensions/);
   assert.match(editorSource, /role="status"/);
   assert.match(editorSource, /aria-live="polite"/);
+});
+
+test("role rubric status pills use active and missing rubric tones", () => {
+  assert.match(dashboardUiSource, /case "Active Rubric":[\s\S]*border-emerald-200 bg-emerald-50 text-emerald-800/);
+  assert.match(dashboardUiSource, /case "Needs Rubric":[\s\S]*border-rose-200 bg-rose-50 text-rose-800/);
+  assert.match(rubricsIndexSource, /return "Active Rubric"/);
+  assert.match(rubricsIndexSource, /return "Needs Rubric"/);
+  assert.match(editorSource, /activeVersionId \? "Active Rubric"/);
+});
+
+test("role rubric editor shows an explicit approval confirmation card", () => {
+  assert.match(editorSource, /approvalConfirmation/);
+  assert.match(editorSource, /setApprovalConfirmation\(true\)/);
+  assert.match(editorSource, /role="alert"/);
+  assert.match(editorSource, /Draft approved/);
+  assert.match(editorSource, /This rubric is now active for future grading on this role/);
+  assert.match(editorSource, /Dismiss approval confirmation/);
+  assert.doesNotMatch(editorSource, /setApprovalConfirmation\(true\);\s*router\.refresh\(\)/);
 });
 
 test("role workspace loads and renders the persisted grading profile for the selected role", () => {
@@ -94,4 +121,27 @@ test("direct role rubric route renders the real rubric editor", () => {
   assert.match(directRubricPageSource, /profile=\{selectedGradingProfile\}/);
   assert.doesNotMatch(directRubricPageSource, /Real role-specific criteria will appear here once configured/);
   assert.doesNotMatch(directRubricPageSource, /No role rubric configured yet/);
+});
+
+test("platform rubrics route is the top-level role rubric workspace", () => {
+  assert.match(rubricsIndexSource, /getAshbyJobs/);
+  assert.match(rubricsIndexSource, /getGradingCompanyState/);
+  assert.match(rubricsIndexSource, /jobs\.map/);
+  assert.match(rubricsIndexSource, /\/dashboard\/rubrics\/\$\{encodeURIComponent\(role\.id\)\}/);
+  assert.match(rubricsIndexSource, /active_rubric_version_id/);
+  assert.match(rubricsIndexSource, /draft_rubric_version_id/);
+  assert.doesNotMatch(rubricsIndexSource, /ActivePipelineDashboard/);
+  assert.doesNotMatch(rubricsIndexSource, /getAshbyActivePipeline/);
+});
+
+test("platform role rubric route renders the persisted profile editor for the selected role", () => {
+  assert.match(platformRubricPageSource, /requireDashboardUser\(`\/dashboard\/rubrics\/\$\{roleId\}`\)/);
+  assert.match(platformRubricPageSource, /getAshbyJobs/);
+  assert.match(platformRubricPageSource, /getGradingCompanyState/);
+  assert.match(platformRubricPageSource, /selectedGradingProfile/);
+  assert.match(platformRubricPageSource, /RoleRubricEditor/);
+  assert.match(platformRubricPageSource, /rubricEditorKey/);
+  assert.match(platformRubricPageSource, /selectedRole\.jobId/);
+  assert.match(platformRubricPageSource, /profile=\{selectedGradingProfile\}/);
+  assert.doesNotMatch(platformRubricPageSource, /getAshbyActivePipeline/);
 });

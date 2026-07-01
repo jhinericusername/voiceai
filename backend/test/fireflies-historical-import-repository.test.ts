@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  historicalFirefliesMetadataBackfillRowsStatement,
+  historicalFirefliesRecordingMetadataBackfillStatement,
+  historicalFirefliesSessionMetadataBackfillStatement,
   historicalImportRunFinishStatement,
   historicalImportRunInsertStatement,
   historicalRecordingArtifactUpsertStatement,
@@ -22,6 +25,10 @@ function sourceMetadata() {
         "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
       ownerEmail: "owner@example.com",
       meetingDate: "2026-04-09",
+      meetingStartedAt: "2026-04-09T15:30:00.000Z",
+      meetingStartedAtSource: "metadata",
+      dateOnlyStartedAt: null,
+      dateOnlyStartedAtSource: null,
       sourceBucket: "weave-fireflies-raw",
       sourcePrefix: "raw/fireflies/transcript_id=01ABC/",
       targetBucket: "puddle-artifacts",
@@ -245,6 +252,82 @@ describe("Fireflies historical import repository", () => {
       "0444c421572bcea553229ae76b6bc1a135225a566f3fdf9d721b53874bd99095",
       JSON.stringify(metadata),
       "org_123",
+    ]);
+  });
+
+  it("selects historical Fireflies sessions eligible for metadata backfill", () => {
+    const stmt = historicalFirefliesMetadataBackfillRowsStatement({
+      orgId: "org_123",
+      sourceBucket: "weave-fireflies-raw",
+      sourcePrefix: "raw/fireflies/",
+      limit: 50,
+    });
+
+    const sql = compactSql(stmt.sql);
+
+    expect(sql).toContain("SELECT s.session_id, s.org_id, s.room_name");
+    expect(sql).toContain("s.source_metadata, r.started_at AS recording_started_at");
+    expect(sql).toContain("FROM sessions s LEFT JOIN recordings r ON r.session_id = s.session_id");
+    expect(sql).toContain("WHERE s.org_id = $1 AND s.external_source = 'fireflies'");
+    expect(sql).toContain("s.source_metadata #>> '{fireflies,sourcePrefix}' IS NOT NULL");
+    expect(sql).toContain("s.source_metadata #>> '{fireflies,sourceBucket}' = $2");
+    expect(sql).toContain("s.source_metadata #>> '{fireflies,sourcePrefix}' LIKE $3 || '%'");
+    expect(sql).toContain("LIMIT $4");
+    expect(stmt.params).toEqual(["org_123", "weave-fireflies-raw", "raw/fireflies/", 50]);
+  });
+
+  it("updates historical Fireflies session display metadata only when values changed", () => {
+    const metadata = sourceMetadata();
+    const stmt = historicalFirefliesSessionMetadataBackfillStatement({
+      sessionId: "hist_fireflies_01ABC",
+      orgId: "org_123",
+      roomName: "Candidate technical screen",
+      scheduledAt: "2026-04-09T15:30:00.000Z",
+      startedAt: "2026-04-09T15:30:00.000Z",
+      endedAt: "2026-04-09T16:00:00.000Z",
+      sourceMetadata: metadata,
+    });
+
+    const sql = compactSql(stmt.sql);
+
+    expect(sql).toContain("UPDATE sessions SET room_name = $3");
+    expect(sql).toContain("scheduled_at = $4::timestamptz");
+    expect(sql).toContain("started_at = $5::timestamptz");
+    expect(sql).toContain("ended_at = $6::timestamptz");
+    expect(sql).toContain("source_metadata = $7::jsonb");
+    expect(sql).toContain("WHERE session_id = $1 AND org_id = $2 AND external_source = 'fireflies'");
+    expect(sql).toContain("source_metadata IS DISTINCT FROM $7::jsonb");
+    expect(sql).toContain("RETURNING session_id");
+    expect(stmt.params).toEqual([
+      "hist_fireflies_01ABC",
+      "org_123",
+      "Candidate technical screen",
+      "2026-04-09T15:30:00.000Z",
+      "2026-04-09T15:30:00.000Z",
+      "2026-04-09T16:00:00.000Z",
+      JSON.stringify(metadata),
+    ]);
+  });
+
+  it("updates historical Fireflies recording timestamps only when values changed", () => {
+    const stmt = historicalFirefliesRecordingMetadataBackfillStatement({
+      sessionId: "hist_fireflies_01ABC",
+      startedAt: "2026-04-09T15:30:00.000Z",
+      endedAt: "2026-04-09T16:00:00.000Z",
+    });
+
+    const sql = compactSql(stmt.sql);
+
+    expect(sql).toContain("UPDATE recordings SET started_at = $2::timestamptz");
+    expect(sql).toContain("ended_at = $3::timestamptz");
+    expect(sql).toContain("WHERE session_id = $1");
+    expect(sql).toContain("started_at IS DISTINCT FROM $2::timestamptz");
+    expect(sql).toContain("ended_at IS DISTINCT FROM $3::timestamptz");
+    expect(sql).toContain("RETURNING session_id");
+    expect(stmt.params).toEqual([
+      "hist_fireflies_01ABC",
+      "2026-04-09T15:30:00.000Z",
+      "2026-04-09T16:00:00.000Z",
     ]);
   });
 

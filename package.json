@@ -10,6 +10,7 @@
     "dev:connected": "node scripts/dev/dev-connected.mjs",
     "dev:backend:connected": "node scripts/dev/dev-backend-connected.mjs",
     "dev:platform": "corepack pnpm@9.12.0 --filter @puddle/platform dev",
+    "historical-fireflies:metadata-backfill:connected": "node scripts/dev/historical-fireflies-metadata-backfill-connected.mjs",
     "grading:evaluate:connected": "node scripts/dev/grading-evaluate-connected.mjs",
     "migrate:backend": "corepack pnpm@9.12.0 --filter @puddle/backend migrate",
     "build": "pnpm -r build",

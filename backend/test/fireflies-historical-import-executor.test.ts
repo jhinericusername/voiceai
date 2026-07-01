@@ -153,6 +153,7 @@ class FakePuddleDb implements PuddleDb {
     sessionRows: Record<string, unknown>[] | null = null,
     private readonly sourceRows: Record<string, unknown>[] = [],
     private readonly reconcileRows: Record<string, unknown>[] = [],
+    private readonly metadataBackfillRows: Record<string, unknown>[] = [],
   ) {
     this.client = new FakePuddleDbClient(failOnTranscriptId, operationLog, sessionRows);
   }
@@ -162,6 +163,9 @@ class FakePuddleDb implements PuddleDb {
     this.operationLog?.push(`db:${sql}`);
     if (sql.startsWith("SELECT session_id, org_id, external_id, source_metadata")) {
       return { rows: this.sourceRows };
+    }
+    if (sql.startsWith("SELECT s.session_id, s.org_id, s.room_name")) {
+      return { rows: this.metadataBackfillRows };
     }
     if (sql.startsWith("UPDATE sessions SET external_id")) {
       return { rows: this.reconcileRows };
@@ -315,6 +319,41 @@ function existingSourceRow(input: {
   };
 }
 
+function metadataBackfillRow(input: {
+  readonly transcriptId: string;
+  readonly externalId?: string;
+  readonly date?: string;
+  readonly roomName?: string;
+}) {
+  const prefix = recordingPrefix(input.transcriptId, input);
+  return {
+    session_id: `hist_fireflies_${input.externalId ?? input.transcriptId}`,
+    org_id: orgId,
+    room_name: input.roomName ?? `fireflies-${input.transcriptId}`,
+    scheduled_at: `${recordingDate(input)}T00:00:00.000Z`,
+    started_at: `${recordingDate(input)}T00:00:00.000Z`,
+    ended_at: null,
+    external_id: input.externalId ?? input.transcriptId,
+    recording_started_at: `${recordingDate(input)}T00:00:00.000Z`,
+    recording_ended_at: null,
+    source_metadata: {
+      fireflies: {
+        transcriptId: input.transcriptId,
+        sourceBucket,
+        sourcePrefix: prefix,
+        meetingDate: recordingDate(input),
+        title: null,
+        metadataKey: `${prefix}metadata.json`,
+        transcriptKey: `${prefix}transcript.json`,
+      },
+      ashby: {
+        selected: null,
+        matchCandidates: [],
+      },
+    },
+  };
+}
+
 function selectedWeaveRow(transcriptId: string) {
   return {
     selected: {
@@ -418,6 +457,141 @@ describe("Fireflies historical import executor", () => {
     expect(commandNames(targetS3)).not.toContain("CopyObjectCommand");
     expect(puddleDb.queryLog).toEqual([]);
     expect(puddleDb.client.statements).toEqual([]);
+  });
+
+  it("backfills historical Fireflies display metadata without copying media", async () => {
+    const transcriptId = "01METADATA";
+    const sourceS3 = new FakeS3Client(
+      recordingObjects(transcriptId).map((object) =>
+        object.key.endsWith("/metadata.json")
+          ? {
+              ...object,
+              body: {
+                targetEmail: "candidate@example.com",
+                meetingStartedAt: "2026-04-09T17:45:00.000Z",
+                durationSeconds: 1500,
+                event: { title: "Candidate technical screen" },
+              },
+            }
+          : object,
+      ),
+    );
+    const targetS3 = new FakeS3Client();
+    const puddleDb = new FakePuddleDb(null, undefined, null, [], [], [
+      metadataBackfillRow({ transcriptId, externalId: "existing-01" }),
+    ]);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      metadataOnly: true,
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3,
+      targetS3,
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb,
+    });
+
+    expect(result.plannedCount).toBe(1);
+    expect(result.importedCount).toBe(1);
+    expect(result.copyCount).toBe(0);
+    expect(result.dbWriteCount).toBe(2);
+    expect(commandNames(targetS3)).not.toContain("CopyObjectCommand");
+
+    const sessionUpdate = puddleDb.client.statements.find((statement) =>
+      statement.sql.startsWith("UPDATE sessions SET room_name"),
+    );
+    expect(sessionUpdate?.params?.slice(0, 6)).toEqual([
+      "hist_fireflies_existing-01",
+      orgId,
+      "Candidate technical screen",
+      "2026-04-09T17:45:00.000Z",
+      "2026-04-09T17:45:00.000Z",
+      "2026-04-09T18:10:00.000Z",
+    ]);
+    const enrichedMetadata = JSON.parse(String(sessionUpdate?.params?.[6]));
+    expect(enrichedMetadata.fireflies).toMatchObject({
+      title: "Candidate technical screen",
+      meetingStartedAt: "2026-04-09T17:45:00.000Z",
+      meetingStartedAtSource: "metadata",
+      dateOnlyStartedAt: null,
+      dateOnlyStartedAtSource: null,
+    });
+
+    const recordingUpdate = puddleDb.client.statements.find((statement) =>
+      statement.sql.startsWith("UPDATE recordings SET started_at"),
+    );
+    expect(recordingUpdate?.params).toEqual([
+      "hist_fireflies_existing-01",
+      "2026-04-09T17:45:00.000Z",
+      "2026-04-09T18:10:00.000Z",
+    ]);
+  });
+
+  it("backfills date-only Fireflies starts without fabricating exact timestamps", async () => {
+    const transcriptId = "01DATEONLY";
+    const objects = recordingObjects(transcriptId).map((object) => {
+      if (object.key.endsWith("/metadata.json")) {
+        return {
+          ...object,
+          body: {
+            targetEmail: "candidate@example.com",
+            durationSeconds: 1500,
+          },
+        };
+      }
+      if (object.key.endsWith("/transcript.json")) {
+        return {
+          ...object,
+          body: {
+            date: "2026-04-09",
+            title: "Date-only screen",
+            duration: 1500,
+            sentences: [],
+          },
+        };
+      }
+      return object;
+    });
+    const puddleDb = new FakePuddleDb(null, undefined, null, [], [], [
+      metadataBackfillRow({ transcriptId, externalId: "existing-date-only" }),
+    ]);
+
+    const result = await executeHistoricalFirefliesImport({
+      mode: "apply",
+      metadataOnly: true,
+      orgId,
+      sourceBucket,
+      sourcePrefix,
+      targetBucket,
+      sourceS3: new FakeS3Client(objects),
+      targetS3: new FakeS3Client(),
+      weaveDb: new FakeWeaveDb({}),
+      puddleDb,
+    });
+
+    expect(result.importedCount).toBe(1);
+    const sessionUpdate = puddleDb.client.statements.find((statement) =>
+      statement.sql.startsWith("UPDATE sessions SET room_name"),
+    );
+    expect(sessionUpdate?.params?.slice(0, 6)).toEqual([
+      "hist_fireflies_existing-date-only",
+      orgId,
+      "Date-only screen",
+      "2026-04-09T00:00:00.000Z",
+      "2026-04-09T00:00:00.000Z",
+      null,
+    ]);
+    const enrichedMetadata = JSON.parse(String(sessionUpdate?.params?.[6]));
+    expect(enrichedMetadata.fireflies).toMatchObject({
+      title: "Date-only screen",
+      meetingStartedAt: null,
+      meetingStartedAtSource: null,
+      dateOnlyStartedAt: "2026-04-09T00:00:00.000Z",
+      dateOnlyStartedAtSource: "transcript",
+    });
   });
 
   it("bounds planned recordings by batch size after inventory and date filters", async () => {

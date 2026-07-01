@@ -1,7 +1,7 @@
 import { decryptIntegrationSecret } from "./crypto.js";
 
 export const ASHBY_SECRET_DECRYPTION_PURPOSES = {
-  apiKey: ["selected-job-validation", "active-application-sync"],
+  apiKey: ["selected-job-validation", "active-application-sync", "rubric-job-list"],
   webhookSecret: ["webhook-setup-display", "webhook-signature-verification"],
 } as const;
 

@@ -5,8 +5,8 @@ import {
   BarChartIcon,
   BriefcaseIcon,
   ClipboardCheckIcon,
+  RubricIcon,
   SettingsIcon,
-  UsersIcon,
   VideoIcon,
   type DashboardIcon,
 } from "./dashboard-icons";
@@ -27,12 +27,12 @@ const navItems: ReadonlyArray<{
   readonly href: string;
   readonly label: string;
   readonly icon: DashboardIcon;
-  readonly match: "roles" | "candidates" | "review" | "recordings" | "analytics" | "settings";
+  readonly match: "pipeline" | "rubrics" | "review" | "recordings" | "analytics" | "settings";
   readonly priority: "primary" | "secondary";
   readonly status?: "Soon";
 }> = [
-  { href: "/dashboard/roles", label: "Roles", icon: BriefcaseIcon, match: "roles", priority: "primary" },
-  { href: "/dashboard/candidates", label: "Candidates", icon: UsersIcon, match: "candidates", priority: "primary" },
+  { href: "/dashboard/roles", label: "Pipeline", icon: BriefcaseIcon, match: "pipeline", priority: "primary" },
+  { href: "/dashboard/rubrics", label: "Rubrics", icon: RubricIcon, match: "rubrics", priority: "primary" },
   { href: "/dashboard/review-queue", label: "Review Queue", icon: ClipboardCheckIcon, match: "review", priority: "primary" },
   { href: "/dashboard/recordings", label: "Recordings", icon: VideoIcon, match: "recordings", priority: "primary" },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChartIcon, match: "analytics", priority: "secondary", status: "Soon" },
@@ -40,11 +40,13 @@ const navItems: ReadonlyArray<{
 ] as const;
 
 function navIsActive(pathname: string, match: (typeof navItems)[number]["match"]): boolean {
-  if (match === "roles") {
-    return pathname === "/dashboard" || pathname === "/dashboard/roles" || pathname.startsWith("/dashboard/roles/");
-  }
-  if (match === "candidates") {
-    return pathname.startsWith("/dashboard/candidates") || pathname.includes("/candidates/");
+  if (match === "pipeline") {
+    return (
+      pathname === "/dashboard" ||
+      pathname === "/dashboard/roles" ||
+      pathname === "/dashboard/candidates" ||
+      pathname.startsWith("/dashboard/roles/")
+    );
   }
   if (match === "review") {
     return pathname.startsWith("/dashboard/review-queue") || pathname.startsWith("/dashboard/interviews");

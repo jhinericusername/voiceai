@@ -28,6 +28,8 @@ const chromeSource = await source("../app/dashboard/DashboardChrome.tsx");
 const candidateSearchSource = await optionalSource("../app/dashboard/DashboardCandidateSearch.tsx");
 const overviewSource = await source("../app/dashboard/page.tsx");
 const rolesSource = await source("../app/dashboard/roles/page.tsx");
+const rubricsSource = await optionalSource("../app/dashboard/rubrics/page.tsx");
+const rubricRoleSource = await optionalSource("../app/dashboard/rubrics/[roleId]/page.tsx");
 const activePipelineSource = await source("../app/dashboard/roles/ActivePipelineDashboard.tsx");
 const roleDetailSource = await source("../app/dashboard/roles/[roleId]/page.tsx");
 const roleTabsSource = await source("../app/dashboard/roles/[roleId]/RoleWorkspaceTabs.tsx");
@@ -37,6 +39,8 @@ const scoreTabSource = await source("../app/dashboard/roles/[roleId]/ScoreTab.ts
 const candidatesSource = await source("../app/dashboard/candidates/page.tsx");
 const reviewQueueSource = await source("../app/dashboard/review-queue/page.tsx");
 const recordingsSource = await source("../app/dashboard/recordings/page.tsx");
+const recordingsListSource = await optionalSource("../app/dashboard/recordings/RecordingsList.tsx");
+const recordingsApiSource = await optionalSource("../app/api/dashboard/recordings/route.ts");
 const ashbyFirstSectionsSource = await source("../app/dashboard/AshbyFirstDashboardSections.tsx");
 const interviewDetailSource = await source("../app/dashboard/interviews/[sessionId]/page.tsx");
 const interviewPlaybackReviewSource = await source("../app/dashboard/interviews/[sessionId]/InterviewPlaybackReview.tsx");
@@ -62,10 +66,16 @@ test("dashboard layout gates operational routes behind completed Ashby onboardin
 });
 
 test("dashboard chrome uses Ashby-first navigation without fake role controls", () => {
-  for (const label of ["Roles", "Candidates", "Review Queue", "Recordings", "Analytics", "Settings"]) {
+  for (const label of ["Pipeline", "Rubrics", "Review Queue", "Recordings", "Analytics", "Settings"]) {
     assert.match(chromeSource, new RegExp(label));
   }
 
+  assert.match(chromeSource, /href: "\/dashboard\/roles", label: "Pipeline"/);
+  assert.match(chromeSource, /href: "\/dashboard\/rubrics", label: "Rubrics"/);
+  assert.match(chromeSource, /match: "rubrics"/);
+  assert.match(chromeSource, /pathname\.startsWith\(`\/dashboard\/\$\{match\}`\)/);
+  assert.doesNotMatch(chromeSource, /label: "Roles"/);
+  assert.doesNotMatch(chromeSource, /label: "Candidates"/);
   assert.match(chromeSource, /DashboardCandidateSearch/);
   assert.match(chromeSource, /Cmd\+K/);
   assert.match(chromeSource, /priority: "primary"/);
@@ -73,6 +83,7 @@ test("dashboard chrome uses Ashby-first navigation without fake role controls", 
   assert.match(chromeSource, /Soon/);
   assert.match(chromeSource, /label: "Analytics"[\s\S]*priority: "secondary"/);
   assert.match(chromeSource, /label: "Settings"[\s\S]*priority: "secondary"/);
+  assert.doesNotMatch(chromeSource, /label: "Rubrics"[\s\S]{0,120}status: "Soon"/);
   assert.doesNotMatch(chromeSource, /CreateInterviewCard/);
   assert.doesNotMatch(chromeSource, /CreateTeamInvitationCard/);
   assert.doesNotMatch(chromeSource, /Active role/);
@@ -96,6 +107,14 @@ test("dashboard candidate search opens with Cmd+K and searches Ashby candidates"
   assert.match(candidateSearchSource, /aria-modal="true"/);
 });
 
+test("active pipeline candidate rows link to candidate detail pages", () => {
+  assert.match(activePipelineSource, /import Link from "next\/link"/);
+  assert.match(activePipelineSource, /function candidateHref\(candidate: ActivePipelineCandidate\): string/);
+  assert.match(activePipelineSource, /\/dashboard\/roles\/\$\{encodeURIComponent\(candidate\.jobId\)\}\/candidates\/\$\{encodeURIComponent\(candidateRouteId\(candidate\)\)\}/);
+  assert.match(activePipelineSource, /href=\{candidateHref\(candidate\)\}/);
+  assert.match(activePipelineSource, /prefetch=\{false\}/);
+});
+
 test("dashboard app content region scrolls while chrome stays fixed", () => {
   assert.match(chromeSource, /<main className="[^"]*flex-1[^"]*overflow-y-auto[^"]*overflow-x-hidden/);
   assert.doesNotMatch(chromeSource, /<main className="[^"]*flex-1 overflow-hidden/);
@@ -109,31 +128,94 @@ test("create interview launcher keeps the topbar action label unclipped", () => 
 
 test("recordings page lists historical Fireflies and room recordings with links to detail", () => {
   assert.match(recordingsSource, /getRoomRecordings/);
-  assert.match(recordingsSource, /Historical Fireflies/);
-  assert.match(recordingsSource, /Fireflies recording/);
-  assert.match(recordingsSource, /firefliesRecordingTitle/);
-  assert.match(recordingsSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"fireflies",\s*"title"\s*\]\)/);
-  assert.match(recordingsSource, /isSyntheticFirefliesRoomName/);
-  assert.match(recordingsSource, /recordings\.map/);
-  assert.match(recordingsSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(recording\.session_id\)\}`\}/);
-  assert.match(recordingsSource, /recording\.composite_video_status/);
-  assert.match(recordingsSource, /recording\.external_source === "fireflies"/);
-  assert.match(recordingsSource, /data-recordings-scroll-region/);
-  assert.match(recordingsSource, /overflow-y-auto/);
+  assert.match(recordingsListSource, /Historical Fireflies/);
+  assert.match(recordingsListSource, /Fireflies recording/);
+  assert.match(recordingsListSource, /firefliesRecordingTitle/);
+  assert.match(recordingsListSource, /firefliesMetadataTitle\(recording\.source_metadata\)/);
+  assert.match(recordingsListSource, /isSyntheticFirefliesRoomName/);
+  assert.match(recordingsListSource, /recordings\.map/);
+  assert.match(recordingsListSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(recording\.session_id\)\}`\}/);
+  assert.match(recordingsListSource, /recording\.composite_video_status/);
+  assert.match(recordingsListSource, /recording\.external_source === "fireflies"/);
+  assert.match(recordingsListSource, /data-recordings-scroll-region/);
+  assert.match(recordingsListSource, /overflow-y-auto/);
   assert.doesNotMatch(recordingsSource, /OperationalPlaceholderPage/);
 });
 
 test("recordings page uses Fireflies meeting titles as the primary row label", () => {
-  assert.match(recordingsSource, /recordingPrimaryLabel\(recording\)/);
-  assert.match(recordingsSource, /recordingSecondaryLabel\(recording\)/);
+  assert.match(recordingsListSource, /recordingPrimaryLabel\(recording\)/);
+  assert.match(recordingsListSource, /recordingSecondaryLabel\(recording\)/);
+  assert.match(recordingsListSource, /firefliesMetadataTitle\(recording\.source_metadata\)/);
+  assert.match(recordingsListSource, /sourceMetadataDisplayTitle\(value,\s*\[\s*"fireflies",\s*"title"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataDisplayTitle\(value,\s*\[\s*"fireflies",\s*"eventTitle"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataDisplayTitle\(value,\s*\[\s*"fireflies",\s*"meetingTitle"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataEventTitle\(value,\s*\[\s*"fireflies",\s*"event"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataDisplayTitle\(value,\s*\[\s*"metadata",\s*"eventTitle"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataEventTitle\(value,\s*\[\s*"metadata",\s*"event"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataDisplayTitle\(value,\s*\[\s*"transcript",\s*"title"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataDisplayTitle\(value,\s*\[\s*"title"\s*\]\)/);
+  assert.match(recordingsListSource, /function sourceMetadataDisplayTitle/);
+  assert.match(recordingsListSource, /function sourceMetadataEventTitle/);
   assert.match(
-    recordingsSource,
+    recordingsListSource,
     /function recordingPrimaryLabel\([^)]*recording[^)]*\)[^{]*{\s*return isHistoricalFirefliesRecording\(recording\)\s*\?\s*roomLabel\(recording\)\s*:\s*candidateLabel\(recording\);/s,
   );
   assert.match(
-    recordingsSource,
+    recordingsListSource,
     /function recordingSecondaryLabel\([^)]*recording[^)]*\)[^{]*{\s*const candidate = candidateLabel\(recording\);/s,
   );
+});
+
+test("recordings page uses persisted Fireflies start metadata before date-only fallbacks", () => {
+  assert.match(recordingsListSource, /formatRecordingStartedAt\(recording\)/);
+  assert.match(recordingsListSource, /function formatRecordingStartedAt\(recording: RealRoomRecordingListItem\): string/);
+  assert.match(recordingsListSource, /function recordingStartedAt\(recording: RealRoomRecordingListItem\): string \| null/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"fireflies",\s*"meetingStartedAt"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"fireflies",\s*"meeting_start"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"fireflies",\s*"startTime"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"meetingStartedAt"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"metadata",\s*"meetingStartedAt"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"transcript",\s*"date"\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"transcript",\s*"meetingStartTime"\s*\]\)/);
+  assert.match(recordingsListSource, /recording\.recording_started_at\s*\?\?\s*recording\.started_at\s*\?\?\s*recording\.scheduled_at/);
+  assert.doesNotMatch(recordingsListSource, /formatNullableDate\(recording\.started_at \?\? recording\.recording_started_at\)/);
+});
+
+test("recordings page does not show fake local times for Fireflies date-only metadata", () => {
+  assert.match(recordingsListSource, /function dateOnlyFirefliesStartedAt\(recording: RealRoomRecordingListItem, startedAt: string\): string/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"fireflies",\s*"dateOnlyStartedAt",?\s*\]\)/);
+  assert.match(recordingsListSource, /sourceMetadataString\(recording\.source_metadata,\s*\[\s*"fireflies",\s*"meetingDate"\s*\]\)/);
+  assert.match(recordingsListSource, /function formatDateOnlyLabel\(value: string\): string/);
+  assert.match(recordingsListSource, /timeZone: "UTC"/);
+  assert.match(recordingsListSource, /const exactStartedAt = exactFirefliesMetadataStartedAt\(recording\)/);
+  assert.match(recordingsListSource, /dateOnlyStartedAt \? formatDateOnlyLabel\(dateOnlyStartedAt\) : formatDateTime\(startedAt\)/);
+});
+
+test("recordings page fetches the first page and scroll-loads more rows", () => {
+  assert.match(recordingsSource, /RECORDINGS_PAGE_SIZE/);
+  assert.match(recordingsSource, /getRoomRecordingsPage\(\{\s*orgId,\s*limit: RECORDINGS_PAGE_SIZE,\s*offset: 0\s*\}\)/s);
+  assert.match(recordingsSource, /<RecordingsList/);
+  assert.match(recordingsSource, /initialRecordings=\{recordings\}/);
+  assert.match(recordingsSource, /initialHasMore=\{recordingPage\.hasMore\}/);
+  assert.ok(recordingsListSource, "RecordingsList.tsx should exist");
+  assert.match(recordingsListSource, /"use client"/);
+  assert.match(recordingsListSource, /IntersectionObserver/);
+  assert.match(recordingsListSource, /\/api\/dashboard\/recordings\?limit=\$\{RECORDINGS_PAGE_SIZE\}&offset=\$\{nextOffset\}/);
+  assert.match(recordingsListSource, /setRecordings\(\(currentRecordings\) =>/);
+});
+
+test("recordings pagination is enforced by the platform and backend", () => {
+  assert.ok(recordingsApiSource, "recordings API route should exist");
+  assert.match(recordingsApiSource, /requireAshbyReadyDashboardApiAccess/);
+  assert.match(recordingsApiSource, /getRoomRecordingsPage\(\{\s*orgId: access\.identity\.organizationId,\s*limit,\s*offset,\s*\}\)/s);
+  assert.match(backendDataSource, /limit: number/);
+  assert.match(backendDataSource, /offset: number/);
+  assert.match(backendDataSource, /params\.set\("limit", String\(input\.limit\)\)/);
+  assert.match(backendDataSource, /params\.set\("offset", String\(input\.offset\)\)/);
+  assert.match(dashboardRoutesSource, /limitFromQuery\(request\.query\)/);
+  assert.match(dashboardRoutesSource, /offsetFromQuery\(request\.query\)/);
+  assert.match(dashboardRoutesSource, /roomRecordingListStatement\(\{\s*limit,\s*offset,\s*orgId\s*\}\)/s);
+  assert.match(backendDashboardInterviewsSource, /OFFSET \$3/);
 });
 
 test("recordings page surfaces native Puddle session records even before full finalization", () => {
@@ -150,6 +232,17 @@ test("recordings page surfaces native Puddle session records even before full fi
   assert.match(recordingsSource, /href=\{`\/dashboard\/interviews\/\$\{encodeURIComponent\(session\.session_id\)\}`\}/);
 });
 
+test("recordings page keeps native Puddle sessions collapsed above completed interviews", () => {
+  assert.match(recordingsSource, /<details[\s\S]*data-native-interviews-collapsible/);
+  assert.match(recordingsSource, /<summary[\s\S]*data-native-interviews-summary/);
+  assert.match(recordingsSource, /Show native interviews/);
+  assert.match(recordingsSource, /SectionPanel title="Recordings" eyebrow="Completed interviews"/);
+  assert.ok(
+    recordingsSource.indexOf("data-native-interviews-collapsible") <
+      recordingsSource.indexOf('SectionPanel title="Recordings" eyebrow="Completed interviews"'),
+  );
+});
+
 test("recordings data tolerates older connected-dev backends without room-recordings", () => {
   assert.match(backendDataSource, /response\.status === 404/);
   assert.match(backendDataSource, /return \[\];/);
@@ -164,12 +257,22 @@ test("dashboard default route redirects to roles after onboarding", () => {
   assert.doesNotMatch(overviewSource, /dashboardDemoFallbackEnabled/);
 });
 
+test("legacy candidates dashboard route redirects to the unified pipeline", () => {
+  assert.match(candidatesSource, /from "next\/navigation"/);
+  assert.match(candidatesSource, /redirect\("\/dashboard\/roles"\)/);
+  assert.doesNotMatch(candidatesSource, /getAshbyActivePipeline/);
+  assert.doesNotMatch(candidatesSource, /ActivePipelineDashboard/);
+});
+
 test("top-level operational pages do not import demo dashboard data", () => {
   for (const [name, pageSource] of [
     ["roles", rolesSource],
+    ["rubrics", rubricsSource],
+    ["role rubric editor", rubricRoleSource],
     ["candidates", candidatesSource],
     ["review queue", reviewQueueSource],
   ]) {
+    assert.ok(pageSource, `${name} page should exist`);
     assert.doesNotMatch(pageSource, /demo-data/, `${name} page should not import demo-data`);
     assert.doesNotMatch(
       pageSource,
@@ -178,6 +281,22 @@ test("top-level operational pages do not import demo dashboard data", () => {
     );
     assert.doesNotMatch(pageSource, /dashboardDemoFallbackEnabled/, `${name} page should not enable demo fallback`);
   }
+});
+
+test("rubrics dashboard lists every open Ashby role as cards and links to role rubric editors", () => {
+  assert.ok(rubricsSource, "rubrics index page should exist");
+  assert.match(rubricsSource, /requireDashboardUser\("\/dashboard\/rubrics"\)/);
+  assert.match(rubricsSource, /getAshbyJobs/);
+  assert.match(rubricsSource, /getGradingCompanyState/);
+  assert.match(rubricsSource, /jobs\.map/);
+  assert.match(rubricsSource, /href=\{`\/dashboard\/rubrics\/\$\{encodeURIComponent\(role\.id\)\}`\}/);
+  assert.match(rubricsSource, /Role rubrics/);
+  assert.match(rubricsSource, /Choose dimensions/);
+  assert.match(rubricsSource, /Open roles/);
+  assert.match(rubricsSource, /active_rubric_version_id/);
+  assert.match(rubricsSource, /draft_rubric_version_id/);
+  assert.doesNotMatch(rubricsSource, /getAshbyActivePipeline/);
+  assert.doesNotMatch(rubricsSource, /pipeline\.roles/);
 });
 
 test("legacy dashboard demo data files are removed", async () => {
@@ -212,21 +331,16 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
   assert.match(rolesSource, /ActivePipelineDashboard/);
   assert.match(rolesSource, /canManageAshbyOnboarding\(session\)/);
   assert.match(rolesSource, /canManagePipelineStages/);
-  assert.match(candidatesSource, /getAshbyActivePipeline/);
-  assert.match(candidatesSource, /ActivePipelineDashboard/);
-  assert.match(candidatesSource, /canManageAshbyOnboarding\(session\)/);
-  assert.match(candidatesSource, /canManagePipelineStages/);
-  assert.match(activePipelineSource, /selectedRole\.stageOptions\.map/);
+  assert.match(activePipelineSource, /role\.stageOptions\.map/);
   assert.match(activePipelineSource, /readonly canManagePipelineStages: boolean/);
-  assert.match(activePipelineSource, /if \(!canManagePipelineStages\)/);
-  assert.match(activePipelineSource, /disabled=\{!canManagePipelineStages \|\| pendingStageKey !== null\}/);
+  assert.match(activePipelineSource, /data-role-phase-counts/);
+  assert.match(activePipelineSource, /data-role-stage-button/);
+  assert.match(activePipelineSource, /toggleStage\(role\.jobId, stage\.name\)/);
   assert.match(activePipelineSource, /candidateRowsTruncated/);
-  assert.match(activePipelineSource, /DashboardCreateInterviewLauncher/);
-  assert.match(activePipelineSource, /Stage filters are read-only for members\./);
-  assert.match(activePipelineSource, /data-active-candidate-scroll-region/);
-  assert.match(activePipelineSource, /overflow-y-auto/);
-  assert.match(activePipelineSource, /<section className="min-h-0 min-w-0 overflow-hidden/);
-  assert.match(activePipelineSource, /"min-h-16 w-full min-w-0 overflow-hidden rounded-md/);
+  assert.match(chromeSource, /DashboardCreateInterviewLauncher/);
+  assert.doesNotMatch(activePipelineSource, /Stage filters are read-only for members\./);
+  assert.doesNotMatch(activePipelineSource, /data-active-candidate-scroll-region/);
+  assert.doesNotMatch(activePipelineSource, /disabled=\{!canManagePipelineStages/);
   assert.match(reviewQueueSource, /getAshbyActivePipeline/);
   assert.match(reviewQueueSource, /getRealInterviews/);
   assert.match(reviewQueueSource, /ReviewRolePickerFoundation/);
@@ -242,6 +356,26 @@ test("roles, candidates, and review queue are explicit about role-scoped intervi
   assert.match(ashbyFirstSectionsSource, /role\.name/);
   assert.doesNotMatch(ashbyFirstSectionsSource, /Role picker appears after role names sync/);
   assert.doesNotMatch(ashbyFirstSectionsSource, /Selected role \$\{index \+ 1\}/);
+});
+
+test("pipeline dashboard uses Ashby-style role phase rows with expandable candidate strips", () => {
+  assert.match(activePipelineSource, /data-role-phase-counts/);
+  assert.match(activePipelineSource, /Role Phase Counts/);
+  assert.match(activePipelineSource, /data-role-pipeline-row/);
+  assert.match(activePipelineSource, /data-role-stage-tile-list/);
+  assert.match(activePipelineSource, /data-role-stage-button/);
+  assert.match(activePipelineSource, /aria-expanded=\{selected\}/);
+  assert.match(activePipelineSource, /data-stage-candidate-strip/);
+  assert.match(activePipelineSource, /data-candidate-mini-card/);
+  assert.match(activePipelineSource, /candidate\.linkedInUrl/);
+  assert.match(activePipelineSource, /candidate\.ashbyUrl/);
+  assert.match(activePipelineSource, /candidate\.resumeUrl/);
+  assert.match(activePipelineSource, /target="_blank"/);
+  assert.match(activePipelineSource, /rel="noreferrer"/);
+  assert.doesNotMatch(activePipelineSource, /data-role-stage-filter-list/);
+  assert.doesNotMatch(activePipelineSource, /type="checkbox"/);
+  assert.doesNotMatch(activePipelineSource, /StatusPill status=\{candidate\.currentStage\}/);
+  assert.doesNotMatch(activePipelineSource, /mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3/);
 });
 
 test("role-scoped dashboard pages use real Ashby role names instead of ordinal placeholders", () => {
@@ -300,6 +434,8 @@ test("interview detail is Fireflies-like, real-only, and hides raw internal iden
   assert.match(interviewPlaybackReviewSource, /xl:grid-cols-\[minmax\(0,1fr\)_minmax\(360px,420px\)\]/);
   assert.match(interviewDetailSource, /Historical Fireflies import/);
   assert.match(interviewDetailSource, /Fireflies historical import/);
+  assert.match(interviewDetailSource, /<Link href="\/dashboard\/roles"[\s\S]*Pipeline[\s\S]*<\/Link>/);
+  assert.doesNotMatch(interviewDetailSource, />\s*Roles\s*<\/Link>/);
   assert.match(backendDataSource, /recommendation_packet/);
   assert.match(backendDataSource, /scorecardJson/);
   assert.match(interviewDetailSource, /AI recommendation/);
@@ -334,7 +470,13 @@ test("interview transcript timestamps seek media playback", () => {
   assert.match(interviewPlaybackReviewSource, /Date\.parse\(turn\.occurredAt\)/);
   assert.match(interviewPlaybackReviewSource, /currentTime\s*=/);
   assert.match(interviewPlaybackReviewSource, /\.play\(\)/);
-  assert.match(interviewPlaybackReviewSource, /aria-label=\{`Jump playback to/);
+  assert.match(interviewPlaybackReviewSource, /<span className="sr-only">Jump playback to <\/span>/);
+});
+
+test("interview transcript seek target covers the full turn", () => {
+  assert.match(interviewPlaybackReviewSource, /<button[\s\S]*className=\{transcriptTurnClassName\}[\s\S]*onClick=\{\(\) => seekToTurn\(turn\)\}[\s\S]*\{transcriptTurnContent\}[\s\S]*<\/button>/);
+  assert.match(interviewPlaybackReviewSource, /w-full text-left/);
+  assert.doesNotMatch(interviewPlaybackReviewSource, /<button[\s\S]{0,500}\{timestampLabel\}\s*<\/button>/);
 });
 
 test("dashboard backend signs audio fallback media for audio-only interviews", () => {

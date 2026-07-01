@@ -287,6 +287,7 @@ describe("Ashby repository statements", () => {
 
     expect(applications.sql).toContain("status = 'Active'");
     expect(applications.sql).toContain("currentInterviewStage");
+    expect(applications.sql).toContain("raw_payload");
     expect(applications.params).toEqual(["int_1", ["job_1", "job_2"], 200]);
   });
 

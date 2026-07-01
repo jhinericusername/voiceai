@@ -94,6 +94,7 @@ interface ActivePipelineApplicationRow {
   readonly status?: unknown;
   readonly ashby_updated_at?: unknown;
   readonly updated_at?: unknown;
+  readonly raw_payload?: unknown;
 }
 
 interface ActivePipelineStageCount {
@@ -110,6 +111,9 @@ interface ActivePipelineCandidate {
   readonly currentStage: string;
   readonly source: string | null;
   readonly updatedAt: string | null;
+  readonly ashbyUrl: string;
+  readonly linkedInUrl: string | null;
+  readonly resumeUrl: string | null;
 }
 
 const ACTIVE_APPLICATION_ACTIONS = new Set([
@@ -366,6 +370,7 @@ function pipelineCandidateFromRow(row: ActivePipelineApplicationRow): ActivePipe
   if (!applicationId || !candidateId || !candidateName || !jobId || !currentStage) {
     return null;
   }
+  const rawPayload = objectValue(row.raw_payload);
 
   return {
     applicationId,
@@ -376,7 +381,78 @@ function pipelineCandidateFromRow(row: ActivePipelineApplicationRow): ActivePipe
     currentStage,
     source: stringValue(row.source),
     updatedAt: isoStringValue(row.ashby_updated_at) ?? isoStringValue(row.updated_at),
+    ashbyUrl: ashbyCandidateUrl(candidateId),
+    linkedInUrl: findUrlByHint(rawPayload, {
+      keyPattern: /linkedin|linked_in|linkedIn/i,
+      valuePattern: /linkedin\.com/i,
+    }),
+    resumeUrl: findUrlByHint(rawPayload, {
+      keyPattern: /resume|curriculum|cv/i,
+      valuePattern: /\/resume|resume|curriculum|cv/i,
+    }),
   };
+}
+
+function ashbyCandidateUrl(candidateId: string): string {
+  return `https://app.ashbyhq.com/candidates/${encodeURIComponent(candidateId)}`;
+}
+
+function findUrlByHint(
+  value: unknown,
+  input: {
+    readonly keyPattern: RegExp;
+    readonly valuePattern?: RegExp;
+  },
+  path: readonly string[] = [],
+): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findUrlByHint(item, input, path);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    const nextPath = [...path, key];
+    const pathMatches = nextPath.some((part) => input.keyPattern.test(part));
+    const directUrl = normalizedExternalUrl(nested);
+    if (
+      directUrl &&
+      (pathMatches || (input.valuePattern ? input.valuePattern.test(directUrl) : true))
+    ) {
+      return directUrl;
+    }
+
+    const nestedObject = objectValue(nested);
+    if (nestedObject) {
+      const nestedUrl = findUrlByHint(nestedObject, input, nextPath);
+      if (nestedUrl) return nestedUrl;
+    } else if (Array.isArray(nested)) {
+      const nestedUrl = findUrlByHint(nested, input, nextPath);
+      if (nestedUrl) return nestedUrl;
+    }
+  }
+
+  return null;
+}
+
+function normalizedExternalUrl(value: unknown): string | null {
+  const raw = stringValue(value);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function integrationForWebhook(input: {
@@ -662,6 +738,94 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       webhookUrlPath: integrationId
         ? `/api/ashby/webhook?integrationId=${encodeURIComponent(integrationId)}`
         : null,
+    });
+  });
+
+  app.post("/integrations/ashby/jobs", async (request, reply) => {
+    const identity = companyIdentity(request.body);
+    const body = objectValue(request.body);
+    const reviewerEmail = stringValue(body?.reviewerEmail);
+    if (!identity || !reviewerEmail) {
+      return reply.code(400).send({
+        error: "organizationId, emailDomain, and reviewerEmail are required",
+      });
+    }
+
+    const integration = await integrationForIdentity(identity);
+    const integrationId = integrationIdFrom(integration);
+    if (!integrationId) {
+      return reply.code(404).send({ error: "Ashby integration is not configured" });
+    }
+    if (!integrationReadyForSync(integration)) {
+      return incompleteSetup(reply);
+    }
+
+    const encryptedApiKey = stringValue(integration?.ashby_api_key_ciphertext);
+    if (!encryptedApiKey) {
+      return reply.code(404).send({ error: "Ashby integration is not configured" });
+    }
+
+    const apiKey = decryptAshbyApiKey({
+      ciphertext: encryptedApiKey,
+      secretKey: integrationSecretKeyFromEnv(),
+      purpose: "rubric-job-list",
+    });
+    let jobs: Awaited<ReturnType<typeof listJobs>>;
+    try {
+      jobs = await listJobs({ apiKey });
+    } catch (error) {
+      request.log.warn(
+        {
+          ...safeErrorLogFields(error),
+          ...ashbyApiErrorLogFields(error),
+          integrationId,
+        },
+        "failed to list Ashby jobs for rubric setup",
+      );
+      return reply.code(400).send({
+        error: "Unable to list Ashby jobs.",
+      });
+    }
+
+    const sortedJobs = [...jobs].sort(
+      (left, right) =>
+        left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+        left.id.localeCompare(right.id),
+    );
+
+    const client = await getPool().connect();
+    let committed = false;
+    try {
+      await client.query("BEGIN");
+      for (const job of sortedJobs) {
+        const profile = gradingProfileUpsertStatement({
+          profileId: randomUUID(),
+          organizationId: identity.organizationId,
+          ashbyIntegrationId: integrationId,
+          ashbyJobId: job.id,
+          actorEmail: reviewerEmail,
+        });
+        await client.query(profile.sql, [...profile.params]);
+      }
+      await client.query("COMMIT");
+      committed = true;
+    } catch (error) {
+      if (!committed) {
+        try {
+          await client.query("ROLLBACK");
+        } catch (rollbackError) {
+          request.log.error({ err: rollbackError }, "failed to roll back Ashby job list transaction");
+        }
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return reply.send({
+      integrationId,
+      selectedJobIds: selectedJobIds(integration?.selected_job_ids),
+      jobs: sortedJobs,
     });
   });
 

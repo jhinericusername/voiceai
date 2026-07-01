@@ -24,6 +24,7 @@ export function formatDate(value: string): string {
 function statusTone(status: string): string {
   switch (status) {
     case "Active":
+    case "Active Rubric":
     case "Available":
     case "Accepted":
     case "Advance":
@@ -56,6 +57,7 @@ function statusTone(status: string): string {
     case "Incomplete":
     case "Missing":
     case "Missed":
+    case "Needs Rubric":
     case "Below bar":
     case "Pass":
     case "Passed":

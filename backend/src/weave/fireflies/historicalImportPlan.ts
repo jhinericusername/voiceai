@@ -113,6 +113,10 @@ export interface HistoricalImportSourceMetadata {
     readonly sourceOccurrenceId: string;
     readonly ownerEmail: string | null;
     readonly meetingDate: string | null;
+    readonly meetingStartedAt: string | null;
+    readonly meetingStartedAtSource: "metadata" | "transcript" | null;
+    readonly dateOnlyStartedAt: string | null;
+    readonly dateOnlyStartedAtSource: "metadata" | "transcript" | "meeting_date" | null;
     readonly sourceBucket: string;
     readonly sourcePrefix: string;
     readonly targetBucket: string;
@@ -172,6 +176,17 @@ interface PlannedSourceJsonCopy {
   readonly storagePath: string;
 }
 
+export interface HistoricalFirefliesDisplayMetadata {
+  readonly title: string | null;
+  readonly effectiveStartedAt: string | null;
+  readonly exactStartedAt: string | null;
+  readonly exactStartedAtSource: "metadata" | "transcript" | null;
+  readonly dateOnlyStartedAt: string | null;
+  readonly dateOnlyStartedAtSource: "metadata" | "transcript" | "meeting_date" | null;
+  readonly durationSeconds: number | null;
+  readonly endedAt: string | null;
+}
+
 export function buildHistoricalImportPlan(
   input: HistoricalImportPlanInput,
 ): HistoricalImportPlan {
@@ -183,11 +198,16 @@ export function buildHistoricalImportPlan(
   const root = `/${input.orgId}/interviews/${sessionId}/`;
   const metadata = asRecord(input.metadata);
   const transcript = asRecord(input.transcript);
-  const meetingStartedAt = meetingStartedAtFrom(input.recording, metadata, transcript);
-  const durationSeconds = durationSecondsFrom(metadata, transcript);
-  const endedAt = endedAtFromDuration(meetingStartedAt, durationSeconds);
+  const displayMetadata = historicalFirefliesDisplayMetadata({
+    recording: input.recording,
+    metadata,
+    transcript,
+  });
+  const meetingStartedAt = displayMetadata.effectiveStartedAt;
+  const durationSeconds = displayMetadata.durationSeconds;
+  const endedAt = displayMetadata.endedAt;
   const candidateEmail = candidateEmailFrom(metadata, transcript);
-  const firefliesTitle = firefliesTitleFrom(metadata, transcript);
+  const firefliesTitle = displayMetadata.title;
   const artifacts = plannedArtifactSources(input.recording, root, durationSeconds);
   const sourceJsonCopies = plannedSourceJsonCopies(input.recording, root);
 
@@ -204,7 +224,7 @@ export function buildHistoricalImportPlan(
       roomName: firefliesTitle ?? `fireflies-${input.recording.transcriptId}`,
       externalSource: "fireflies",
       externalId: sourceOccurrenceId,
-      sourceMetadata: sourceMetadata(input, firefliesTitle),
+      sourceMetadata: sourceMetadata(input, displayMetadata),
     },
     recording: {
       sessionId,
@@ -246,6 +266,29 @@ export function buildHistoricalImportPlan(
         artifactId: null,
       })),
     ],
+  };
+}
+
+export function historicalFirefliesDisplayMetadata(input: {
+  readonly recording: Pick<HistoricalFirefliesRecording, "meetingDate">;
+  readonly metadata: unknown;
+  readonly transcript: unknown;
+}): HistoricalFirefliesDisplayMetadata {
+  const metadata = asRecord(input.metadata);
+  const transcript = asRecord(input.transcript);
+  const startedAt = meetingStartedAtDetails(input.recording, metadata, transcript);
+  const durationSeconds = durationSecondsFrom(metadata, transcript);
+
+  return {
+    title: firefliesTitleFrom(metadata, transcript),
+    effectiveStartedAt: startedAt.value,
+    exactStartedAt: startedAt.dateOnly ? null : startedAt.value,
+    exactStartedAtSource:
+      !startedAt.dateOnly && startedAt.source !== "meeting_date" ? startedAt.source : null,
+    dateOnlyStartedAt: startedAt.dateOnly ? startedAt.value : null,
+    dateOnlyStartedAtSource: startedAt.dateOnly ? startedAt.source : null,
+    durationSeconds,
+    endedAt: startedAt.dateOnly ? null : endedAtFromDuration(startedAt.value, durationSeconds),
   };
 }
 
@@ -343,21 +386,87 @@ function transcriptAttendeeEmail(transcript: JsonRecord): string | null {
   return null;
 }
 
-function meetingStartedAtFrom(
-  recording: HistoricalFirefliesRecording,
+function meetingStartedAtDetails(
+  recording: Pick<HistoricalFirefliesRecording, "meetingDate">,
   metadata: JsonRecord,
   transcript: JsonRecord,
-): string | null {
-  return (
-    firstString(metadata, ["meetingStartedAt", "meeting_start", "startTime", "started_at"]) ??
-    firstString(transcript, ["date", "meetingStartTime"]) ??
-    meetingDateStart(recording.meetingDate)
-  );
+): {
+  readonly value: string | null;
+  readonly source: "metadata" | "transcript" | "meeting_date" | null;
+  readonly dateOnly: boolean;
+} {
+  const metadataStartedAt = firstString(metadata, [
+    "meetingStartedAt",
+    "meeting_start",
+    "startTime",
+    "started_at",
+  ]);
+  if (metadataStartedAt) {
+    const detail = startedAtDetail(metadataStartedAt, "metadata");
+    if (detail.value) return detail;
+  }
+
+  const transcriptStartedAt = firstString(transcript, ["meetingStartTime", "dateString"]) ??
+    numericTimestampValue(transcript.date) ??
+    firstMeetingAttendanceJoinTime(transcript);
+  if (transcriptStartedAt) {
+    const detail = startedAtDetail(transcriptStartedAt, "transcript");
+    if (detail.value) return detail;
+  }
+
+  const transcriptDate = stringValue(transcript.date);
+  if (transcriptDate) {
+    const detail = startedAtDetail(transcriptDate, "transcript");
+    if (detail.value) return detail;
+  }
+
+  const meetingDate = meetingDateStart(recording.meetingDate);
+  return {
+    value: meetingDate,
+    source: meetingDate ? "meeting_date" : null,
+    dateOnly: Boolean(meetingDate),
+  };
+}
+
+function startedAtDetail(
+  value: string,
+  source: "metadata" | "transcript",
+): {
+  readonly value: string | null;
+  readonly source: "metadata" | "transcript";
+  readonly dateOnly: boolean;
+} {
+  const dateOnly = isDateOnlyValue(value);
+  const normalizedValue = dateOnly ? meetingDateStart(value) : timestampValue(value);
+  return {
+    value: normalizedValue,
+    source,
+    dateOnly,
+  };
 }
 
 function meetingDateStart(meetingDate: string | null): string | null {
   const value = stringValue(meetingDate);
   return value ? `${value}T00:00:00.000Z` : null;
+}
+
+function firstMeetingAttendanceJoinTime(transcript: JsonRecord): string | null {
+  const attendance = Array.isArray(transcript.meeting_attendance)
+    ? transcript.meeting_attendance
+    : [];
+  for (const attendee of attendance) {
+    const joinTime = stringValue(asRecord(attendee).join_time);
+    if (joinTime) return joinTime;
+  }
+  return null;
+}
+
+function numericTimestampValue(value: unknown): string | null {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(numeric)) return null;
+  const millis = numeric > 10_000_000_000 ? numeric : numeric * 1000;
+  const date = new Date(millis);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function durationSecondsFrom(metadata: JsonRecord, transcript: JsonRecord): number | null {
@@ -383,7 +492,7 @@ function occurredAtFromOffset(startedAt: string | null, offsetMs: number | null)
 
 function sourceMetadata(
   input: HistoricalImportPlanInput,
-  firefliesTitle: string | null,
+  displayMetadata: HistoricalFirefliesDisplayMetadata,
 ): HistoricalImportSourceMetadata {
   return {
     fireflies: {
@@ -394,10 +503,14 @@ function sourceMetadata(
       ),
       ownerEmail: input.recording.ownerEmail,
       meetingDate: input.recording.meetingDate,
+      meetingStartedAt: displayMetadata.exactStartedAt,
+      meetingStartedAtSource: displayMetadata.exactStartedAtSource,
+      dateOnlyStartedAt: displayMetadata.dateOnlyStartedAt,
+      dateOnlyStartedAtSource: displayMetadata.dateOnlyStartedAtSource,
       sourceBucket: input.sourceBucket,
       sourcePrefix: input.recording.prefix,
       targetBucket: input.targetBucket,
-      title: firefliesTitle,
+      title: displayMetadata.title,
       matchStatus: input.weaveMatch ? input.weaveMatch.matchStatus : "unindexed",
       audioKey: input.recording.audioKey,
       videoKey: input.recording.videoKey,
@@ -515,6 +628,15 @@ function asRecord(value: unknown): JsonRecord {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function timestampValue(value: string): string | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function isDateOnlyValue(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
 }
 
 function displayTitleString(value: unknown): string | null {

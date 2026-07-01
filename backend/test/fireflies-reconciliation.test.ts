@@ -122,6 +122,42 @@ describe("Fireflies reconciliation import", () => {
     expect(recording.title).toBe("Fireflies calendar event title");
   });
 
+  it("does not convert date-only transcript metadata into an exact meeting timestamp", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fireflies-date-only-"));
+    const folder = join(root, "org", "session");
+    await mkdir(folder, { recursive: true });
+    await writeFile(
+      join(folder, "metadata.json"),
+      JSON.stringify({
+        transcriptId: "tx_date_only",
+        eventTitle: "Date-only Fireflies recording",
+      }),
+    );
+    await writeFile(
+      join(folder, "transcript.json"),
+      JSON.stringify({
+        id: "tx_date_only",
+        date: "2026-06-10",
+        duration: 912,
+      }),
+    );
+
+    const recording = await readFirefliesRecordingFolder(folder, {
+      bucket: "weave-fireflies",
+      rootDir: root,
+      s3RootPrefix: "raw/fireflies/",
+    });
+
+    expect(recording.meetingStartedAt).toBeNull();
+    expect(recording.meetingDate).toBe("2026-06-10");
+    expect(recording.sourceMetadata).toMatchObject({
+      title: "Date-only Fireflies recording",
+      dateOnlyStartedAt: "2026-06-10T00:00:00.000Z",
+      dateOnlyStartedAtSource: "transcript",
+    });
+    expect(recording.sourceMetadata).not.toHaveProperty("meetingStartedAt");
+  });
+
   it("ignores scalar Fireflies event labels when reading recording titles", async () => {
     const root = await mkdtemp(join(tmpdir(), "fireflies-scalar-event-title-"));
     const folder = join(root, "org", "session");

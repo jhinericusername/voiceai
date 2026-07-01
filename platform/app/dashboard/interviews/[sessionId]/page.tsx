@@ -110,7 +110,7 @@ function RealInterviewDetailView({
               Review queue
             </Link>
             <Link href="/dashboard/roles" className={secondaryButtonClass}>
-              Roles
+              Pipeline
             </Link>
           </div>
         </div>

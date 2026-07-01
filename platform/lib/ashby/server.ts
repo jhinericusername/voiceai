@@ -54,6 +54,9 @@ export interface AshbyActivePipelineCandidate {
   readonly currentStage: string;
   readonly source: string | null;
   readonly updatedAt: string | null;
+  readonly ashbyUrl: string;
+  readonly linkedInUrl: string | null;
+  readonly resumeUrl: string | null;
 }
 
 export interface AshbyActivePipelineRole {
@@ -122,6 +125,18 @@ async function postBackend<T>(path: string, body: unknown): Promise<T> {
 
 export async function getAshbyCompanyState(identity: CompanyIdentityPayload): Promise<AshbyCompanyState> {
   return postBackend<AshbyCompanyState>("/integrations/ashby/company-state", identity);
+}
+
+export async function getAshbyJobs(
+  identity: CompanyIdentityPayload,
+  reviewerEmail: string,
+): Promise<readonly AshbyJobOption[]> {
+  const payload = await postBackend<{ jobs: AshbyJobOption[] }>("/integrations/ashby/jobs", {
+    ...identity,
+    reviewerEmail,
+  });
+
+  return payload.jobs;
 }
 
 export async function getRecentAshbyScreens(identity: CompanyIdentityPayload): Promise<readonly RecentScreen[]> {

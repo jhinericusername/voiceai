@@ -311,6 +311,10 @@ test("root package exposes connected dev commands", async () => {
     "node scripts/dev/grading-evaluate-connected.mjs",
   );
   assert.equal(
+    packageJson.scripts["historical-fireflies:metadata-backfill:connected"],
+    "node scripts/dev/historical-fireflies-metadata-backfill-connected.mjs",
+  );
+  assert.equal(
     packageJson.scripts["test:connected-dev"],
     "node --test scripts/dev/connected-dev.test.mjs",
   );
@@ -357,6 +361,18 @@ test("grading evaluation connected runner wires both puddle and weave databases"
   assert.match(source, /^\s*WEAVE_DATABASE_HOST:\s*"127\.0\.0\.1",$/m);
   assert.match(source, /^\s*WEAVE_DATABASE_NAME:\s*"weave",$/m);
   assert.match(source, /waitForTcpOpen\(dbLocalPort/);
+});
+
+test("historical Fireflies metadata backfill connected runner is metadata-only", async () => {
+  const source = await readFile(
+    new URL("./historical-fireflies-metadata-backfill-connected.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /"--metadata-only"/);
+  assert.match(source, /DATABASE_URL:\s*""/);
+  assert.match(source, /WeaveHistoricalRecordingsBucketName/);
+  assert.match(source, /ArtifactsBucketName/);
 });
 
 test("runbook documents connected local development commands", async () => {

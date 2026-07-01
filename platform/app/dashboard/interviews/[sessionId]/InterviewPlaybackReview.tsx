@@ -93,31 +93,42 @@ export function InterviewPlaybackReview({
                 const timestampLabel = formatOffset(turn.offsetMs) ?? formatDateTime(turn.occurredAt);
                 const offsetSeconds = playbackOffsetSeconds(turn, startedAt);
                 const canSeek = playableMediaAvailable && offsetSeconds !== null;
+                const transcriptTurnClassName = cx(
+                  "w-full text-left rounded-md border px-3 py-3",
+                  canSeek
+                    ? "cursor-pointer transition hover:border-cyan-300 hover:bg-cyan-50 focus:outline-none focus:ring-4 focus:ring-cyan-100"
+                    : "",
+                  turn.speaker === "candidate" ? "border-cyan-200 bg-cyan-50/40" : "border-slate-200 bg-slate-50",
+                );
+                const transcriptTurnContent = (
+                  <>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className={cx("font-mono text-xs font-semibold", canSeek ? "text-cyan-700" : "text-slate-500")}>
+                        {canSeek ? <span className="sr-only">Jump playback to </span> : null}
+                        {timestampLabel}
+                      </span>
+                      <StatusPill status={formatSpeaker(turn.speaker)} />
+                    </span>
+                    <span className="mt-2 block whitespace-pre-wrap text-sm leading-6 text-slate-700">{turn.text}</span>
+                  </>
+                );
+
+                if (canSeek) {
+                  return (
+                    <button
+                      key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`}
+                      type="button"
+                      className={transcriptTurnClassName}
+                      onClick={() => seekToTurn(turn)}
+                    >
+                      {transcriptTurnContent}
+                    </button>
+                  );
+                }
 
                 return (
-                  <article
-                    key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`}
-                    className={cx(
-                      "rounded-md border px-3 py-3",
-                      turn.speaker === "candidate" ? "border-cyan-200 bg-cyan-50/40" : "border-slate-200 bg-slate-50",
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      {canSeek ? (
-                        <button
-                          type="button"
-                          className="font-mono text-xs font-semibold text-cyan-700 underline-offset-2 hover:underline focus:outline-none focus:ring-4 focus:ring-cyan-100"
-                          aria-label={`Jump playback to ${timestampLabel}`}
-                          onClick={() => seekToTurn(turn)}
-                        >
-                          {timestampLabel}
-                        </button>
-                      ) : (
-                        <span className="font-mono text-xs font-semibold text-slate-500">{timestampLabel}</span>
-                      )}
-                      <StatusPill status={formatSpeaker(turn.speaker)} />
-                    </div>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{turn.text}</p>
+                  <article key={`${turn.turnIndex}-${turn.speaker}-${turn.occurredAt}`} className={transcriptTurnClassName}>
+                    {transcriptTurnContent}
                   </article>
                 );
               })}
