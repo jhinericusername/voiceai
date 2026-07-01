@@ -18,7 +18,9 @@ describe("Ashby API client", () => {
         candidate: {
           id: "cand_1",
           name: "Maya Chen",
-          primaryEmailAddress: "maya@example.com",
+          primaryEmailAddress: { value: "maya@example.com", isPrimary: true },
+          socialLinks: [{ url: "https://www.linkedin.com/in/maya-chen" }],
+          profileUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_1",
         },
         job: { id: "job_1" },
         currentInterviewStage: { name: "Phone Screen" },
@@ -39,6 +41,11 @@ describe("Ashby API client", () => {
       ashbyUpdatedAt: "2026-06-10T12:00:00.000Z",
       rawPayload: expect.objectContaining({ id: "app_1" }),
     });
+    expect(synced?.rawPayload.candidate).toEqual(
+      expect.objectContaining({
+        profileUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_1",
+      }),
+    );
   });
 
   it("falls back to candidate first and last name plus stage and source names", () => {
@@ -114,6 +121,33 @@ describe("Ashby API client", () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(url), init: init ?? {} });
+      if (String(url).endsWith("/candidate.info")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            results: {
+              id: "cand_1",
+              name: "Maya Chen",
+              primaryEmailAddress: { value: "maya@example.com", isPrimary: true },
+              socialLinks: [{ url: "https://www.linkedin.com/in/maya-chen" }],
+              resumeFileHandle: { handle: "resume-handle", name: "Maya Chen Resume.pdf" },
+              profileUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_1",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (String(url).endsWith("/file.info")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            results: {
+              url: "https://files.ashbyhq.com/resume.pdf",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       return new Response(
         JSON.stringify({
           success: true,
@@ -139,15 +173,80 @@ describe("Ashby API client", () => {
 
     expect(result).toHaveLength(1);
     expect(calls[0]?.url).toBe("https://api.ashbyhq.com/application.list");
+    expect(calls[1]?.url).toBe("https://api.ashbyhq.com/candidate.info");
+    expect(calls[2]?.url).toBe("https://api.ashbyhq.com/file.info");
     expect((calls[0]?.init.headers as Record<string, string>).authorization).toBe(
       `Basic ${Buffer.from("ashby-key:").toString("base64")}`,
     );
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ jobId: "job_1", status: "Active" });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ id: "cand_1" });
+    expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ fileHandle: "resume-handle" });
+    expect(result[0]?.candidateEmail).toBe("maya@example.com");
+    expect(result[0]?.rawPayload.candidate).toEqual(
+      expect.objectContaining({
+        socialLinks: [{ url: "https://www.linkedin.com/in/maya-chen" }],
+        resumeFileHandle: {
+          handle: "resume-handle",
+          name: "Maya Chen Resume.pdf",
+          url: "https://files.ashbyhq.com/resume.pdf",
+        },
+        profileUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_1",
+      }),
+    );
+  });
+
+  it("keeps syncing active applications when candidate detail enrichment is unavailable", async () => {
+    const calls: string[] = [];
+    const fakeFetch = async (url: string | URL | Request) => {
+      calls.push(String(url));
+      if (String(url).endsWith("/candidate.info")) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            errorInfo: { code: "missing_endpoint_permission" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: [
+            {
+              id: "app_1",
+              status: "Active",
+              candidate: { id: "cand_1", name: "Maya Chen" },
+              jobId: "job_1",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const result = await listActiveApplicationsForJob({
+      apiKey: "ashby-key",
+      integrationId: "int_1",
+      jobId: "job_1",
+      fetchImpl: fakeFetch as typeof fetch,
+    });
+
+    expect(calls).toEqual([
+      "https://api.ashbyhq.com/application.list",
+      "https://api.ashbyhq.com/candidate.info",
+    ]);
+    expect(result.map((application) => application.applicationId)).toEqual(["app_1"]);
   });
 
   it("paginates through active applications until Ashby stops returning cursors", async () => {
     const bodies: unknown[] = [];
-    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit) => {
+    const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/candidate.info")) {
+        return new Response(JSON.stringify({ success: false, errorInfo: { code: "not_mocked" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       bodies.push(JSON.parse(String(init?.body)));
       const isFirstPage = bodies.length === 1;
       return new Response(
@@ -186,7 +285,13 @@ describe("Ashby API client", () => {
 
   it("throws when Ashby application.list repeats a pagination cursor", async () => {
     const bodies: unknown[] = [];
-    const fakeFetch = async (_url: string | URL | Request, init?: RequestInit) => {
+    const fakeFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/candidate.info")) {
+        return new Response(JSON.stringify({ success: false, errorInfo: { code: "not_mocked" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       bodies.push(JSON.parse(String(init?.body)));
       if (bodies.length > 2) {
         throw new Error("test detected repeated application cursor loop");
@@ -225,7 +330,13 @@ describe("Ashby API client", () => {
 
   it("throws when Ashby application.list exceeds the pagination safety limit", async () => {
     let page = 0;
-    const fakeFetch = async () => {
+    const fakeFetch = async (url: string | URL | Request) => {
+      if (String(url).endsWith("/candidate.info")) {
+        return new Response(JSON.stringify({ success: false, errorInfo: { code: "not_mocked" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       page += 1;
       if (page > 105) {
         throw new Error("test detected unbounded application.list pagination");
@@ -346,6 +457,30 @@ describe("Ashby API client", () => {
       authorization: `Basic ${Buffer.from("ashby-key:").toString("base64")}`,
       "content-type": "application/json",
     });
+  });
+
+  it("can list every Ashby job without the Open status filter for rubric setup", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: [
+            { id: "job_1", name: "Founding Engineer", status: "Open" },
+            { id: "job_2", title: "Designer", status: "Closed" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await expect(listJobs({ apiKey: "ashby-key", fetchImpl, status: null })).resolves.toEqual([
+      { id: "job_1", name: "Founding Engineer", status: "Open" },
+      { id: "job_2", name: "Designer", status: "Closed" },
+    ]);
+
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({});
   });
 
   it("paginates through Ashby job.list and filters closed or archived jobs", async () => {

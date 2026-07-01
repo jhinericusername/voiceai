@@ -376,12 +376,12 @@ function pipelineCandidateFromRow(row: ActivePipelineApplicationRow): ActivePipe
     applicationId,
     candidateId,
     candidateName,
-    candidateEmail: stringValue(row.candidate_email),
+    candidateEmail: stringValue(row.candidate_email) ?? findEmailByHint(rawPayload),
     jobId,
     currentStage,
     source: stringValue(row.source),
     updatedAt: isoStringValue(row.ashby_updated_at) ?? isoStringValue(row.updated_at),
-    ashbyUrl: ashbyCandidateUrl(candidateId),
+    ashbyUrl: ashbyCandidateUrl(rawPayload, candidateId),
     linkedInUrl: findUrlByHint(rawPayload, {
       keyPattern: /linkedin|linked_in|linkedIn/i,
       valuePattern: /linkedin\.com/i,
@@ -393,8 +393,47 @@ function pipelineCandidateFromRow(row: ActivePipelineApplicationRow): ActivePipe
   };
 }
 
-function ashbyCandidateUrl(candidateId: string): string {
-  return `https://app.ashbyhq.com/candidates/${encodeURIComponent(candidateId)}`;
+function ashbyCandidateUrl(rawPayload: Record<string, unknown> | null, candidateId: string): string {
+  return (
+    findUrlByHint(rawPayload, {
+      keyPattern: /profileUrl|ashby/i,
+      valuePattern: /app\.ashbyhq\.com/i,
+    }) ?? `https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/${encodeURIComponent(candidateId)}`
+  );
+}
+
+function findEmailByHint(value: unknown, path: readonly string[] = []): string | null {
+  const direct = normalizedEmail(value);
+  if (direct && path.some((part) => /email|mail/i.test(part))) {
+    return direct;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findEmailByHint(item, path);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    const found = findEmailByHint(nested, [...path, key]);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+function normalizedEmail(value: unknown): string | null {
+  const raw = stringValue(value);
+  if (!raw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
+    return null;
+  }
+  return raw;
 }
 
 function findUrlByHint(
@@ -772,7 +811,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     });
     let jobs: Awaited<ReturnType<typeof listJobs>>;
     try {
-      jobs = await listJobs({ apiKey });
+      jobs = await listJobs({ apiKey, status: null });
     } catch (error) {
       request.log.warn(
         {
@@ -999,8 +1038,8 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       const configuredIntegration = secretResult.rows[0];
       const encryptedApiKey = stringValue(configuredIntegration?.ashby_api_key_ciphertext);
       const encryptedWebhookSecret = stringValue(configuredIntegration?.ashby_webhook_secret_ciphertext);
-      const jobIds = stringArray(configuredIntegration?.selected_job_ids);
-      if (!encryptedApiKey || !encryptedWebhookSecret || jobIds.length === 0) {
+      const selectedJobIdsForSync = stringArray(configuredIntegration?.selected_job_ids);
+      if (!encryptedApiKey || !encryptedWebhookSecret) {
         return reply.code(404).send({ error: "Ashby integration is not configured" });
       }
 
@@ -1009,6 +1048,17 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         secretKey: integrationSecretKeyFromEnv(),
         purpose: "active-application-sync",
       });
+      const openJobs = await listJobs({ apiKey });
+      const jobIds = [
+        ...new Set([
+          ...selectedJobIdsForSync,
+          ...openJobs.map((job) => job.id),
+        ]),
+      ];
+      if (jobIds.length === 0) {
+        return reply.code(404).send({ error: "No open Ashby jobs found" });
+      }
+
       let syncedCount = 0;
       for (const jobId of jobIds) {
         const applications = await listActiveApplicationsForJob({ apiKey, integrationId, jobId });
@@ -1026,7 +1076,11 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
         integrationId,
         actorEmail,
         action: "active_applications_synced",
-        metadata: { syncedCount, selectedJobCount: jobIds.length },
+        metadata: {
+          syncedCount,
+          selectedJobCount: selectedJobIdsForSync.length,
+          syncedJobCount: jobIds.length,
+        },
       });
       await getPool().query(audit.sql, [...audit.params]);
       return reply.send({ ok: true, syncedCount });
@@ -1049,27 +1103,15 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
       return incompleteSetup(reply);
     }
 
-    const jobIds = selectedJobIds(integration?.selected_job_ids);
-    if (jobIds.length === 0) {
-      return reply.send({
-        integrationId,
-        lastSyncAt: integration?.last_sync_at ?? null,
-        selectedJobCount: 0,
-        totalSyncedCandidates: 0,
-        activeCandidateCount: 0,
-        candidateRowCount: 0,
-        candidateRowsTruncated: false,
-        roles: [],
-      });
-    }
+    const configuredJobIds = selectedJobIds(integration?.selected_job_ids);
 
     const roleStmt = activePipelineRolesStatement({
       integrationId,
-      selectedJobIds: jobIds,
+      selectedJobIds: null,
     });
     const applicationsStmt = activePipelineApplicationsStatement({
       integrationId,
-      selectedJobIds: jobIds,
+      selectedJobIds: null,
       limit: limitValue(body?.limit, 500, 1000),
     });
     const [roleResult, applicationsResult] = await Promise.all([
@@ -1110,7 +1152,7 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     return reply.send({
       integrationId,
       lastSyncAt: integration?.last_sync_at ?? null,
-      selectedJobCount: jobIds.length,
+      selectedJobCount: configuredJobIds.length,
       totalSyncedCandidates,
       activeCandidateCount,
       candidateRowCount,

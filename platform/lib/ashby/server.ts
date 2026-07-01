@@ -54,9 +54,9 @@ export interface AshbyActivePipelineCandidate {
   readonly currentStage: string;
   readonly source: string | null;
   readonly updatedAt: string | null;
-  readonly ashbyUrl: string;
-  readonly linkedInUrl: string | null;
-  readonly resumeUrl: string | null;
+  readonly ashbyUrl?: string | null;
+  readonly linkedInUrl?: string | null;
+  readonly resumeUrl?: string | null;
 }
 
 export interface AshbyActivePipelineRole {

@@ -20,9 +20,9 @@ interface ActivePipelineCandidate {
   readonly currentStage: string;
   readonly source: string | null;
   readonly updatedAt: string | null;
-  readonly ashbyUrl: string;
-  readonly linkedInUrl: string | null;
-  readonly resumeUrl: string | null;
+  readonly ashbyUrl?: string | null;
+  readonly linkedInUrl?: string | null;
+  readonly resumeUrl?: string | null;
 }
 
 interface ActivePipelineRole {
@@ -75,6 +75,14 @@ function candidateHref(candidate: ActivePipelineCandidate): string {
   return `/dashboard/roles/${encodeURIComponent(candidate.jobId)}/candidates/${encodeURIComponent(candidateRouteId(candidate))}`;
 }
 
+function candidateAshbyHref(candidate: ActivePipelineCandidate): string {
+  const candidateId = candidate.candidateId.trim();
+  return (
+    candidate.ashbyUrl?.trim() ||
+    `https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/${encodeURIComponent(candidateId || candidate.applicationId)}`
+  );
+}
+
 function formatCandidateDate(value: string | null): string | null {
   if (!value) {
     return null;
@@ -113,13 +121,15 @@ function QuickCandidateLink({
       href={href}
       target="_blank"
       rel="noreferrer"
+      onClick={(event) => event.stopPropagation()}
       aria-label={label}
       title={label}
       className={cx(
-        "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-[11px] font-bold transition",
+        "inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border text-[11px] font-bold transition",
         "focus:outline-none focus:ring-4 focus:ring-cyan-100",
         className,
       )}
+      data-candidate-quick-link
     >
       {children}
     </a>
@@ -287,7 +297,7 @@ export function ActivePipelineDashboard({
                                     </QuickCandidateLink>
                                   ) : null}
                                   <QuickCandidateLink
-                                    href={candidate.ashbyUrl}
+                                    href={candidateAshbyHref(candidate)}
                                     label={`Open ${candidate.candidateName} in Ashby`}
                                     className="border-indigo-100 bg-indigo-50 text-indigo-700 hover:border-indigo-200 hover:bg-indigo-100"
                                   >

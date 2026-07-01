@@ -283,7 +283,7 @@ test("top-level operational pages do not import demo dashboard data", () => {
   }
 });
 
-test("rubrics dashboard lists every open Ashby role as cards and links to role rubric editors", () => {
+test("rubrics dashboard lists every Ashby role as cards and links to role rubric editors", () => {
   assert.ok(rubricsSource, "rubrics index page should exist");
   assert.match(rubricsSource, /requireDashboardUser\("\/dashboard\/rubrics"\)/);
   assert.match(rubricsSource, /getAshbyJobs/);
@@ -292,7 +292,7 @@ test("rubrics dashboard lists every open Ashby role as cards and links to role r
   assert.match(rubricsSource, /href=\{`\/dashboard\/rubrics\/\$\{encodeURIComponent\(role\.id\)\}`\}/);
   assert.match(rubricsSource, /Role rubrics/);
   assert.match(rubricsSource, /Choose dimensions/);
-  assert.match(rubricsSource, /Open roles/);
+  assert.match(rubricsSource, /Ashby roles/);
   assert.match(rubricsSource, /active_rubric_version_id/);
   assert.match(rubricsSource, /draft_rubric_version_id/);
   assert.doesNotMatch(rubricsSource, /getAshbyActivePipeline/);

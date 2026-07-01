@@ -289,6 +289,22 @@ describe("Ashby repository statements", () => {
     expect(applications.sql).toContain("currentInterviewStage");
     expect(applications.sql).toContain("raw_payload");
     expect(applications.params).toEqual(["int_1", ["job_1", "job_2"], 200]);
+
+    const allRoles = activePipelineRolesStatement({
+      integrationId: "int_1",
+      selectedJobIds: null,
+    });
+    expect(allRoles.sql).toContain("UNION SELECT DISTINCT job_id FROM application_rows");
+    expect(allRoles.sql).toContain("$2::text[] IS NULL");
+    expect(allRoles.params).toEqual(["int_1", null]);
+
+    const allApplications = activePipelineApplicationsStatement({
+      integrationId: "int_1",
+      selectedJobIds: null,
+      limit: 1000,
+    });
+    expect(allApplications.sql).toContain("$2::text[] IS NULL");
+    expect(allApplications.params).toEqual(["int_1", null, 1000]);
   });
 
   it("builds per-role active stage updates", () => {

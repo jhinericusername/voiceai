@@ -328,19 +328,22 @@ const ACTIVE_PIPELINE_STAGE_ORDER_SQL =
 
 export function activePipelineRolesStatement(input: {
   readonly integrationId: string;
-  readonly selectedJobIds: readonly string[];
+  readonly selectedJobIds?: readonly string[] | null;
 }): SqlStatement {
+  const selectedJobIds = input.selectedJobIds?.length ? [...input.selectedJobIds] : null;
   return {
     sql:
-      "WITH selected_jobs AS (" +
-      "SELECT unnest($2::text[]) AS job_id" +
-      "), application_rows AS (" +
+      "WITH application_rows AS (" +
       "SELECT a.job_id, " +
       `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
       `${ACTIVE_PIPELINE_STAGE_ORDER_SQL} AS stage_order, ` +
       "COALESCE(NULLIF(a.raw_payload->'job'->>'name', ''), NULLIF(a.raw_payload->'job'->>'title', '')) AS job_name " +
       "FROM ashby_applications a " +
-      "WHERE a.integration_id = $1 AND a.job_id = ANY($2::text[]) AND a.status = 'Active'" +
+      "WHERE a.integration_id = $1 AND a.status = 'Active' " +
+      "AND ($2::text[] IS NULL OR a.job_id = ANY($2::text[]))" +
+      "), selected_jobs AS (" +
+      "SELECT unnest($2::text[]) AS job_id WHERE $2::text[] IS NOT NULL " +
+      "UNION SELECT DISTINCT job_id FROM application_rows WHERE $2::text[] IS NULL" +
       "), stage_counts AS (" +
       "SELECT job_id, current_stage, MIN(stage_order) AS stage_order, COUNT(*)::int AS candidate_count " +
       "FROM application_rows GROUP BY job_id, current_stage" +
@@ -360,24 +363,26 @@ export function activePipelineRolesStatement(input: {
       "LEFT JOIN job_names jn ON jn.job_id = sj.job_id " +
       "LEFT JOIN stage_json st ON st.job_id = sj.job_id " +
       "ORDER BY job_name ASC",
-    params: [input.integrationId, [...input.selectedJobIds]],
+    params: [input.integrationId, selectedJobIds],
   };
 }
 
 export function activePipelineApplicationsStatement(input: {
   readonly integrationId: string;
-  readonly selectedJobIds: readonly string[];
+  readonly selectedJobIds?: readonly string[] | null;
   readonly limit: number;
 }): SqlStatement {
+  const selectedJobIds = input.selectedJobIds?.length ? [...input.selectedJobIds] : null;
   return {
     sql:
       "SELECT application_id, candidate_id, candidate_name, candidate_email, job_id, " +
       `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
       "source, status, ashby_updated_at, updated_at, raw_payload " +
       "FROM ashby_applications a " +
-      "WHERE integration_id = $1 AND job_id = ANY($2::text[]) AND status = 'Active' " +
+      "WHERE integration_id = $1 AND status = 'Active' " +
+      "AND ($2::text[] IS NULL OR job_id = ANY($2::text[])) " +
       "ORDER BY COALESCE(ashby_updated_at, updated_at) DESC, updated_at DESC LIMIT $3",
-    params: [input.integrationId, [...input.selectedJobIds], input.limit],
+    params: [input.integrationId, selectedJobIds, input.limit],
   };
 }
 

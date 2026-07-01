@@ -8,7 +8,7 @@ interface AshbyListResponse {
   readonly success?: boolean;
   readonly errorInfo?: unknown;
   readonly error?: unknown;
-  readonly results?: readonly Record<string, unknown>[];
+  readonly results?: readonly Record<string, unknown>[] | Record<string, unknown>;
   readonly moreDataAvailable?: boolean;
   readonly nextCursor?: string | null;
 }
@@ -45,6 +45,42 @@ function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function objectArrayValue(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(objectValue(item)))
+    : [];
+}
+
+function emailAddressValue(value: unknown): string | null {
+  const direct = stringValue(value);
+  if (direct) {
+    return direct;
+  }
+
+  const obj = objectValue(value);
+  return stringValue(obj?.value) ?? stringValue(obj?.email) ?? stringValue(obj?.address);
+}
+
+function candidateEmail(candidate: Record<string, unknown> | null): string | null {
+  if (!candidate) {
+    return null;
+  }
+
+  const primary = emailAddressValue(candidate.primaryEmailAddress) ?? emailAddressValue(candidate.email);
+  if (primary) {
+    return primary;
+  }
+
+  for (const emailAddress of objectArrayValue(candidate.emailAddresses)) {
+    const value = emailAddressValue(emailAddress);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 function ashbyErrorMessage(payload: AshbyListResponse): string {
@@ -133,7 +169,7 @@ export function syncedApplicationFromAshby(input: {
     integrationId: input.integrationId,
     candidateId,
     candidateName,
-    candidateEmail: stringValue(candidate?.primaryEmailAddress) ?? stringValue(candidate?.email),
+    candidateEmail: candidateEmail(candidate),
     jobId,
     currentStage:
       stringValue(currentInterviewStage?.title) ??
@@ -144,6 +180,99 @@ export function syncedApplicationFromAshby(input: {
     status: stringValue(input.application.status) ?? "Active",
     ashbyUpdatedAt: stringValue(input.application.updatedAt),
     rawPayload: input.application,
+  };
+}
+
+async function candidateInfo(input: {
+  readonly apiKey: string;
+  readonly candidateId: string;
+  readonly fetchImpl: typeof fetch;
+}): Promise<Record<string, unknown> | null> {
+  const response = await input.fetchImpl(`${ASHBY_API_BASE_URL}/candidate.info`, {
+    method: "POST",
+    headers: {
+      accept: "application/json; version=1",
+      authorization: authHeader(input.apiKey),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: input.candidateId }),
+  });
+
+  const payload = await ashbyPayload(response);
+  if (!response.ok || payload.success === false) {
+    return null;
+  }
+
+  return objectValue(payload.results);
+}
+
+async function fileInfo(input: {
+  readonly apiKey: string;
+  readonly fileHandle: string;
+  readonly fetchImpl: typeof fetch;
+}): Promise<Record<string, unknown> | null> {
+  const response = await input.fetchImpl(`${ASHBY_API_BASE_URL}/file.info`, {
+    method: "POST",
+    headers: {
+      accept: "application/json; version=1",
+      authorization: authHeader(input.apiKey),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ fileHandle: input.fileHandle }),
+  });
+
+  const payload = await ashbyPayload(response);
+  if (!response.ok || payload.success === false) {
+    return null;
+  }
+
+  return objectValue(payload.results);
+}
+
+async function applicationWithCandidateInfo(input: {
+  readonly apiKey: string;
+  readonly application: Record<string, unknown>;
+  readonly fetchImpl: typeof fetch;
+}): Promise<Record<string, unknown>> {
+  const candidate = objectValue(input.application.candidate);
+  const candidateId = stringValue(candidate?.id);
+  if (!candidateId) {
+    return input.application;
+  }
+
+  const enrichedCandidate = await candidateInfo({
+    apiKey: input.apiKey,
+    candidateId,
+    fetchImpl: input.fetchImpl,
+  });
+  if (!enrichedCandidate) {
+    return input.application;
+  }
+  const resumeFileHandle = objectValue(enrichedCandidate.resumeFileHandle);
+  const resumeHandle = stringValue(resumeFileHandle?.handle);
+  const resumeFileInfo = resumeHandle
+    ? await fileInfo({
+        apiKey: input.apiKey,
+        fileHandle: resumeHandle,
+        fetchImpl: input.fetchImpl,
+      })
+    : null;
+  const resumeUrl = stringValue(resumeFileInfo?.url);
+
+  return {
+    ...input.application,
+    candidate: {
+      ...candidate,
+      ...enrichedCandidate,
+      ...(resumeUrl && resumeFileHandle
+        ? {
+            resumeFileHandle: {
+              ...resumeFileHandle,
+              url: resumeUrl,
+            },
+          }
+        : {}),
+    },
   };
 }
 
@@ -168,9 +297,11 @@ function isOpenJob(job: AshbyJob): boolean {
 export async function listJobs(input: {
   readonly apiKey: string;
   readonly fetchImpl?: typeof fetch;
+  readonly status?: readonly string[] | null;
 }): Promise<AshbyJob[]> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const jobs: AshbyJob[] = [];
+  const statusFilter = input.status === undefined ? ["Open"] : input.status;
   const seenCursors = new Set<string>();
   let cursor: string | null = null;
   let pageCount = 0;
@@ -189,7 +320,7 @@ export async function listJobs(input: {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        status: ["Open"],
+        ...(statusFilter === null ? {} : { status: statusFilter }),
         ...(cursor ? { cursor } : {}),
       }),
     });
@@ -211,9 +342,10 @@ export async function listJobs(input: {
       });
     }
 
-    for (const result of payload.results ?? []) {
+    const results = Array.isArray(payload.results) ? payload.results : [];
+    for (const result of results) {
       const job = jobFromAshby(result);
-      if (job && isOpenJob(job)) {
+      if (job && (statusFilter === null || isOpenJob(job))) {
         jobs.push(job);
       }
     }
@@ -280,10 +412,16 @@ export async function listActiveApplicationsForJob(input: {
       });
     }
 
-    for (const application of payload.results ?? []) {
+    const results = Array.isArray(payload.results) ? payload.results : [];
+    for (const application of results) {
+      const enrichedApplication = await applicationWithCandidateInfo({
+        apiKey: input.apiKey,
+        application,
+        fetchImpl,
+      });
       const synced = syncedApplicationFromAshby({
         integrationId: input.integrationId,
-        application,
+        application: enrichedApplication,
       });
       if (synced) {
         applications.push(synced);

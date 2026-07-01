@@ -53,7 +53,7 @@ export default async function RubricsPage() {
           </div>
           <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">Role rubrics</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Choose dimensions for each synced Ashby role. Approved rubrics are used by grading prompts for candidates in
+            Choose dimensions for each Ashby role. Approved rubrics are used by grading prompts for candidates in
             that role.
           </p>
         </div>
@@ -61,9 +61,9 @@ export default async function RubricsPage() {
 
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard
-          label="Open roles"
+          label="Ashby roles"
           value={String(jobs.length)}
-          detail="Open Ashby roles available for rubric setup."
+          detail="Ashby roles available for rubric setup."
         />
         <MetricCard
           label="Active rubrics"
@@ -111,8 +111,8 @@ export default async function RubricsPage() {
           </div>
         ) : (
           <EmptyState
-            title="No open Ashby roles yet"
-            detail="Create or reopen roles in Ashby before creating role-specific rubrics."
+            title="No Ashby roles yet"
+            detail="Create roles in Ashby before creating role-specific rubrics."
           />
         )}
       </SectionPanel>

@@ -173,7 +173,7 @@ describe("Ashby backend routes", () => {
     }
   });
 
-  it("lists all open Ashby jobs for rubric setup without requiring pipeline selection", async () => {
+  it("lists all Ashby jobs for rubric setup without requiring pipeline selection", async () => {
     process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
     const previousFetch = global.fetch;
     global.fetch = vi.fn(async () =>
@@ -183,6 +183,7 @@ describe("Ashby backend routes", () => {
           results: [
             { id: "job_eng", name: "Forward Deployed Engineering Manager", status: "Open" },
             { id: "job_sales", name: "Account Executive", status: "Open" },
+            { id: "job_success", name: "Customer Success Manager", status: "Closed" },
           ],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -207,6 +208,7 @@ describe("Ashby backend routes", () => {
     clientQueryMock
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 });
 
     const app = buildServer(FAKE_LK);
@@ -228,15 +230,17 @@ describe("Ashby backend routes", () => {
         selectedJobIds: ["job_eng"],
         jobs: [
           { id: "job_sales", name: "Account Executive", status: "Open" },
+          { id: "job_success", name: "Customer Success Manager", status: "Closed" },
           { id: "job_eng", name: "Forward Deployed Engineering Manager", status: "Open" },
         ],
       });
       expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(connectMock).toHaveBeenCalledTimes(1);
       const sqlCalls = clientQueryMock.mock.calls.map((call) => String(call[0]));
-      expect(sqlCalls.filter((sql) => sql.includes("INSERT INTO role_grading_profiles"))).toHaveLength(2);
+      expect(sqlCalls.filter((sql) => sql.includes("INSERT INTO role_grading_profiles"))).toHaveLength(3);
       expect(clientQueryMock.mock.calls[1]?.[1]?.[3]).toBe("job_sales");
-      expect(clientQueryMock.mock.calls[2]?.[1]?.[3]).toBe("job_eng");
+      expect(clientQueryMock.mock.calls[2]?.[1]?.[3]).toBe("job_success");
+      expect(clientQueryMock.mock.calls[3]?.[1]?.[3]).toBe("job_eng");
     } finally {
       global.fetch = previousFetch;
       await app.close();
@@ -1656,7 +1660,104 @@ describe("Ashby backend routes", () => {
         "int_1",
         "admin@usepuddle.com",
         "active_applications_synced",
-        JSON.stringify({ syncedCount: 0, selectedJobCount: 1 }),
+        JSON.stringify({ syncedCount: 0, selectedJobCount: 1, syncedJobCount: 1 }),
+      ]);
+    } finally {
+      global.fetch = previousFetch;
+      await app.close();
+    }
+  });
+
+  it("syncs active applications for every open Ashby job even when no jobs are selected", async () => {
+    process.env.PUDDLE_INTEGRATION_SECRET_KEY = "test-secret";
+    const previousFetch = global.fetch;
+    const fetchCalls: Array<{ url: string; body: unknown }> = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const call = {
+        url: String(url),
+        body: init?.body ? JSON.parse(String(init.body)) : {},
+      };
+      fetchCalls.push(call);
+
+      if (call.url.endsWith("/job.list")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            results: [
+              { id: "job_1", name: "Forward Deployed Engineering Manager", status: "Open" },
+              { id: "job_2", name: "Founding AI Engineer", status: "Open" },
+              { id: "job_closed", name: "Closed Role", status: "Closed" },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      return new Response(JSON.stringify({ success: true, results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: encryptIntegrationSecret(
+              "webhook-secret",
+              "test-secret",
+            ),
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            ashby_api_key_ciphertext: encryptIntegrationSecret("ashby-key", "test-secret"),
+            ashby_webhook_secret_ciphertext: encryptIntegrationSecret("webhook-secret", "test-secret"),
+            selected_job_ids: [],
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/sync-active-applications",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          reviewerEmail: "admin@usepuddle.com",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, syncedCount: 0 });
+      expect(fetchCalls.map((call) => call.url)).toEqual([
+        "https://api.ashbyhq.com/job.list",
+        "https://api.ashbyhq.com/application.list",
+        "https://api.ashbyhq.com/application.list",
+      ]);
+      expect(fetchCalls.map((call) => call.body)).toEqual([
+        { status: ["Open"] },
+        { jobId: "job_1", status: "Active" },
+        { jobId: "job_2", status: "Active" },
+      ]);
+      expect(queryMock).toHaveBeenCalledTimes(4);
+      expect(queryMock.mock.calls[3]?.[1]).toEqual([
+        "int_1",
+        "admin@usepuddle.com",
+        "active_applications_synced",
+        JSON.stringify({ syncedCount: 0, selectedJobCount: 0, syncedJobCount: 2 }),
       ]);
     } finally {
       global.fetch = previousFetch;
@@ -1786,7 +1887,7 @@ describe("Ashby backend routes", () => {
             application_id: "app_1",
             candidate_id: "cand_1",
             candidate_name: "Maya Chen",
-            candidate_email: "maya@example.com",
+            candidate_email: null,
             job_id: "job_1",
             current_stage: "Initial Screen",
             source: "Referral",
@@ -1794,10 +1895,14 @@ describe("Ashby backend routes", () => {
             updated_at: new Date("2026-06-10T14:09:30.000Z"),
             raw_payload: {
               candidate: {
-                linkedInUrl: "https://www.linkedin.com/in/maya-chen",
-              },
-              resume: {
-                url: "https://files.example.com/maya-chen-resume.pdf",
+                primaryEmailAddress: { value: "maya@example.com", isPrimary: true },
+                socialLinks: [{ url: "https://www.linkedin.com/in/maya-chen" }],
+                profileUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_1",
+                resumeFileHandle: {
+                  handle: "opaque-resume-handle",
+                  name: "Maya Chen Resume.pdf",
+                  url: "https://files.ashbyhq.com/maya-chen-resume.pdf",
+                },
               },
             },
           },
@@ -1871,9 +1976,9 @@ describe("Ashby backend routes", () => {
                 currentStage: "Initial Screen",
                 source: "Referral",
                 updatedAt: "2026-06-10T14:09:00.000Z",
-                ashbyUrl: "https://app.ashbyhq.com/candidates/cand_1",
+                ashbyUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_1",
                 linkedInUrl: "https://www.linkedin.com/in/maya-chen",
-                resumeUrl: "https://files.example.com/maya-chen-resume.pdf",
+                resumeUrl: "https://files.ashbyhq.com/maya-chen-resume.pdf",
               },
               {
                 applicationId: "app_2",
@@ -1884,7 +1989,7 @@ describe("Ashby backend routes", () => {
                 currentStage: "Take Home",
                 source: "Inbound",
                 updatedAt: "2026-06-10T14:08:00.000Z",
-                ashbyUrl: "https://app.ashbyhq.com/candidates/cand_2",
+                ashbyUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_2",
                 linkedInUrl: null,
                 resumeUrl: null,
               },
@@ -1906,7 +2011,7 @@ describe("Ashby backend routes", () => {
                 currentStage: "Initial Screen",
                 source: null,
                 updatedAt: "2026-06-10T14:07:00.000Z",
-                ashbyUrl: "https://app.ashbyhq.com/candidates/cand_3",
+                ashbyUrl: "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand_3",
                 linkedInUrl: null,
                 resumeUrl: null,
               },
@@ -1916,7 +2021,7 @@ describe("Ashby backend routes", () => {
       });
       expect(queryMock).toHaveBeenCalledTimes(3);
       expect(String(queryMock.mock.calls[1]?.[0])).toContain("ORDER BY stage_order ASC NULLS LAST");
-      expect(queryMock.mock.calls[2]?.[1]).toEqual(["int_1", ["job_1", "job_2"], 200]);
+      expect(queryMock.mock.calls[2]?.[1]).toEqual(["int_1", null, 200]);
     } finally {
       await app.close();
     }
