@@ -1246,9 +1246,6 @@ export class InfraStack extends cdk.Stack {
       PUDDLE_INTEGRATION_SECRET_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.ashbyIntegrationSecretKey,
       ),
-      WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(
-        params.runtimeSecrets.externalIntegrationWebhookSecret,
-      ),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.openaiApiKey),
       ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
         ? {
@@ -1273,6 +1270,27 @@ export class InfraStack extends cdk.Stack {
         'password',
       ),
     };
+    const backendContainerSecrets = {
+      ...containerSecrets,
+      WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.externalIntegrationWebhookSecret,
+      ),
+    };
+    const weaveCandidateEvaluationsWorkerEnvironment = {
+      AWS_REGION: cdk.Stack.of(this).region,
+      DATABASE_HOST: database.dbInstanceEndpointAddress,
+      DATABASE_PORT: database.dbInstanceEndpointPort,
+      DATABASE_NAME: this.cfg.database.name,
+      DATABASE_SSL: 'true',
+      DATABASE_SSL_REJECT_UNAUTHORIZED: 'false',
+      WEAVE_CANDIDATE_EVALUATION_QUEUE_URL:
+        params.externalIntegrationIngressQueue.queue.queueUrl,
+      WEAVE_CANDIDATE_EVALUATION_ORG_ID: WEAVE_WORKOS_ORG_ID,
+    };
+    const weaveCandidateEvaluationsWorkerSecrets = {
+      DATABASE_USER: containerSecrets.DATABASE_USER,
+      DATABASE_PASSWORD: containerSecrets.DATABASE_PASSWORD,
+    };
 
     const taskDefinition = new ecs.FargateTaskDefinition(
       this,
@@ -1293,7 +1311,7 @@ export class InfraStack extends cdk.Stack {
       containerName: 'backend',
       image: backendImage,
       environment: containerEnvironment,
-      secrets: containerSecrets,
+      secrets: backendContainerSecrets,
       logging: ecs.LogDrivers.awsLogs({
         logGroup: params.logGroups.backend,
         streamPrefix: 'backend',
@@ -1388,13 +1406,8 @@ export class InfraStack extends cdk.Stack {
         containerName: 'weave-candidate-evaluations-worker',
         image: backendImage,
         command: ['node', 'dist/weave/candidate-evaluations/worker.js'],
-        environment: {
-          ...containerEnvironment,
-          WEAVE_CANDIDATE_EVALUATION_QUEUE_URL:
-            params.externalIntegrationIngressQueue.queue.queueUrl,
-          WEAVE_CANDIDATE_EVALUATION_ORG_ID: WEAVE_WORKOS_ORG_ID,
-        },
-        secrets: containerSecrets,
+        environment: weaveCandidateEvaluationsWorkerEnvironment,
+        secrets: weaveCandidateEvaluationsWorkerSecrets,
         logging: ecs.LogDrivers.awsLogs({
           logGroup: params.logGroups.backend,
           streamPrefix: 'weave-candidate-evaluations',

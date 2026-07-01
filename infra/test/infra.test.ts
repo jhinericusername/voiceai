@@ -314,10 +314,16 @@ describe('InfraStack', () => {
       ]),
     );
     expect(taskSecretNames(template, 'puddle-videoagent-backend-migrations', 'backend-migrations')).toEqual(
-      expect.arrayContaining([
-        'PUDDLE_INTEGRATION_SECRET_KEY',
-        'WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET',
-      ]),
+      expect.arrayContaining(['PUDDLE_INTEGRATION_SECRET_KEY']),
+    );
+    expect(
+      taskSecretNames(
+        template,
+        'puddle-videoagent-backend-migrations',
+        'backend-migrations',
+      ),
+    ).not.toContain(
+      'WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET',
     );
     expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'AshbyIntegrationSecretKey')).toBe(
       true,
@@ -379,16 +385,21 @@ describe('InfraStack', () => {
           Command: ['node', 'dist/weave/candidate-evaluations/worker.js'],
           Environment: Match.arrayWith([
             Match.objectLike({
+              Name: 'AWS_REGION',
+            }),
+            Match.objectLike({
+              Name: 'DATABASE_HOST',
+            }),
+            Match.objectLike({
+              Name: 'DATABASE_NAME',
+              Value: 'puddle',
+            }),
+            Match.objectLike({
               Name: 'WEAVE_CANDIDATE_EVALUATION_QUEUE_URL',
             }),
             Match.objectLike({
               Name: 'WEAVE_CANDIDATE_EVALUATION_ORG_ID',
               Value: 'org_01KV4FF7KX24B76H7Q57QVB5CT',
-            }),
-          ]),
-          Secrets: Match.arrayWith([
-            Match.objectLike({
-              Name: 'WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET',
             }),
           ]),
           LogConfiguration: Match.objectLike({
@@ -399,12 +410,53 @@ describe('InfraStack', () => {
         }),
       ]),
     });
+    expect(
+      taskEnvironmentNames(
+        template,
+        'puddle-videoagent-weave-candidate-evaluations-worker',
+        'weave-candidate-evaluations-worker',
+      ).sort(),
+    ).toEqual([
+      'AWS_REGION',
+      'DATABASE_HOST',
+      'DATABASE_NAME',
+      'DATABASE_PORT',
+      'DATABASE_SSL',
+      'DATABASE_SSL_REJECT_UNAUTHORIZED',
+      'WEAVE_CANDIDATE_EVALUATION_ORG_ID',
+      'WEAVE_CANDIDATE_EVALUATION_QUEUE_URL',
+    ]);
+    expect(
+      taskSecretNames(
+        template,
+        'puddle-videoagent-weave-candidate-evaluations-worker',
+        'weave-candidate-evaluations-worker',
+      ).sort(),
+    ).toEqual(['DATABASE_PASSWORD', 'DATABASE_USER']);
 
-    const templateJson = JSON.stringify(template.toJSON());
-    expect(templateJson).toContain('sqs:SendMessage');
-    expect(templateJson).toContain('sqs:ReceiveMessage');
-    expect(templateJson).toContain('sqs:DeleteMessage');
-    expect(templateJson).toContain('puddle-videoagent-external-integration-ingress');
+    const externalQueueLogicalId = queueLogicalId(
+      template,
+      'puddle-videoagent-external-integration-ingress',
+    );
+    const externalQueuePolicyStatements = policyStatementsForRole(
+      template,
+      'BackendTaskRole',
+    ).filter((statement) =>
+      referencesValue(statement.Resource, externalQueueLogicalId),
+    );
+    const externalQueueActions =
+      externalQueuePolicyStatements.flatMap(statementActions);
+    expect(externalQueuePolicyStatements.length).toBeGreaterThan(0);
+    expect(externalQueueActions).toEqual(
+      expect.arrayContaining([
+        'sqs:SendMessage',
+        'sqs:ReceiveMessage',
+        'sqs:DeleteMessage',
+        'sqs:ChangeMessageVisibility',
+        'sqs:GetQueueAttributes',
+        'sqs:GetQueueUrl',
+      ]),
+    );
     template.hasOutput('ExternalIntegrationIngressQueueUrl', {});
     template.hasOutput('ExternalIntegrationIngressDeadLetterQueueUrl', {});
     template.hasOutput('WeaveCandidateEvaluationsWorkerServiceName', {});
@@ -1054,21 +1106,42 @@ interface SynthResource {
 
 interface SynthContainerDefinition {
   readonly Name?: string;
+  readonly Environment?: Array<{ readonly Name?: string }>;
   readonly Secrets?: Array<{ readonly Name?: string }>;
+}
+
+interface SynthPolicyStatement {
+  readonly Action?: string | readonly string[];
+  readonly Resource?: unknown;
 }
 
 function synthResources(template: Template): Record<string, SynthResource> {
   return template.toJSON().Resources as Record<string, SynthResource>;
 }
 
-function taskSecretNames(template: Template, family: string, containerName: string): string[] {
+function taskContainerDefinition(
+  template: Template,
+  family: string,
+  containerName: string,
+): SynthContainerDefinition | undefined {
   const task = Object.values(synthResources(template)).find(
     (resource) =>
       resource.Type === 'AWS::ECS::TaskDefinition' && resource.Properties?.Family === family,
   );
   const containers = task?.Properties?.ContainerDefinitions as SynthContainerDefinition[] | undefined;
-  const container = containers?.find((candidate) => candidate.Name === containerName);
-  return container?.Secrets?.map((secret) => secret.Name).filter((name): name is string => Boolean(name)) ?? [];
+  return containers?.find((candidate) => candidate.Name === containerName);
+}
+
+function taskEnvironmentNames(template: Template, family: string, containerName: string): string[] {
+  return taskContainerDefinition(template, family, containerName)
+    ?.Environment?.map((env) => env.Name)
+    .filter((name): name is string => Boolean(name)) ?? [];
+}
+
+function taskSecretNames(template: Template, family: string, containerName: string): string[] {
+  return taskContainerDefinition(template, family, containerName)
+    ?.Secrets?.map((secret) => secret.Name)
+    .filter((name): name is string => Boolean(name)) ?? [];
 }
 
 function executionRolePolicyAllowsSecret(
@@ -1112,6 +1185,56 @@ function referencesValue(value: unknown, expected: string): boolean {
   }
 
   return false;
+}
+
+function policyStatementsForRole(
+  template: Template,
+  roleLogicalIdPart: string,
+): SynthPolicyStatement[] {
+  const resources = synthResources(template);
+  const roleId = Object.entries(resources).find(
+    ([id, resource]) => resource.Type === 'AWS::IAM::Role' && id.includes(roleLogicalIdPart),
+  )?.[0];
+  if (!roleId) {
+    return [];
+  }
+
+  return Object.values(resources).flatMap((resource) => {
+    if (resource.Type !== 'AWS::IAM::Policy' || !referencesValue(resource.Properties?.Roles, roleId)) {
+      return [];
+    }
+
+    const document = resource.Properties?.PolicyDocument as
+      | { readonly Statement?: SynthPolicyStatement | readonly SynthPolicyStatement[] }
+      | undefined;
+    if (!document?.Statement) {
+      return [];
+    }
+
+    return Array.isArray(document.Statement)
+      ? [...document.Statement]
+      : [document.Statement];
+  });
+}
+
+function queueLogicalId(template: Template, queueName: string): string {
+  const entry = Object.entries(synthResources(template)).find(
+    ([, resource]) =>
+      resource.Type === 'AWS::SQS::Queue' && resource.Properties?.QueueName === queueName,
+  );
+  if (!entry) {
+    throw new Error(`Queue not found in synthesized template: ${queueName}`);
+  }
+
+  return entry[0];
+}
+
+function statementActions(statement: SynthPolicyStatement): string[] {
+  if (typeof statement.Action === 'string') {
+    return [statement.Action];
+  }
+
+  return [...(statement.Action ?? [])];
 }
 
 function createStack(overrides: Partial<PuddleEnvConfig> = {}): InfraStack {
