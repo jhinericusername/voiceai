@@ -76,11 +76,15 @@ try {
   const dbName = outputValue(outputs, "DatabaseName");
   const dbSecretName = outputValue(outputs, "DatabaseCredentialsSecretName");
   const backendTokenSecretName = outputValue(outputs, "BackendInternalTokenSecretName");
+  const ashbyIntegrationSecretKeySecretName = outputValue(outputs, "AshbyIntegrationSecretKeySecretName");
   const liveKitApiKeySecretName = outputValue(outputs, "LivekitApiKeySecretName");
   const liveKitApiSecretSecretName = outputValue(outputs, "LivekitApiSecretSecretName");
 
   const dbSecret = getSecretString(dbSecretName, options);
   const backendToken = parseSecretString(getSecretString(backendTokenSecretName, options));
+  const ashbyIntegrationSecretKey = parseSecretString(
+    getSecretString(ashbyIntegrationSecretKeySecretName, options),
+  );
   const liveKitApiKey = parseSecretString(getSecretString(liveKitApiKeySecretName, options));
   const liveKitApiSecret = parseSecretString(getSecretString(liveKitApiSecretSecretName, options));
 
@@ -124,6 +128,7 @@ try {
           LIVEKIT_API_KEY: liveKitApiKey,
           LIVEKIT_API_SECRET: liveKitApiSecret,
           PUDDLE_BACKEND_INTERNAL_TOKEN: backendToken,
+          PUDDLE_INTEGRATION_SECRET_KEY: ashbyIntegrationSecretKey,
         }),
         DATABASE_URL: "",
       },

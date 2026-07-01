@@ -5,10 +5,10 @@
   "packageManager": "pnpm@9.12.0",
   "engines": { "node": ">=20" },
   "scripts": {
-    "dev": "AWS_PROFILE=default corepack pnpm@9.12.0 dev:connected",
+    "dev": "AWS_PROFILE=default corepack pnpm@9.12.0 dev:backend:connected",
     "dev:backend": "corepack pnpm@9.12.0 --filter @puddle/backend dev",
     "dev:connected": "node scripts/dev/dev-connected.mjs",
-    "dev:backend:connected": "node scripts/dev/dev-backend-connected.mjs",
+    "dev:backend:connected": "node --env-file=.env.local scripts/dev/dev-backend-connected.mjs",
     "dev:platform": "corepack pnpm@9.12.0 --filter @puddle/platform dev",
     "historical-fireflies:metadata-backfill:connected": "node scripts/dev/historical-fireflies-metadata-backfill-connected.mjs",
     "grading:evaluate:connected": "node scripts/dev/grading-evaluate-connected.mjs",

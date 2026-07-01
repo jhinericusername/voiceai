@@ -301,10 +301,14 @@ test("root package exposes connected dev commands", async () => {
     await readFile(new URL("../../package.json", import.meta.url), "utf8"),
   );
 
+  assert.equal(
+    packageJson.scripts.dev,
+    "AWS_PROFILE=default corepack pnpm@9.12.0 dev:backend:connected",
+  );
   assert.equal(packageJson.scripts["dev:connected"], "node scripts/dev/dev-connected.mjs");
   assert.equal(
     packageJson.scripts["dev:backend:connected"],
-    "node scripts/dev/dev-backend-connected.mjs",
+    "node --env-file=.env.local scripts/dev/dev-backend-connected.mjs",
   );
   assert.equal(
     packageJson.scripts["grading:evaluate:connected"],
@@ -330,6 +334,14 @@ test("backend connected runner binds local backend to loopback", async () => {
   const source = await readFile(new URL("./dev-backend-connected.mjs", import.meta.url), "utf8");
 
   assert.match(source, /^\s*HOST:\s*"127\.0\.0\.1",$/m);
+});
+
+test("backend connected runner supplies Ashby integration secret to local backend", async () => {
+  const source = await readFile(new URL("./dev-backend-connected.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /AshbyIntegrationSecretKeySecretName/);
+  assert.match(source, /ashbyIntegrationSecretKeySecretName/);
+  assert.match(source, /PUDDLE_INTEGRATION_SECRET_KEY:\s*ashbyIntegrationSecretKey/);
 });
 
 test("platform connected runner restarts backend tunnel after clean SSM timeout", async () => {
