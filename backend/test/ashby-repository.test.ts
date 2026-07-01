@@ -272,6 +272,7 @@ describe("Ashby repository statements", () => {
     expect(roles.sql).toContain("p.active_stage_names IS NOT NULL");
     expect(roles.sql).toContain("currentInterviewStage");
     expect(roles.sql).toContain("orderInInterviewPlan");
+    expect(roles.sql).toContain("weave_candidate_evaluation_imports");
     expect(roles.sql).toContain("~ '^[0-9]+$'");
     expect(roles.sql).toContain("ELSE NULL END");
     expect(roles.sql).toContain("MIN(stage_order)");
@@ -287,6 +288,9 @@ describe("Ashby repository statements", () => {
 
     expect(applications.sql).toContain("status = 'Active'");
     expect(applications.sql).toContain("currentInterviewStage");
+    expect(applications.sql).toContain("weave_candidate_evaluation_imports");
+    expect(applications.sql).toContain("latest_imported_evaluation");
+    expect(applications.sql).toContain("a.status = 'Active' OR imported_evaluation.source_evaluation_id IS NOT NULL");
     expect(applications.params).toEqual(["int_1", ["job_1", "job_2"], 200]);
   });
 

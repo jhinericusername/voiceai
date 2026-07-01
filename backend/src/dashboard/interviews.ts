@@ -95,6 +95,7 @@ export function interviewDetailStatement(sessionId: string, orgId: string): SqlS
       "a.category_scores, a.meets_bare_minimum, a.integrity_flags, " +
       "a.reviewer_email, a.signed_off_at, " +
       "latest_recommendation.item AS recommendation_packet, " +
+      "imported_evaluation.item AS imported_evaluation, " +
       "COALESCE(artifacts.items, '[]'::json) AS artifacts, " +
       "COALESCE(transcript_turns.items, '[]'::json) AS transcript_turns " +
       "FROM sessions s " +
@@ -138,6 +139,25 @@ export function interviewDetailStatement(sessionId: string, orgId: string): SqlS
       "ORDER BY rec.updated_at DESC, rec.created_at DESC " +
       "LIMIT 1" +
       ") latest_recommendation ON true " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT json_build_object(" +
+      "'sourceEvaluationId', imp.source_evaluation_id, " +
+      "'sourceUpdatedAt', imp.source_updated_at, " +
+      "'problemSolving', sc.problem_solving, " +
+      "'agency', sc.agency, " +
+      "'competitiveness', sc.competitiveness, " +
+      "'curiosity', sc.curiosity, " +
+      "'totalScore', sc.total_score, " +
+      "'comments', sc.comments" +
+      ") AS item " +
+      "FROM weave_candidate_evaluation_imports imp " +
+      "JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id " +
+      "WHERE imp.organization_id = s.org_id " +
+      "AND (imp.source_evaluation_id = NULLIF(s.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '') " +
+      "OR (NULLIF(s.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '') IS NULL " +
+      "AND imp.application_id = NULLIF(s.source_metadata #>> '{ashby,selected,applicationId}', ''))) " +
+      "ORDER BY imp.source_updated_at DESC NULLS LAST, imp.last_synced_at DESC LIMIT 1" +
+      ") imported_evaluation ON true " +
       "LEFT JOIN LATERAL (" +
       "SELECT json_agg(json_build_object(" +
       "'kind', ordered.kind, 'status', ordered.status, " +

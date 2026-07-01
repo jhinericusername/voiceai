@@ -94,11 +94,23 @@ interface ActivePipelineApplicationRow {
   readonly status?: unknown;
   readonly ashby_updated_at?: unknown;
   readonly updated_at?: unknown;
+  readonly latest_imported_evaluation?: unknown;
 }
 
 interface ActivePipelineStageCount {
   readonly name: string;
   readonly count: number;
+}
+
+interface ActivePipelineImportedEvaluation {
+  readonly sourceEvaluationId: string;
+  readonly sourceUpdatedAt: string | null;
+  readonly problemSolving: number | null;
+  readonly agency: number | null;
+  readonly competitiveness: number | null;
+  readonly curiosity: number | null;
+  readonly totalScore: number | null;
+  readonly comments: string | null;
 }
 
 interface ActivePipelineCandidate {
@@ -110,6 +122,7 @@ interface ActivePipelineCandidate {
   readonly currentStage: string;
   readonly source: string | null;
   readonly updatedAt: string | null;
+  readonly latestImportedEvaluation: ActivePipelineImportedEvaluation | null;
 }
 
 const ACTIVE_APPLICATION_ACTIONS = new Set([
@@ -139,6 +152,22 @@ function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function jsonObjectValue(value: unknown): Record<string, unknown> | null {
+  const object = objectValue(value);
+  if (object) {
+    return object;
+  }
+  const text = stringValue(value);
+  if (!text) {
+    return null;
+  }
+  try {
+    return objectValue(JSON.parse(text));
+  } catch {
+    return null;
+  }
 }
 
 function selectedJobIds(value: unknown): string[] {
@@ -293,6 +322,20 @@ function intValue(value: unknown): number | null {
   return null;
 }
 
+function numberValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+  return null;
+}
+
+function nullableStringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 function jsonArrayValue(value: unknown): unknown[] {
   if (Array.isArray(value)) {
     return value;
@@ -357,6 +400,25 @@ function activeCandidateCountFromStages(input: {
   );
 }
 
+function importedEvaluationFromRowValue(value: unknown): ActivePipelineImportedEvaluation | null {
+  const item = jsonObjectValue(value);
+  const sourceEvaluationId = stringValue(item?.sourceEvaluationId);
+  if (!item || !sourceEvaluationId) {
+    return null;
+  }
+
+  return {
+    sourceEvaluationId,
+    sourceUpdatedAt: isoStringValue(item.sourceUpdatedAt),
+    problemSolving: numberValue(item.problemSolving),
+    agency: numberValue(item.agency),
+    competitiveness: numberValue(item.competitiveness),
+    curiosity: numberValue(item.curiosity),
+    totalScore: numberValue(item.totalScore),
+    comments: nullableStringValue(item.comments),
+  };
+}
+
 function pipelineCandidateFromRow(row: ActivePipelineApplicationRow): ActivePipelineCandidate | null {
   const applicationId = stringValue(row.application_id);
   const candidateId = stringValue(row.candidate_id);
@@ -376,6 +438,7 @@ function pipelineCandidateFromRow(row: ActivePipelineApplicationRow): ActivePipe
     currentStage,
     source: stringValue(row.source),
     updatedAt: isoStringValue(row.ashby_updated_at) ?? isoStringValue(row.updated_at),
+    latestImportedEvaluation: importedEvaluationFromRowValue(row.latest_imported_evaluation),
   };
 }
 

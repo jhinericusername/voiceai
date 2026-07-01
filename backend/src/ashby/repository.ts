@@ -333,14 +333,17 @@ export function activePipelineRolesStatement(input: {
   return {
     sql:
       "WITH selected_jobs AS (" +
-      "SELECT unnest($2::text[]) AS job_id" +
+      "SELECT unnest($2::text[]) AS job_id " +
+      "UNION " +
+      "SELECT DISTINCT imp.ashby_job_id AS job_id FROM weave_candidate_evaluation_imports imp " +
+      "WHERE imp.integration_id = $1" +
       "), application_rows AS (" +
       "SELECT a.job_id, " +
       `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
       `${ACTIVE_PIPELINE_STAGE_ORDER_SQL} AS stage_order, ` +
       "COALESCE(NULLIF(a.raw_payload->'job'->>'name', ''), NULLIF(a.raw_payload->'job'->>'title', '')) AS job_name " +
       "FROM ashby_applications a " +
-      "WHERE a.integration_id = $1 AND a.job_id = ANY($2::text[]) AND a.status = 'Active'" +
+      "WHERE a.integration_id = $1 AND a.job_id IN (SELECT job_id FROM selected_jobs) AND a.status = 'Active'" +
       "), stage_counts AS (" +
       "SELECT job_id, current_stage, MIN(stage_order) AS stage_order, COUNT(*)::int AS candidate_count " +
       "FROM application_rows GROUP BY job_id, current_stage" +
@@ -371,11 +374,35 @@ export function activePipelineApplicationsStatement(input: {
 }): SqlStatement {
   return {
     sql:
+      "WITH selected_jobs AS (" +
+      "SELECT unnest($2::text[]) AS job_id " +
+      "UNION " +
+      "SELECT DISTINCT imp.ashby_job_id AS job_id FROM weave_candidate_evaluation_imports imp " +
+      "WHERE imp.integration_id = $1" +
+      ") " +
       "SELECT application_id, candidate_id, candidate_name, candidate_email, job_id, " +
       `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
-      "source, status, ashby_updated_at, updated_at " +
+      "source, status, ashby_updated_at, updated_at, " +
+      "imported_evaluation.item AS latest_imported_evaluation " +
       "FROM ashby_applications a " +
-      "WHERE integration_id = $1 AND job_id = ANY($2::text[]) AND status = 'Active' " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT imp.source_evaluation_id, jsonb_build_object(" +
+      "'sourceEvaluationId', imp.source_evaluation_id, " +
+      "'sourceUpdatedAt', imp.source_updated_at, " +
+      "'problemSolving', sc.problem_solving, " +
+      "'agency', sc.agency, " +
+      "'competitiveness', sc.competitiveness, " +
+      "'curiosity', sc.curiosity, " +
+      "'totalScore', sc.total_score, " +
+      "'comments', sc.comments" +
+      ") AS item " +
+      "FROM weave_candidate_evaluation_imports imp " +
+      "JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id " +
+      "WHERE imp.integration_id = a.integration_id AND imp.application_id = a.application_id " +
+      "ORDER BY imp.source_updated_at DESC NULLS LAST, imp.last_synced_at DESC LIMIT 1" +
+      ") imported_evaluation ON true " +
+      "WHERE a.integration_id = $1 AND a.job_id IN (SELECT job_id FROM selected_jobs) " +
+      "AND (a.status = 'Active' OR imported_evaluation.source_evaluation_id IS NOT NULL) " +
       "ORDER BY COALESCE(ashby_updated_at, updated_at) DESC, updated_at DESC LIMIT $3",
     params: [input.integrationId, [...input.selectedJobIds], input.limit],
   };

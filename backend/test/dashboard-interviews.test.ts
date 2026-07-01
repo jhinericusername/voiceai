@@ -54,6 +54,19 @@ describe("dashboard interview read model", () => {
     expect(stmt.sql).toContain("json_agg");
     expect(stmt.sql).toContain("LEFT JOIN LATERAL");
     expect(stmt.sql).toContain("latest_recommendation.item AS recommendation_packet");
+    expect(stmt.sql).toContain("imported_evaluation.item AS imported_evaluation");
+    expect(stmt.sql).toContain("weave_candidate_evaluation_imports imp");
+    expect(stmt.sql).toContain("candidateEvaluationId");
+    expect(stmt.sql).toContain("applicationId");
+    expect(stmt.sql).toContain(
+      "imp.source_evaluation_id = NULLIF(s.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '')",
+    );
+    expect(stmt.sql).toContain(
+      "NULLIF(s.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '') IS NULL",
+    );
+    expect(stmt.sql).toContain(
+      "imp.application_id = NULLIF(s.source_metadata #>> '{ashby,selected,applicationId}', '')",
+    );
     expect(stmt.sql).toContain("FROM interview_recommendations rec");
     expect(stmt.sql).toContain("rec.organization_id = s.org_id");
     expect(stmt.sql).toContain("'rubricVersionId', rec.rubric_version_id");
