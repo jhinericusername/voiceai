@@ -9,7 +9,10 @@ export interface RecommendationScore {
 
 export interface RecommendationRuleInput {
   readonly categoryScores: readonly RecommendationScore[];
-  readonly bareMinimumRule: "at_least_one_4_and_problem_solving_ge_3" | string;
+  readonly bareMinimumRule:
+    | "at_least_one_4_and_problem_solving_ge_3"
+    | "at_least_one_4_and_average_ge_3"
+    | string;
   readonly minimumConfidence: number;
   readonly severeWarnings: readonly string[];
 }
@@ -40,14 +43,16 @@ export function recommendInterview(input: RecommendationRuleInput): Recommendati
 }
 
 function meetsBareMinimum(input: RecommendationRuleInput): boolean {
-  if (input.bareMinimumRule !== "at_least_one_4_and_problem_solving_ge_3") {
-    return false;
-  }
-
-  const byCategory = new Map(input.categoryScores.map((score) => [score.category, score]));
-  const problemSolving = byCategory.get("problem_solving")?.score ?? 0;
   const hasFour = input.categoryScores.some((score) => score.score >= 4);
-  return hasFour && problemSolving >= 3;
+  if (input.bareMinimumRule === "at_least_one_4_and_problem_solving_ge_3") {
+    const byCategory = new Map(input.categoryScores.map((score) => [score.category, score]));
+    const problemSolving = byCategory.get("problem_solving")?.score ?? 0;
+    return hasFour && problemSolving >= 3;
+  }
+  if (input.bareMinimumRule === "at_least_one_4_and_average_ge_3") {
+    return hasFour && roundedAverage(input.categoryScores.map((score) => score.score)) >= 3;
+  }
+  return false;
 }
 
 function roundedAverage(values: readonly number[]): number {

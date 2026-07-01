@@ -172,3 +172,76 @@ export async function getRealInterview(
   const payload = (await response.json()) as { readonly interview?: RealInterviewDetail };
   return payload.interview ?? null;
 }
+
+export interface RoleRubricSubDimension {
+  readonly key: string;
+  readonly name: string;
+  readonly anchors: Record<string, string>;
+}
+
+export interface RoleRubricDimension {
+  readonly key: string;
+  readonly name: string;
+  readonly meaning: string;
+  readonly anchors: Record<string, string>;
+  readonly sub_dimensions?: readonly RoleRubricSubDimension[];
+}
+
+export interface RoleRubricQuestion {
+  readonly question_id: string;
+  readonly verbatim_text: string;
+  readonly rubric_categories: readonly string[];
+  readonly target_evidence: readonly string[];
+}
+
+export interface RoleRubric {
+  readonly script_version: string;
+  readonly role: {
+    readonly organization_id: string;
+    readonly ashby_job_id: string;
+    readonly title: string;
+  };
+  readonly dimensions: readonly RoleRubricDimension[];
+  readonly questions: readonly RoleRubricQuestion[];
+  readonly bare_minimum_rule: string;
+  readonly recommendation_thresholds: {
+    readonly minimum_confidence: number;
+  };
+  readonly disallowed_signals: readonly string[];
+  readonly generation_context: {
+    readonly historical_session_count: number;
+    readonly matched_application_count: number;
+  };
+}
+
+export interface RoleGradingProfile {
+  readonly profile_id: string;
+  readonly organization_id: string;
+  readonly ashby_integration_id: string;
+  readonly ashby_job_id: string;
+  readonly status: string;
+  readonly active_rubric_version_id: string | null;
+  readonly draft_rubric_version_id: string | null;
+  readonly active_rubric: RoleRubric | null;
+  readonly draft_rubric: RoleRubric | null;
+}
+
+export async function getGradingCompanyState(input: {
+  readonly orgId: string;
+}): Promise<readonly RoleGradingProfile[]> {
+  const response = await backendFetch(`${backendBaseUrl()}/grading/company-state`, {
+    method: "POST",
+    headers: backendHeaders(),
+    body: JSON.stringify({ organizationId: input.orgId }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`backend returned ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    readonly profiles?: readonly RoleGradingProfile[];
+  };
+  return payload.profiles ?? [];
+}

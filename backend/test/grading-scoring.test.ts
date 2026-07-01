@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { BedrockGradingModel } from "../src/grading/bedrock.js";
 import { OpenAIGradingModel } from "../src/grading/openai.js";
-import { buildScoringPrompt, parseScoringOutput, scoreTranscript } from "../src/grading/scoring.js";
+import {
+  buildScoringPrompt,
+  parseScoringOutput,
+  restrictScoringOutputToRubricDimensions,
+  scoreTranscript,
+} from "../src/grading/scoring.js";
 import { defaultDimensionScoreAnchors } from "../src/grading/prompts/dimension-score-anchors.js";
 
 const rubric = {
@@ -85,7 +90,142 @@ describe("grading scoring", () => {
     expect(prompt).not.toContain("CALIBRATION_EXAMPLES_JSON:");
   });
 
-  it("includes grading guide and calibration examples when provided", () => {
+  it("instructs the model to score only the selected role rubric dimensions", () => {
+    const prompt = buildScoringPrompt({
+      rubric: {
+        script_version: "job_sales-v1",
+        dimensions: [
+          {
+            key: "communication",
+            name: "Communication",
+            meaning: "Engages in conversation.",
+            anchors: { 1: "Low", 2: "Clear", 3: "Enjoyable", 4: "Clarifying" },
+          },
+          {
+            key: "passion_for_sales",
+            name: "Passion for Sales",
+            meaning: "Figures out a way to be at the top of the leaderboard.",
+            anchors: { 1: "Weak", 2: "Some", 3: "Strong", 4: "Exceptional" },
+            sub_dimensions: [
+              {
+                key: "reason_for_getting_into_sales",
+                name: "Reason for Getting Into Sales",
+                anchors: { 1: "Fell into it.", 2: "Family in sales.", 3: "Interested.", 4: "Money-motivated." },
+              },
+            ],
+          },
+          {
+            key: "agency",
+            name: "Agency",
+            meaning: "Stops at nothing.",
+            anchors: { 1: "Low", 2: "Expected", 3: "Extra", 4: "Rules hack" },
+          },
+        ],
+      },
+      transcriptTurns,
+    });
+
+    expect(prompt).toContain("ROLE_RUBRIC_SCORING_INSTRUCTIONS:");
+    expect(prompt).toContain("Score exactly these rubric dimension keys: communication, passion_for_sales, agency.");
+    expect(prompt).toContain("Do not output category scores for dimensions that are not listed in RUBRIC_JSON.dimensions.");
+    expect(prompt).toContain("For passion_for_sales, use sub_dimensions as internal evidence and return one final category score named passion_for_sales.");
+  });
+
+  it("filters legacy calibration anchors and examples for custom role rubrics", () => {
+    const calibrationExamples = [
+      {
+        id: "legacy_example",
+        summary: "Legacy engineering calibration.",
+        scores: {
+          problem_solving: 3,
+          agency: 2,
+          competitiveness: 2,
+          curious: 2,
+        },
+        missingQuestions: {},
+        scriptedRisk: "low",
+        comment: "Legacy example.",
+        totalScore: 9,
+      },
+    ];
+    const gradingGuide = [
+      "Grade the candidate on exactly the dimensions provided in RUBRIC_JSON.dimensions.",
+      "Problem solving calibration: legacy text.",
+      "Agency calibration: legacy text.",
+      "Competitiveness calibration: legacy text.",
+      "Curious calibration: legacy text.",
+    ].join("\n");
+    const prompt = buildScoringPrompt({
+      rubric: {
+        script_version: "job_sales-v1",
+        dimensions: [
+          {
+            key: "communication",
+            name: "Communication",
+            meaning: "Engages in conversation.",
+            anchors: { 1: "Low", 2: "Clear", 3: "Enjoyable", 4: "Clarifying" },
+          },
+          {
+            key: "passion_for_sales",
+            name: "Passion for Sales",
+            meaning: "Leaderboard drive.",
+            anchors: { 1: "Weak", 2: "Some", 3: "Strong", 4: "Exceptional" },
+          },
+          {
+            key: "agency",
+            name: "Agency",
+            meaning: "Stops at nothing.",
+            anchors: { 1: "Low", 2: "Expected", 3: "Extra", 4: "Rules hack" },
+          },
+        ],
+      },
+      transcriptTurns,
+      gradingGuide,
+      dimensionScoreAnchors: defaultDimensionScoreAnchors(),
+      calibrationExamples,
+    });
+
+    expect(prompt).toContain('"category": "communication"');
+    expect(prompt).not.toContain("GRADING_GUIDE:");
+    expect(prompt).not.toContain("DIMENSION_SCORE_ANCHORS_JSON:");
+    expect(prompt).not.toContain('"problem_solving": {');
+    expect(prompt).not.toContain('"agency": {');
+    expect(prompt).not.toContain('"competitiveness": {');
+    expect(prompt).not.toContain('"curious": {');
+    expect(prompt).not.toContain("CALIBRATION_EXAMPLES_JSON:");
+    expect(prompt).not.toContain("legacy_example");
+    expect(prompt).not.toContain("Hacked a non-computer system");
+    expect(prompt).not.toContain("Problem solving calibration");
+    expect(prompt).not.toContain("Agency calibration");
+    expect(prompt).not.toContain("Competitiveness calibration");
+    expect(prompt).not.toContain("Curious calibration");
+  });
+
+  it("includes grading guide, calibration examples, and anchors for legacy four-dimension rubrics", () => {
+    const legacyRubric = {
+      ...rubric,
+      dimensions: [
+        ...rubric.dimensions,
+        {
+          key: "agency",
+          name: "Agency",
+          meaning: "Finds ways through constraints.",
+          anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" },
+        },
+        {
+          key: "competitiveness",
+          name: "Competitiveness",
+          meaning: "Wants to win.",
+          anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" },
+        },
+        {
+          key: "curious",
+          name: "Curious",
+          meaning: "Develops niche knowledge.",
+          anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" },
+        },
+      ],
+    };
     const calibrationExamples = [
       {
         id: "example_a",
@@ -106,41 +246,41 @@ describe("grading scoring", () => {
     ];
 
     const prompt = buildScoringPrompt({
-      rubric,
+      rubric: legacyRubric,
       transcriptTurns,
       gradingGuide: "Use neutral default 2 when a calibration question was not asked.",
+      dimensionScoreAnchors: defaultDimensionScoreAnchors(),
       calibrationExamples,
     });
 
     expect(prompt).toContain("GRADING_GUIDE:");
     expect(prompt).toContain("Use neutral default 2");
+    expect(prompt).toContain("DIMENSION_SCORE_ANCHORS_JSON:");
     expect(prompt).toContain("CALIBRATION_EXAMPLES_JSON:");
     expect(prompt).toContain('"id": "example_a"');
     expect(prompt).toContain('"totalScore": 7.5');
     expect(prompt).toContain('"problem_solving": 2.5');
+    expect(prompt).toContain('"problem_solving": {');
+    expect(prompt).toContain('"agency": {');
+    expect(prompt).toContain('"competitiveness": {');
+    expect(prompt).toContain('"curious": {');
   });
 
-  it("includes dimension score anchors with anti-copying instructions when provided", () => {
+  it("omits legacy dimension score anchors for non-legacy selected dimensions", () => {
     const prompt = buildScoringPrompt({
       rubric,
       transcriptTurns,
       dimensionScoreAnchors: defaultDimensionScoreAnchors(),
     });
 
-    expect(prompt).toContain("DIMENSION_SCORE_ANCHORS_JSON:");
-    expect(prompt).toContain("Use DIMENSION_SCORE_ANCHORS_JSON as calibration examples for the score scale.");
-    expect(prompt).toContain("Do not copy anchor rationales");
-    expect(prompt).toContain("If a candidate's answer falls between anchors, use 0.5 increments.");
-    expect(prompt).toContain('"problem_solving"');
-    expect(prompt).toContain('"agency"');
-    expect(prompt).toContain('"competitiveness"');
-    expect(prompt).toContain('"curious"');
-    expect(prompt).toContain('"1"');
-    expect(prompt).toContain('"2"');
-    expect(prompt).toContain('"3"');
-    expect(prompt).toContain('"4"');
-    expect(prompt).toContain('"answerExcerpt"');
-    expect(prompt).toContain('"whyThisScore"');
+    expect(prompt).not.toContain("DIMENSION_SCORE_ANCHORS_JSON:");
+    expect(prompt).not.toContain("Use DIMENSION_SCORE_ANCHORS_JSON as calibration examples for the score scale.");
+    expect(prompt).not.toContain('"problem_solving": {');
+    expect(prompt).not.toContain('"agency": {');
+    expect(prompt).not.toContain('"competitiveness": {');
+    expect(prompt).not.toContain('"curious": {');
+    expect(prompt).not.toContain('"answerExcerpt"');
+    expect(prompt).not.toContain('"whyThisScore"');
   });
 
   it("omits calibration examples when the provided array is empty", () => {
@@ -252,6 +392,130 @@ ${JSON.stringify(validScoringPayload)}
 `);
 
     expect(parsed.categoryScores[0].evidenceQuotes).toEqual(["cut runtime by 90%"]);
+  });
+
+  it("restricts parsed scoring output to selected rubric dimensions and recomputes final totals", () => {
+    const parsed = parseScoringOutput(JSON.stringify({
+      ...validScoringPayload,
+      category_scores: [
+        {
+          category: "communication",
+          score: 3,
+          confidence: 0.91,
+          evidence_quotes: ["clear answer"],
+          rationale: "Clear and concise.",
+        },
+        {
+          category: "passion_for_sales",
+          score: 4,
+          confidence: 0.9,
+          evidence_quotes: ["top performer"],
+          rationale: "Strong sales drive.",
+        },
+        {
+          category: "agency",
+          score: 3,
+          confidence: 0.88,
+          evidence_quotes: ["found a workaround"],
+          rationale: "Persistent.",
+        },
+        {
+          category: "problem_solving",
+          score: 4,
+          confidence: 0.93,
+          evidence_quotes: ["cut runtime"],
+          rationale: "Extra unselected dimension.",
+        },
+      ],
+      final_scores: {
+        dimensions: [
+          { category: "communication", score: 3 },
+          { category: "passion_for_sales", score: 4 },
+          { category: "agency", score: 3 },
+          { category: "problem_solving", score: 4 },
+        ],
+        total_score: 14,
+        max_score: 16,
+      },
+      warnings: ["model_warning"],
+    }));
+
+    const restricted = restrictScoringOutputToRubricDimensions(parsed, {
+      dimensions: [
+        { key: "communication" },
+        { key: "passion_for_sales" },
+        { key: "agency" },
+      ],
+    });
+
+    expect(restricted.categoryScores.map((score) => score.category)).toEqual([
+      "communication",
+      "passion_for_sales",
+      "agency",
+    ]);
+    expect(restricted.scorecard.dimensionScores.map((score) => score.category)).toEqual([
+      "communication",
+      "passion_for_sales",
+      "agency",
+    ]);
+    expect(restricted.scorecard.finalScores).toEqual({
+      dimensions: [
+        { category: "communication", score: 3 },
+        { category: "passion_for_sales", score: 4 },
+        { category: "agency", score: 3 },
+      ],
+      totalScore: 10,
+      maxScore: 12,
+    });
+    expect(restricted.warnings).toEqual([
+      "model_warning",
+      "ignored_unselected_rubric_categories",
+    ]);
+  });
+
+  it("warns when scorer output is missing selected rubric dimensions", () => {
+    const parsed = parseScoringOutput(JSON.stringify({
+      ...validScoringPayload,
+      category_scores: [
+        {
+          category: "passion_for_sales",
+          score: 4,
+          confidence: 0.9,
+          evidence_quotes: ["top performer"],
+          rationale: "Strong sales drive.",
+        },
+      ],
+      final_scores: {
+        dimensions: [
+          { category: "passion_for_sales", score: 4 },
+        ],
+        total_score: 4,
+        max_score: 4,
+      },
+      warnings: ["model_warning"],
+    }));
+
+    const restricted = restrictScoringOutputToRubricDimensions(parsed, {
+      dimensions: [
+        { key: "communication" },
+        { key: "passion_for_sales" },
+        { key: "agency" },
+      ],
+    });
+
+    expect(restricted.categoryScores.map((score) => score.category)).toEqual(["passion_for_sales"]);
+    expect(restricted.scorecard.dimensionScores.map((score) => score.category)).toEqual(["passion_for_sales"]);
+    expect(restricted.scorecard.finalScores).toEqual({
+      dimensions: [
+        { category: "passion_for_sales", score: 4 },
+      ],
+      totalScore: 4,
+      maxScore: 4,
+    });
+    expect(restricted.warnings).toEqual([
+      "model_warning",
+      "missing_selected_rubric_categories",
+    ]);
   });
 
   it("throws when evidence_quotes is missing, malformed, or contains non-strings", () => {

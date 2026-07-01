@@ -5,7 +5,7 @@ import { buildScoringCalibrationInput } from "./evaluation/calibration.js";
 import { createGradingModelSelection } from "./modelProvider.js";
 import { recommendInterview } from "./recommendation.js";
 import { buildDraftRubric, validateRoleRubric } from "./rubric.js";
-import { scoreTranscript } from "./scoring.js";
+import { restrictScoringOutputToRubricDimensions, scoreTranscript } from "./scoring.js";
 import {
   activeRubricForJobStatement,
   gradingProfileActivateStatement,
@@ -225,6 +225,16 @@ function recommendationPolicyFromRubric(rubric: unknown): {
   };
 }
 
+function roleRubricMatchesProfile(rubric: unknown, input: {
+  readonly organizationId: string;
+  readonly ashbyJobId: string;
+}): boolean {
+  const rubricObject = objectValue(rubric);
+  const role = objectValue(rubricObject.role);
+  return stringValue(role.organization_id) === input.organizationId &&
+    stringValue(role.ashby_job_id) === input.ashbyJobId;
+}
+
 function uniqueStrings(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values));
 }
@@ -274,13 +284,25 @@ export function registerGradingRoutes(app: FastifyInstance): void {
       const versionStmt = nextRubricVersionStatement(request.params.profileId);
       const versionResult = await client.query(versionStmt.sql, [...versionStmt.params]);
       const version = Number(versionResult.rows[0]?.next_version ?? 1);
-      const rubric = buildDraftRubric({
-        organizationId,
-        ashbyJobId,
-        jobName,
-        historicalSessionCount: historicalSessionCount.value,
-        matchedApplicationCount: matchedApplicationCount.value,
-      });
+      const submittedRubric = body.rubric;
+      const rubric = submittedRubric === undefined
+        ? buildDraftRubric({
+            organizationId,
+            ashbyJobId,
+            jobName,
+            historicalSessionCount: historicalSessionCount.value,
+            matchedApplicationCount: matchedApplicationCount.value,
+          })
+        : submittedRubric;
+      const validation = validateRoleRubric(rubric);
+      if (!validation.ok) {
+        await client.query("ROLLBACK");
+        return reply.code(400).send({ error: validation.error });
+      }
+      if (!roleRubricMatchesProfile(rubric, { organizationId, ashbyJobId })) {
+        await client.query("ROLLBACK");
+        return reply.code(400).send({ error: "rubric role must match the grading profile" });
+      }
       const rubricVersionId = randomUUID();
       const insert = rubricVersionInsertStatement({
         rubricVersionId,
@@ -290,11 +312,16 @@ export function registerGradingRoutes(app: FastifyInstance): void {
         version,
         status: "draft",
         rubric,
-        generationInputs: {
-          source: "weave_seeded_pilot",
-          historicalSessionCount: historicalSessionCount.value,
-          matchedApplicationCount: matchedApplicationCount.value,
-        },
+        generationInputs: submittedRubric === undefined
+          ? {
+              source: "weave_seeded_pilot",
+              historicalSessionCount: historicalSessionCount.value,
+              matchedApplicationCount: matchedApplicationCount.value,
+            }
+          : {
+              source: "dashboard_rubric_editor",
+              jobName,
+            },
       });
       await client.query(insert.sql, [...insert.params]);
       const update = gradingProfileDraftUpdateStatement({
@@ -333,9 +360,14 @@ export function registerGradingRoutes(app: FastifyInstance): void {
       const profileStmt = gradingProfileByIdForUpdateStatement(request.params.profileId, organizationId);
       const profileResult = await client.query(profileStmt.sql, [...profileStmt.params]);
       const profile = profileResult.rows[0] as Record<string, unknown> | undefined;
-      if (!profile) {
+      const ashbyJobId = stringValue(profile?.ashby_job_id);
+      if (!profile || !ashbyJobId) {
         await client.query("ROLLBACK");
         return reply.code(404).send({ error: "grading profile not found" });
+      }
+      if (!roleRubricMatchesProfile(rubric, { organizationId, ashbyJobId })) {
+        await client.query("ROLLBACK");
+        return reply.code(400).send({ error: "rubric role must match the grading profile" });
       }
       if (stringValue(profile.draft_rubric_version_id) !== rubricVersionId) {
         await client.query("ROLLBACK");
@@ -409,15 +441,18 @@ export function registerGradingRoutes(app: FastifyInstance): void {
 
     const scoringCalibration = buildScoringCalibrationInput();
     const modelSelection = createGradingModelSelection();
-    const parsed = await scoreTranscript(
-      {
-        rubric: activeRubric.rubric,
-        transcriptTurns: transcriptResult.rows,
-        gradingGuide: scoringCalibration.gradingGuide,
-        dimensionScoreAnchors: scoringCalibration.dimensionScoreAnchors,
-        calibrationExamples: scoringCalibration.calibrationExamples,
-      },
-      modelSelection.model,
+    const parsed = restrictScoringOutputToRubricDimensions(
+      await scoreTranscript(
+        {
+          rubric: activeRubric.rubric,
+          transcriptTurns: transcriptResult.rows,
+          gradingGuide: scoringCalibration.gradingGuide,
+          dimensionScoreAnchors: scoringCalibration.dimensionScoreAnchors,
+          calibrationExamples: scoringCalibration.calibrationExamples,
+        },
+        modelSelection.model,
+      ),
+      activeRubric.rubric,
     );
     const categoryScoresForRecommendation = parsed.categoryScores.map((categoryScore) => ({
       category: categoryScore.category,

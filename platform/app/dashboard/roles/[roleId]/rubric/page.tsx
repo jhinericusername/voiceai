@@ -3,12 +3,12 @@ import { notFound } from "next/navigation";
 import { companyIdentityFromUser, getAshbyActivePipeline } from "@/lib/ashby/server";
 import { ashbyJobReferences } from "../../ashby-role-labels";
 import { requireDashboardUser } from "../../../auth";
+import { getGradingCompanyState } from "../../../backend-data";
 import {
-  EmptyState,
-  SectionPanel,
   StatusPill,
   secondaryButtonClass,
 } from "../../../dashboard-ui";
+import { RoleRubricEditor } from "../RoleRubricEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +19,24 @@ export function generateStaticParams() {
 export default async function RubricPage({ params }: { readonly params: Promise<{ roleId: string }> }) {
   const { roleId } = await params;
   const { user, organizationId } = await requireDashboardUser(`/dashboard/roles/${roleId}/rubric`);
-  const pipeline = await getAshbyActivePipeline(
-    companyIdentityFromUser({ email: user.email, organizationId }),
-  );
+  const companyIdentity = companyIdentityFromUser({ email: user.email, organizationId });
+  const [pipeline, gradingProfiles] = await Promise.all([
+    getAshbyActivePipeline(companyIdentity),
+    getGradingCompanyState({ orgId: organizationId }),
+  ]);
   const selectedRole = ashbyJobReferences(pipeline.roles).find((role) => role.jobId === roleId.trim());
 
   if (!selectedRole) {
     notFound();
   }
+  const selectedGradingProfile =
+    gradingProfiles.find((profile) => profile.ashby_job_id === selectedRole.jobId) ?? null;
+  const rubricEditorKey = [
+    selectedRole.jobId,
+    selectedGradingProfile?.profile_id ?? "missing-profile",
+    selectedGradingProfile?.draft_rubric_version_id ?? "no-draft",
+    selectedGradingProfile?.active_rubric_version_id ?? "no-active",
+  ].join(":");
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
@@ -39,8 +49,7 @@ export default async function RubricPage({ params }: { readonly params: Promise<
             </div>
             <h1 className="mt-2 text-2xl font-semibold text-slate-950 sm:text-3xl">Role rubric</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Each review queue must use the rubric for its specific role. This page will show editable role criteria
-              after rubric configuration is wired to real Ashby role data.
+              Each review queue uses this role-specific rubric for screening recommendations and human review.
             </p>
           </div>
           <Link href={`/dashboard/roles/${roleId}`} className={secondaryButtonClass}>
@@ -49,12 +58,14 @@ export default async function RubricPage({ params }: { readonly params: Promise<
         </div>
       </header>
 
-      <SectionPanel title="Scoring bar" eyebrow="Role-specific">
-        <EmptyState
-          title="No role rubric configured yet"
-          detail="Placeholder rubric content has been removed. Real role-specific criteria will appear here once configured."
+      <section className="puddle-panel overflow-hidden rounded-md border border-slate-200 bg-white/94 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <RoleRubricEditor
+          key={rubricEditorKey}
+          selectedRole={selectedRole}
+          organizationId={organizationId}
+          profile={selectedGradingProfile}
         />
-      </SectionPanel>
+      </section>
     </div>
   );
 }

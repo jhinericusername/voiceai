@@ -6,7 +6,9 @@ import {
   StatusPill,
   cx,
 } from "../../dashboard-ui";
+import type { RoleGradingProfile } from "../../backend-data";
 import type { AshbyJobReference } from "../ashby-role-labels";
+import { RoleRubricEditor } from "./RoleRubricEditor";
 import { ScoreTab } from "./ScoreTab";
 
 type RoleTab = "Pipeline" | "Score" | "Rubric" | "Interviews" | "Reports";
@@ -16,12 +18,22 @@ const tabs: readonly RoleTab[] = ["Pipeline", "Score", "Rubric", "Interviews", "
 export function RoleWorkspaceTabs({
   selectedRole,
   ashbyJobs,
+  gradingProfile,
+  organizationId,
 }: {
   readonly selectedRole: AshbyJobReference;
   readonly ashbyJobs: readonly AshbyJobReference[];
+  readonly gradingProfile: RoleGradingProfile | null;
+  readonly organizationId: string;
 }) {
   const [activeTab, setActiveTab] = useState<RoleTab>("Pipeline");
   const roleLabel = selectedRole.name;
+  const rubricEditorKey = [
+    selectedRole.jobId,
+    gradingProfile?.profile_id ?? "missing-profile",
+    gradingProfile?.draft_rubric_version_id ?? "no-draft",
+    gradingProfile?.active_rubric_version_id ?? "no-active",
+  ].join(":");
 
   return (
     <section className="puddle-panel overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -50,7 +62,14 @@ export function RoleWorkspaceTabs({
       <div className="p-4">
         {activeTab === "Pipeline" ? <PipelineTab roleLabel={roleLabel} /> : null}
         {activeTab === "Score" ? <ScoreTab jobId={selectedRole.jobId} availableJobs={ashbyJobs} /> : null}
-        {activeTab === "Rubric" ? <RubricTab roleLabel={roleLabel} /> : null}
+        {activeTab === "Rubric" ? (
+          <RoleRubricEditor
+            key={rubricEditorKey}
+            selectedRole={selectedRole}
+            organizationId={organizationId}
+            profile={gradingProfile}
+          />
+        ) : null}
         {activeTab === "Interviews" ? <InterviewsTab roleLabel={roleLabel} /> : null}
         {activeTab === "Reports" ? <ReportsTab roleLabel={roleLabel} /> : null}
       </div>
@@ -77,15 +96,6 @@ function PipelineTab({ roleLabel }: { readonly roleLabel: string }) {
         </section>
       ))}
     </div>
-  );
-}
-
-function RubricTab({ roleLabel }: { readonly roleLabel: string }) {
-  return (
-    <EmptyState
-      title={`${roleLabel} rubric is not configured in Puddle yet`}
-      detail="After Ashby stages and role rubrics sync, this tab will show the job-specific screening bar without placeholder criteria."
-    />
   );
 }
 

@@ -152,6 +152,59 @@ describe("grading routes", () => {
     }
   });
 
+  it("rejects unauthenticated company grading state requests when internal auth is configured", async () => {
+    process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/company-state",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: "unauthorized" });
+      expect(sqlCalls).toEqual([]);
+      expect(queryMock).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("allows authenticated company grading state requests when internal auth is configured", async () => {
+    process.env.PUDDLE_BACKEND_INTERNAL_TOKEN = "test-token";
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/company-state",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer test-token",
+        },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        profiles: [
+          {
+            profile_id: "profile_1",
+            organization_id: "org_1",
+            ashby_job_id: "job_1",
+            status: "draft_needed",
+            active_rubric: null,
+            draft_rubric: null,
+          },
+        ],
+      });
+      expect(sqlCalls.some((sql) => sql.includes("role_grading_profiles"))).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("creates a draft rubric for a grading profile", async () => {
     const app = buildServer(FAKE_LK);
     try {
@@ -178,6 +231,87 @@ describe("grading routes", () => {
       });
       expect(sqlCalls.some((sql) => sql.includes("role_grading_profiles"))).toBe(true);
       expect(sqlCalls.some((sql) => sql.includes("role_rubric_versions"))).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("stores a submitted rubric as the current draft version", async () => {
+    const rubric = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_1",
+      jobName: "Account Executive",
+      historicalSessionCount: 3,
+      matchedApplicationCount: 2,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+    const editedRubric = {
+      ...rubric,
+      dimensions: rubric.dimensions.map((dimension) =>
+        dimension.key === "communication"
+          ? {
+              ...dimension,
+              anchors: { ...dimension.anchors, 2: "Clearly articulates themselves." },
+            }
+          : dimension,
+      ),
+    };
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/profiles/profile_1/draft",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_1",
+          actorEmail: "reviewer@example.com",
+          jobName: "Account Executive",
+          rubric: editedRubric,
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({
+        rubricVersionId: expect.any(String),
+        rubric: editedRubric,
+      });
+      const insertCall = queryCalls.find((call) => call.sql.includes("INSERT INTO role_rubric_versions"));
+      expect(insertCall?.params[7]).toBe(JSON.stringify(editedRubric));
+      expect(insertCall?.params[8]).toBe(JSON.stringify({
+        source: "dashboard_rubric_editor",
+        jobName: "Account Executive",
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects submitted draft rubrics that do not match the locked profile role", async () => {
+    const rubric = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_other",
+      jobName: "Other Role",
+      historicalSessionCount: 1,
+      matchedApplicationCount: 1,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/profiles/profile_1/draft",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_1",
+          actorEmail: "reviewer@example.com",
+          jobName: "Other Role",
+          rubric,
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "rubric role must match the grading profile" });
+      expect(sqlCalls).toContain("ROLLBACK");
     } finally {
       await app.close();
     }
@@ -223,6 +357,38 @@ describe("grading routes", () => {
       expect(
         queryCalls.find((call) => call.sql.includes("UPDATE role_grading_profiles"))?.params,
       ).toEqual(["profile_1", "org_1", "rv_1", "reviewer@example.com"]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects approval when the submitted rubric role does not match the locked profile role", async () => {
+    const rubric = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_other",
+      jobName: "Other Role",
+      historicalSessionCount: 12,
+      matchedApplicationCount: 10,
+    });
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/profiles/profile_1/approve",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_1",
+          actorEmail: "reviewer@example.com",
+          rubricVersionId: "rv_1",
+          rubric,
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "rubric role must match the grading profile" });
+      expect(sqlCalls).toContain("ROLLBACK");
+      expect(sqlCalls.some((sql) => sql.includes("UPDATE role_rubric_versions"))).toBe(false);
+      expect(sqlCalls.some((sql) => sql.includes("UPDATE role_grading_profiles"))).toBe(false);
     } finally {
       await app.close();
     }
