@@ -284,7 +284,7 @@ test("candidate dashboard surfaces imported Weave evaluations without Supabase r
   assert.match(ashbyServerSource, /readonly latestImportedEvaluation: ImportedWeaveEvaluation \| null/);
   assert.match(activePipelineSource, /latestImportedEvaluation/);
   assert.match(activePipelineSource, /Imported Weave evaluation/);
-  assert.match(activePipelineSource, /Weave \$\{formatImportedWeaveScore/);
+  assert.match(activePipelineSource, /Weave \$\{score\}/);
   assert.match(roleCandidateSource, /selectedCandidate\.latestImportedEvaluation/);
   assert.match(roleCandidateSource, /Imported Weave evaluation/);
   for (const dimension of ["Problem solving", "Agency", "Competitiveness", "Curiosity"]) {
@@ -292,6 +292,22 @@ test("candidate dashboard surfaces imported Weave evaluations without Supabase r
   }
   assert.doesNotMatch(activePipelineSource, /supabase/i);
   assert.doesNotMatch(roleCandidateSource, /supabase/i);
+});
+
+test("imported Weave score formatters suppress nonnumeric sentinel strings", () => {
+  for (const [name, pageSource] of [
+    ["active pipeline", activePipelineSource],
+    ["candidate detail", roleCandidateSource],
+    ["interview detail", interviewDetailSource],
+  ]) {
+    assert.match(pageSource, /NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS/, `${name} should reject non-finite score labels`);
+    assert.match(pageSource, /formatImportedWeaveNumericScore/, `${name} should normalize finite numeric scores`);
+    assert.match(pageSource, /formatImportedWeaveSuffixedScore/, `${name} should preserve already-suffixed score labels`);
+    assert.doesNotMatch(pageSource, /return trimmed;/, `${name} should not pass arbitrary raw score strings through`);
+  }
+
+  assert.match(activePipelineSource, /className="max-w-\[160px\] truncate"/);
+  assert.match(activePipelineSource, /score \? `Weave \$\{score\}` : "Imported Weave evaluation"/);
 });
 
 test("review queue prefers explicit backend review flags over score-shape inference", () => {

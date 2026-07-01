@@ -295,22 +295,59 @@ function formatNullableDate(value: string | null): string {
   return value ? formatDateTime(value) : "Not set";
 }
 
-function formatImportedWeaveScore(value: string | number | null, suffix: string): string {
+const IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN = /^[-+]?(?:\d+|\d*\.\d+)$/;
+const IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN = /^([-+]?(?:\d+|\d*\.\d+))\s*\/\s*([-+]?(?:\d+|\d*\.\d+))$/;
+const NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS = new Set(["nan", "infinity", "+infinity", "-infinity"]);
+
+function normalizedImportedWeaveScoreNumber(value: number): string {
+  return String(value).replace(/\.0$/, "");
+}
+
+function formatImportedWeaveNumericScore(value: string | number | null): string | null {
   if (typeof value === "number") {
-    return Number.isFinite(value) ? `${String(value).replace(/\.0$/, "")}${suffix}` : "Not scored";
+    return Number.isFinite(value) ? normalizedImportedWeaveScoreNumber(value) : null;
   }
 
   const trimmed = value?.trim();
-  if (!trimmed) {
-    return "Not scored";
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  if (!IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN.test(trimmed)) {
+    return null;
   }
 
   const numeric = Number(trimmed);
-  if (Number.isFinite(numeric) && /^[-+]?\d+(?:\.\d+)?$/.test(trimmed)) {
-    return `${String(numeric).replace(/\.0$/, "")}${suffix}`;
+  return Number.isFinite(numeric) ? normalizedImportedWeaveScoreNumber(numeric) : null;
+}
+
+function formatImportedWeaveSuffixedScore(value: string | number | null): string | null {
+  if (typeof value !== "string") {
+    return null;
   }
 
-  return trimmed;
+  const trimmed = value.trim();
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  const match = trimmed.match(IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const score = Number(match[1]);
+  const maxScore = Number(match[2]);
+  if (!Number.isFinite(score) || !Number.isFinite(maxScore)) {
+    return null;
+  }
+
+  return `${normalizedImportedWeaveScoreNumber(score)}/${normalizedImportedWeaveScoreNumber(maxScore)}`;
+}
+
+function formatImportedWeaveScore(value: string | number | null, suffix: string): string {
+  const numericScore = formatImportedWeaveNumericScore(value);
+  return numericScore ? `${numericScore}${suffix}` : formatImportedWeaveSuffixedScore(value) ?? "Not scored";
 }
 
 function scoreValue(value: unknown): string | null {

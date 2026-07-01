@@ -82,27 +82,60 @@ function errorMessage(value: unknown): string {
   return "Stage settings could not be saved.";
 }
 
-function formatImportedWeaveScore(value: string | number | null | undefined): string | null {
+const IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN = /^[-+]?(?:\d+|\d*\.\d+)$/;
+const IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN = /^([-+]?(?:\d+|\d*\.\d+))\s*\/\s*([-+]?(?:\d+|\d*\.\d+))$/;
+const NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS = new Set(["nan", "infinity", "+infinity", "-infinity"]);
+
+function normalizedImportedWeaveScoreNumber(value: number): string {
+  return String(value).replace(/\.0$/, "");
+}
+
+function formatImportedWeaveNumericScore(value: string | number | null | undefined): string | null {
   if (typeof value === "number") {
-    return Number.isFinite(value) ? String(value).replace(/\.0$/, "") : null;
+    return Number.isFinite(value) ? normalizedImportedWeaveScoreNumber(value) : null;
   }
 
   const trimmed = value?.trim();
-  if (!trimmed) {
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  if (!IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN.test(trimmed)) {
     return null;
   }
 
   const numeric = Number(trimmed);
-  if (Number.isFinite(numeric) && /^[-+]?\d+(?:\.\d+)?$/.test(trimmed)) {
-    return String(numeric).replace(/\.0$/, "");
+  return Number.isFinite(numeric) ? normalizedImportedWeaveScoreNumber(numeric) : null;
+}
+
+function formatImportedWeaveSuffixedScore(value: string | number | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
   }
 
-  return trimmed;
+  const trimmed = value.trim();
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  const match = trimmed.match(IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const score = Number(match[1]);
+  const maxScore = Number(match[2]);
+  if (!Number.isFinite(score) || !Number.isFinite(maxScore)) {
+    return null;
+  }
+
+  return `${normalizedImportedWeaveScoreNumber(score)}/${normalizedImportedWeaveScoreNumber(maxScore)}`;
 }
 
 function importedWeaveStatus(evaluation: ImportedWeaveEvaluation): string {
-  const score = formatImportedWeaveScore(evaluation.totalScore);
-  return score ? `Weave ${formatImportedWeaveScore(evaluation.totalScore)}${score.includes("/") ? "" : "/16"}` : "Imported Weave evaluation";
+  const numericScore = formatImportedWeaveNumericScore(evaluation.totalScore);
+  const score = numericScore ? `${numericScore}/16` : formatImportedWeaveSuffixedScore(evaluation.totalScore);
+  return score ? `Weave ${score}` : "Imported Weave evaluation";
 }
 
 export function ActivePipelineDashboard({
@@ -325,7 +358,10 @@ export function ActivePipelineDashboard({
                           </div>
                           <div className="flex flex-wrap items-center gap-2 md:justify-end">
                             {candidate.latestImportedEvaluation ? (
-                              <StatusPill status={importedWeaveStatus(candidate.latestImportedEvaluation)} />
+                              <StatusPill
+                                status={importedWeaveStatus(candidate.latestImportedEvaluation)}
+                                className="max-w-[160px] truncate"
+                              />
                             ) : null}
                             <StatusPill status={candidate.currentStage} />
                           </div>
