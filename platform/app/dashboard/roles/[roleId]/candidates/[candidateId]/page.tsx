@@ -4,6 +4,7 @@ import {
   companyIdentityFromUser,
   getAshbyActivePipeline,
   type AshbyActivePipelineCandidate,
+  type ImportedWeaveEvaluation,
 } from "@/lib/ashby/server";
 import { DashboardCreateInterviewLauncher } from "../../../../DashboardCreateInterviewLauncher";
 import { requireDashboardUser } from "../../../../auth";
@@ -87,6 +88,10 @@ export default async function CandidateReportPage({
           <ApplicationMetaRow label="Application" value={selectedCandidate.applicationId} />
         </dl>
       </SectionPanel>
+
+      {selectedCandidate.latestImportedEvaluation ? (
+        <ImportedWeaveEvaluationPanel evaluation={selectedCandidate.latestImportedEvaluation} />
+      ) : null}
     </div>
   );
 }
@@ -109,6 +114,53 @@ function ApplicationMetaRow({
       <dd className="mt-1 truncate text-sm font-semibold text-slate-950">{value}</dd>
     </div>
   );
+}
+
+function ImportedWeaveEvaluationPanel({
+  evaluation,
+}: {
+  readonly evaluation: ImportedWeaveEvaluation;
+}) {
+  return (
+    <SectionPanel title="Imported Weave evaluation" eyebrow="Weave">
+      <div className="grid gap-4">
+        <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ApplicationMetaRow label="Total score" value={formatImportedWeaveScore(evaluation.totalScore, "/16")} />
+          <ApplicationMetaRow label="Problem solving" value={formatImportedWeaveScore(evaluation.problemSolving, "/4")} />
+          <ApplicationMetaRow label="Agency" value={formatImportedWeaveScore(evaluation.agency, "/4")} />
+          <ApplicationMetaRow label="Competitiveness" value={formatImportedWeaveScore(evaluation.competitiveness, "/4")} />
+          <ApplicationMetaRow label="Curiosity" value={formatImportedWeaveScore(evaluation.curiosity, "/4")} />
+          <ApplicationMetaRow label="Source updated" value={formatNullableDate(evaluation.sourceUpdatedAt)} />
+        </dl>
+        {evaluation.comments?.trim() ? (
+          <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Comments</div>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+              {evaluation.comments.trim()}
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </SectionPanel>
+  );
+}
+
+function formatImportedWeaveScore(value: string | number | null, suffix: string): string {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? `${String(value).replace(/\.0$/, "")}${suffix}` : "Not scored";
+  }
+
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return "Not scored";
+  }
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric) && /^[-+]?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return `${String(numeric).replace(/\.0$/, "")}${suffix}`;
+  }
+
+  return trimmed;
 }
 
 function formatNullableDate(value: string | null): string {

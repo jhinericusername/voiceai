@@ -10,6 +10,17 @@ interface ActivePipelineStage {
   readonly count: number;
 }
 
+interface ImportedWeaveEvaluation {
+  readonly sourceEvaluationId: string;
+  readonly sourceUpdatedAt: string | null;
+  readonly problemSolving: string | number | null;
+  readonly agency: string | number | null;
+  readonly competitiveness: string | number | null;
+  readonly curiosity: string | number | null;
+  readonly totalScore: string | number | null;
+  readonly comments: string | null;
+}
+
 interface ActivePipelineCandidate {
   readonly applicationId: string;
   readonly candidateId: string;
@@ -19,6 +30,7 @@ interface ActivePipelineCandidate {
   readonly currentStage: string;
   readonly source: string | null;
   readonly updatedAt: string | null;
+  readonly latestImportedEvaluation: ImportedWeaveEvaluation | null;
 }
 
 interface ActivePipelineRole {
@@ -68,6 +80,29 @@ function errorMessage(value: unknown): string {
     return value.error;
   }
   return "Stage settings could not be saved.";
+}
+
+function formatImportedWeaveScore(value: string | number | null | undefined): string | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value).replace(/\.0$/, "") : null;
+  }
+
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric) && /^[-+]?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return String(numeric).replace(/\.0$/, "");
+  }
+
+  return trimmed;
+}
+
+function importedWeaveStatus(evaluation: ImportedWeaveEvaluation): string {
+  const score = formatImportedWeaveScore(evaluation.totalScore);
+  return score ? `Weave ${formatImportedWeaveScore(evaluation.totalScore)}${score.includes("/") ? "" : "/16"}` : "Imported Weave evaluation";
 }
 
 export function ActivePipelineDashboard({
@@ -289,6 +324,9 @@ export function ActivePipelineDashboard({
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                            {candidate.latestImportedEvaluation ? (
+                              <StatusPill status={importedWeaveStatus(candidate.latestImportedEvaluation)} />
+                            ) : null}
                             <StatusPill status={candidate.currentStage} />
                           </div>
                         </div>

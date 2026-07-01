@@ -29,6 +29,7 @@ const candidateSearchSource = await optionalSource("../app/dashboard/DashboardCa
 const overviewSource = await source("../app/dashboard/page.tsx");
 const rolesSource = await source("../app/dashboard/roles/page.tsx");
 const activePipelineSource = await source("../app/dashboard/roles/ActivePipelineDashboard.tsx");
+const ashbyServerSource = await source("../lib/ashby/server.ts");
 const roleDetailSource = await source("../app/dashboard/roles/[roleId]/page.tsx");
 const roleTabsSource = await source("../app/dashboard/roles/[roleId]/RoleWorkspaceTabs.tsx");
 const roleCandidateSource = await source("../app/dashboard/roles/[roleId]/candidates/[candidateId]/page.tsx");
@@ -278,6 +279,21 @@ test("candidate detail page renders the synced Ashby application record", () => 
   assert.doesNotMatch(roleCandidateSource, /will populate from the selected role's real Ashby applications/);
 });
 
+test("candidate dashboard surfaces imported Weave evaluations without Supabase reads", () => {
+  assert.match(ashbyServerSource, /export interface ImportedWeaveEvaluation/);
+  assert.match(ashbyServerSource, /readonly latestImportedEvaluation: ImportedWeaveEvaluation \| null/);
+  assert.match(activePipelineSource, /latestImportedEvaluation/);
+  assert.match(activePipelineSource, /Imported Weave evaluation/);
+  assert.match(activePipelineSource, /Weave \$\{formatImportedWeaveScore/);
+  assert.match(roleCandidateSource, /selectedCandidate\.latestImportedEvaluation/);
+  assert.match(roleCandidateSource, /Imported Weave evaluation/);
+  for (const dimension of ["Problem solving", "Agency", "Competitiveness", "Curiosity"]) {
+    assert.match(roleCandidateSource, new RegExp(dimension));
+  }
+  assert.doesNotMatch(activePipelineSource, /supabase/i);
+  assert.doesNotMatch(roleCandidateSource, /supabase/i);
+});
+
 test("review queue prefers explicit backend review flags over score-shape inference", () => {
   assert.match(backendDataSource, /readonly has_recommendation_packet: boolean/);
   assert.match(backendDataSource, /readonly needs_human_review: boolean/);
@@ -319,6 +335,18 @@ test("interview detail is Fireflies-like, real-only, and hides raw internal iden
   assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Script"/);
   assert.doesNotMatch(interviewDetailSource, /PacketMetaRow label="Storage"/);
   assert.doesNotMatch(interviewDetailSource, /<span[^>]*>\{turn\.questionId\}/);
+});
+
+test("interview detail surfaces imported Weave evaluations from backend data without Supabase reads", () => {
+  assert.match(backendDataSource, /export interface ImportedWeaveEvaluation/);
+  assert.match(backendDataSource, /readonly imported_evaluation: ImportedWeaveEvaluation \| null/);
+  assert.match(interviewDetailSource, /realInterview\.imported_evaluation/);
+  assert.match(interviewDetailSource, /Imported Weave evaluation/);
+  for (const dimension of ["Problem solving", "Agency", "Competitiveness", "Curiosity"]) {
+    assert.match(interviewDetailSource, new RegExp(dimension));
+  }
+  assert.doesNotMatch(backendDataSource, /supabase/i);
+  assert.doesNotMatch(interviewDetailSource, /supabase/i);
 });
 
 test("interview transcript timestamps seek media playback", () => {
