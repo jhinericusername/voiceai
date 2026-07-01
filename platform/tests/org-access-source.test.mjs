@@ -41,6 +41,9 @@ const dashboardActionRoutes = await Promise.all(
     "../app/api/dashboard/interviews/[sessionId]/interviewer-join/route.ts",
     "../app/api/dashboard/interviews/[sessionId]/interviewer-connected/route.ts",
     "../app/api/dashboard/interviews/[sessionId]/ai-control/route.ts",
+    "../app/api/grading/company-state/route.ts",
+    "../app/api/grading/profiles/[profileId]/draft/route.ts",
+    "../app/api/grading/profiles/[profileId]/approve/route.ts",
   ].map(async (path) => ({
     path,
     source: await readFile(new URL(path, import.meta.url), "utf8"),

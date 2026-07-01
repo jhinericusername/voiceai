@@ -6,6 +6,9 @@ const routeFiles = [
   "app/api/interviews/route.ts",
   "app/api/interviews/[token]/join/route.ts",
   "app/api/livekit/webhook/route.ts",
+  "app/api/grading/company-state/route.ts",
+  "app/api/grading/profiles/[profileId]/draft/route.ts",
+  "app/api/grading/profiles/[profileId]/approve/route.ts",
 ];
 
 const backendApiSource = await readFile(new URL("../lib/backend-api.ts", import.meta.url), "utf8");
@@ -30,6 +33,12 @@ test("backend API helper applies an explicit fetch timeout", () => {
 test("dashboard backend reads use timeout-bounded backend fetches", () => {
   assert.match(dashboardDataSource, /backendFetch/);
   assert.doesNotMatch(dashboardDataSource, /await fetch\(`/);
+});
+
+test("dashboard grading data reads use timeout-bounded backend fetches", () => {
+  assert.match(dashboardDataSource, /getGradingCompanyState/);
+  assert.match(dashboardDataSource, /\/grading\/company-state/);
+  assert.match(dashboardDataSource, /backendFetch/);
 });
 
 test("Ashby server reads use timeout-bounded backend fetches", () => {
