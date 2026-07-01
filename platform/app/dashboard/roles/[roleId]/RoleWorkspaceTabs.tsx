@@ -28,6 +28,12 @@ export function RoleWorkspaceTabs({
 }) {
   const [activeTab, setActiveTab] = useState<RoleTab>("Pipeline");
   const roleLabel = selectedRole.name;
+  const rubricEditorKey = [
+    selectedRole.jobId,
+    gradingProfile?.profile_id ?? "missing-profile",
+    gradingProfile?.draft_rubric_version_id ?? "no-draft",
+    gradingProfile?.active_rubric_version_id ?? "no-active",
+  ].join(":");
 
   return (
     <section className="puddle-panel overflow-hidden rounded-md border border-slate-200 bg-white/94 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
@@ -57,7 +63,12 @@ export function RoleWorkspaceTabs({
         {activeTab === "Pipeline" ? <PipelineTab roleLabel={roleLabel} /> : null}
         {activeTab === "Score" ? <ScoreTab jobId={selectedRole.jobId} availableJobs={ashbyJobs} /> : null}
         {activeTab === "Rubric" ? (
-          <RoleRubricEditor selectedRole={selectedRole} organizationId={organizationId} profile={gradingProfile} />
+          <RoleRubricEditor
+            key={rubricEditorKey}
+            selectedRole={selectedRole}
+            organizationId={organizationId}
+            profile={gradingProfile}
+          />
         ) : null}
         {activeTab === "Interviews" ? <InterviewsTab roleLabel={roleLabel} /> : null}
         {activeTab === "Reports" ? <ReportsTab roleLabel={roleLabel} /> : null}

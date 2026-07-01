@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { RoleGradingProfile, RoleRubric, RoleRubricDimension } from "../../backend-data";
 import {
@@ -27,6 +28,9 @@ type Feedback = {
   readonly text: string;
 };
 type AnchorLevel = "1" | "2" | "3" | "4";
+type SaveDraftOptions = {
+  readonly refresh?: boolean;
+};
 
 const anchorLevels: readonly AnchorLevel[] = ["1", "2", "3", "4"];
 const passionForSalesLabel = "Passion for Sales";
@@ -76,10 +80,12 @@ export function RoleRubricEditor({
   readonly organizationId: string;
   readonly profile: RoleGradingProfile | null;
 }) {
+  const router = useRouter();
   const persistedRubric = profile?.draft_rubric ?? profile?.active_rubric ?? null;
   const [dimensions, setDimensions] = useState<RoleRubricDimension[]>(() => initialDimensions(persistedRubric));
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [draftVersionId, setDraftVersionId] = useState<string | null>(() => profile?.draft_rubric_version_id ?? null);
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(() => profile?.active_rubric_version_id ?? null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   const selectedDimensionKeys = dimensions.flatMap((dimension) =>
@@ -105,7 +111,8 @@ export function RoleRubricEditor({
       : saveState === "approving"
         ? { tone: "info" as const, text: "Approving draft rubric..." }
         : feedback ?? { tone: "info" as const, text: "Draft changes are local until saved." };
-  const versionLabel = draftVersionId ?? profile?.active_rubric_version_id ?? "unsaved";
+  const statusLabel = draftVersionId ? "Draft ready" : activeVersionId ? "Active rubric" : "Rubric editor";
+  const versionLabel = draftVersionId ?? activeVersionId ?? "unsaved";
 
   function toggleDimension(key: WeaveDimensionKey) {
     setFeedback(null);
@@ -158,7 +165,7 @@ export function RoleRubricEditor({
     );
   }
 
-  async function saveDraft(rubric: RoleRubric = currentRubric): Promise<string | null> {
+  async function saveDraft(rubric: RoleRubric = currentRubric, options: SaveDraftOptions = {}): Promise<string | null> {
     if (!profile) {
       setFeedback({ tone: "error", text: "Rubric profile is missing. Sync Ashby roles before saving." });
       return null;
@@ -188,6 +195,9 @@ export function RoleRubricEditor({
         setDraftVersionId(versionId);
       }
       setFeedback({ tone: "success", text: "Draft rubric saved." });
+      if (options.refresh ?? true) {
+        router.refresh();
+      }
       return versionId;
     } catch {
       setFeedback({ tone: "error", text: "Could not reach the grading draft API." });
@@ -208,7 +218,7 @@ export function RoleRubricEditor({
     }
 
     const rubric = currentRubric;
-    const versionId = draftVersionId ?? (await saveDraft(rubric));
+    const versionId = draftVersionId ?? (await saveDraft(rubric, { refresh: false }));
     if (!versionId) {
       return;
     }
@@ -228,8 +238,10 @@ export function RoleRubricEditor({
         return;
       }
 
-      setDraftVersionId(versionId);
+      setActiveVersionId(versionId);
+      setDraftVersionId(null);
       setFeedback({ tone: "success", text: "Draft rubric approved." });
+      router.refresh();
     } catch {
       setFeedback({ tone: "error", text: "Could not reach the grading approval API." });
     } finally {
@@ -251,7 +263,7 @@ export function RoleRubricEditor({
       <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill status={profile.draft_rubric_version_id ? "Draft ready" : "Rubric editor"} />
+            <StatusPill status={statusLabel} />
             <span className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">{selectedRole.name}</span>
           </div>
           <h2 className="mt-2 text-base font-semibold text-slate-950">Role rubric</h2>
