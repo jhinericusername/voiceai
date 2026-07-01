@@ -17,16 +17,15 @@ export BACKEND_IMAGE_TAG="<git-sha-or-release-tag>"
 export PLATFORM_IMAGE_TAG="<git-sha-or-release-tag>"
 export LIVEKIT_URL="wss://<livekit-host>"
 export PUDDLE_PUBLIC_BASE_URL="https://<puddle-platform-host>"
-export PUDDLE_BACKEND_BASE_URL="https://<public-or-proxied-backend-host>"
 export WEAVE_ORG_ID="org_01KV4FF7KX24B76H7Q57QVB5CT"
 export WEBHOOK_SECRET_VALUE="<generated-high-entropy-secret>"
 export JSONL_INPUT="<path-to-weave-candidate-evaluation-events.jsonl>"
 ```
 
-The webhook URL sent from Supabase must target the backend route:
+The webhook URL sent from Supabase must target the public platform proxy route. Platform forwards the raw event body and shared secret to the internal backend route; normal app reads still come from Puddle RDS.
 
 ```sh
-export WEAVE_WEBHOOK_URL="${PUDDLE_BACKEND_BASE_URL}/integrations/weave/candidate-evaluations/webhook"
+export WEAVE_WEBHOOK_URL="${PUDDLE_PUBLIC_BASE_URL}/api/weave/candidate-evaluations/webhook"
 ```
 
 ## Prerequisite Checks

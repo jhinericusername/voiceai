@@ -26,6 +26,10 @@ const adminHelperSource = await readFile(
 ).catch(() => "");
 const orgAccessSource = await readFile(new URL("../lib/auth/org-access.mjs", import.meta.url), "utf8").catch(() => "");
 const webhookRoute = await readFile(new URL("../app/api/ashby/webhook/route.ts", import.meta.url), "utf8");
+const weaveWebhookRoute = await readFile(
+  new URL("../app/api/weave/candidate-evaluations/webhook/route.ts", import.meta.url),
+  "utf8",
+).catch(() => "");
 const wizardSource = await readFile(
   new URL("../app/dashboard/AshbyOnboardingWizard.tsx", import.meta.url),
   "utf8",
@@ -392,6 +396,16 @@ test("Ashby webhook proxy forwards raw body and signature to backend", () => {
   assert.doesNotMatch(webhookRoute, /companyDomain/);
   assert.doesNotMatch(webhookRoute, /PUDDLE_ASHBY_WEBHOOK_SECRET/);
   assert.doesNotMatch(webhookRoute, /verifyAshbyWebhookSignature/);
+});
+
+test("Weave candidate evaluation webhook proxy forwards raw body and shared secret to backend", () => {
+  assert.match(weaveWebhookRoute, /request\.text\(\)/);
+  assert.match(weaveWebhookRoute, /request\.headers\.get\("x-puddle-webhook-secret"\)/);
+  assert.match(weaveWebhookRoute, /\/integrations\/weave\/candidate-evaluations\/webhook/);
+  assert.match(weaveWebhookRoute, /backendHeaders\("application\/json"\)/);
+  assert.match(weaveWebhookRoute, /headers\["x-puddle-webhook-secret"\]\s*=\s*sharedSecret/);
+  assert.doesNotMatch(weaveWebhookRoute, /supabase/i);
+  assert.doesNotMatch(weaveWebhookRoute, /createClient/);
 });
 
 test("Ashby onboarding sync proxies to the existing backend sync route", () => {
