@@ -106,21 +106,25 @@ export function validateRoleRubric(value: unknown): { ok: true } | { ok: false; 
   }
   const seenDimensionKeys = new Set<string>();
   for (const dimension of value.dimensions) {
-    if (!isRecord(dimension) || !hasStringFields(dimension, ["key", "name", "meaning"])) {
+    if (!isRecord(dimension)) {
       return { ok: false, error: "Each rubric dimension must define key, name, and meaning." };
     }
-    if (!isWeaveDimensionKey(dimension.key)) {
+    const { key, name, meaning, anchors, sub_dimensions: subDimensions } = dimension;
+    if (typeof key !== "string" || typeof name !== "string" || typeof meaning !== "string") {
+      return { ok: false, error: "Each rubric dimension must define key, name, and meaning." };
+    }
+    if (!isWeaveDimensionKey(key)) {
       return { ok: false, error: "Rubric dimension key is not in the Weave dimension library." };
     }
-    if (seenDimensionKeys.has(dimension.key)) {
+    if (seenDimensionKeys.has(key)) {
       return { ok: false, error: "Rubric dimension keys must be unique." };
     }
-    seenDimensionKeys.add(dimension.key);
-    if (!hasAnchorSet(dimension.anchors)) {
+    seenDimensionKeys.add(key);
+    if (!hasAnchorSet(anchors)) {
       return { ok: false, error: "Each rubric dimension must define anchors 1, 2, 3, and 4." };
     }
-    if (Array.isArray(dimension.sub_dimensions)) {
-      for (const subDimension of dimension.sub_dimensions) {
+    if (Array.isArray(subDimensions)) {
+      for (const subDimension of subDimensions) {
         if (
           !isRecord(subDimension) ||
           !hasStringFields(subDimension, ["key", "name"]) ||
@@ -133,7 +137,7 @@ export function validateRoleRubric(value: unknown): { ok: true } | { ok: false; 
         }
       }
     }
-    if (containsAccentLanguage(dimension as RoleRubricDimension)) {
+    if (containsAccentLanguage({ key, meaning, anchors, sub_dimensions: subDimensions })) {
       return { ok: false, error: "Communication rubric must not score accent." };
     }
   }
@@ -216,14 +220,23 @@ function isWeaveDimensionKey(value: string): value is WeaveDimensionKey {
   return WEAVE_DIMENSION_KEY_SET.has(value as WeaveDimensionKey);
 }
 
-function containsAccentLanguage(dimension: RoleRubricDimension): boolean {
+function containsAccentLanguage(dimension: {
+  readonly key: WeaveDimensionKey;
+  readonly meaning: string;
+  readonly anchors: AnchorMap;
+  readonly sub_dimensions: unknown;
+}): boolean {
   if (dimension.key !== "communication") {
     return false;
   }
   const values = [
     dimension.meaning,
     ...Object.values(dimension.anchors),
-    ...(dimension.sub_dimensions ?? []).flatMap((subDimension) => Object.values(subDimension.anchors)),
+    ...(Array.isArray(dimension.sub_dimensions)
+      ? dimension.sub_dimensions.flatMap((subDimension) =>
+          isRecord(subDimension) && hasAnchorSet(subDimension.anchors) ? Object.values(subDimension.anchors) : [],
+        )
+      : []),
   ];
   return values.some((text) => /\baccent\b/i.test(text));
 }
