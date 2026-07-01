@@ -949,19 +949,6 @@ export function registerAshbyRoutes(app: FastifyInstance): void {
     }
 
     const jobIds = selectedJobIds(integration?.selected_job_ids);
-    if (jobIds.length === 0) {
-      return reply.send({
-        integrationId,
-        lastSyncAt: integration?.last_sync_at ?? null,
-        selectedJobCount: 0,
-        totalSyncedCandidates: 0,
-        activeCandidateCount: 0,
-        candidateRowCount: 0,
-        candidateRowsTruncated: false,
-        roles: [],
-      });
-    }
-
     const roleStmt = activePipelineRolesStatement({
       integrationId,
       selectedJobIds: jobIds,

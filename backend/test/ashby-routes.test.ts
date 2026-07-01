@@ -1857,6 +1857,123 @@ describe("Ashby backend routes", () => {
     }
   });
 
+  it("returns imported evaluation candidates when no Ashby jobs are configured", async () => {
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            integration_id: "int_1",
+            selected_job_ids: [],
+            connected_at: "2026-06-10T14:05:00.000Z",
+            last_ping_at: "2026-06-10T14:05:00.000Z",
+            last_sync_at: "2026-06-10T14:10:00.000Z",
+            setup_status: "connected",
+            ashby_webhook_secret_ciphertext: "encrypted-webhook",
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            job_id: "job_imported",
+            job_name: "Imported Role",
+            active_stage_names: [],
+            active_stage_names_configured: true,
+            stage_counts: [{ name: "Imported Evaluation", count: 1 }],
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            application_id: "app_imported",
+            candidate_id: "cand_imported",
+            candidate_name: "Imported Candidate",
+            candidate_email: "imported@example.com",
+            job_id: "job_imported",
+            current_stage: "Imported Evaluation",
+            source: null,
+            ashby_updated_at: null,
+            updated_at: new Date("2026-06-10T14:08:00.000Z"),
+            latest_imported_evaluation: {
+              sourceEvaluationId: "eval_imported",
+              sourceUpdatedAt: "2026-06-10T14:12:00.000Z",
+              problemSolving: 4,
+              agency: "3.5",
+              competitiveness: 3,
+              curiosity: "4.5",
+              totalScore: "15",
+              comments: "Imported-only evaluation.",
+            },
+          },
+        ],
+        rowCount: 1,
+      });
+
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/integrations/ashby/active-pipeline",
+        headers: { "content-type": "application/json" },
+        payload: {
+          emailDomain: "usepuddle.com",
+          organizationId: "org_1",
+          limit: 200,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        integrationId: "int_1",
+        lastSyncAt: "2026-06-10T14:10:00.000Z",
+        selectedJobCount: 0,
+        totalSyncedCandidates: 1,
+        activeCandidateCount: 0,
+        candidateRowCount: 1,
+        candidateRowsTruncated: false,
+        roles: [
+          {
+            jobId: "job_imported",
+            name: "Imported Role",
+            activeStageNames: [],
+            stageOptions: [{ name: "Imported Evaluation", count: 1 }],
+            activeCandidateCount: 0,
+            candidates: [
+              {
+                applicationId: "app_imported",
+                candidateId: "cand_imported",
+                candidateName: "Imported Candidate",
+                candidateEmail: "imported@example.com",
+                jobId: "job_imported",
+                currentStage: "Imported Evaluation",
+                source: null,
+                updatedAt: "2026-06-10T14:08:00.000Z",
+                latestImportedEvaluation: {
+                  sourceEvaluationId: "eval_imported",
+                  sourceUpdatedAt: "2026-06-10T14:12:00.000Z",
+                  problemSolving: 4,
+                  agency: 3.5,
+                  competitiveness: 3,
+                  curiosity: 4.5,
+                  totalScore: 15,
+                  comments: "Imported-only evaluation.",
+                },
+              },
+            ],
+          },
+        ],
+      });
+      expect(queryMock).toHaveBeenCalledTimes(3);
+      expect(queryMock.mock.calls[1]?.[1]).toEqual(["int_1", []]);
+      expect(queryMock.mock.calls[2]?.[1]).toEqual(["int_1", [], 200]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("persists active stage selections for a selected Ashby role", async () => {
     queryMock
       .mockResolvedValueOnce({
