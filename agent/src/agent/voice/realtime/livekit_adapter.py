@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
@@ -49,10 +50,31 @@ _CANDIDATE_IDENTITY_PREFIX = "candidate-"
 #   "high"   = grabs the turn fastest (snappiest, but may cut off a pause)
 #   "medium" = balanced default
 #   "low"    = waits longest before replying (most patient, adds 1-2s latency)
-# Started at "low" and it felt laggy (3-4s to respond) → using "high" for max
-# snappiness. If it starts cutting off candidates mid-thought, step down to
-# "medium" (balanced) or "low" (most patient).
-_VAD_EAGERNESS = "high"
+# Started at "low" and it felt laggy (3-4s to respond); "high" was max snappy but
+# too trigger-happy — it drove the mid-reflection false-interruption bug (semantic
+# VAD tripping on candidate noise). Settled on "medium" (2026-06-30) to cut those
+# false interrupts while staying reasonably snappy.
+# This is the DEFAULT; override per-run with env PUDDLE_VAD_EAGERNESS to A/B the
+# mid-reflection false-interruption bug in the local console harness.
+_VAD_EAGERNESS = "medium"
+
+# Barge-in / interruption sensitivity (the AgentSession turn-handling layer that
+# sits above server VAD). Tuned 2026-06-30 to fix the mid-reflection
+# false-interruption bug (livekit-framework defaults were 0.5 / 2.0); both stay
+# env-overridable per run (read at call time in build_agent_session) to keep
+# A/B-ing in the harness without code edits.
+#   _MIN_INTERRUPTION_DURATION (PUDDLE_MIN_INTERRUPTION_DURATION): seconds of
+#     candidate audio required before it counts as a barge-in. Framework default
+#     0.5 let a breath / short "mm-hmm" cut the agent off mid-sentence; raised to
+#     1.0 to ignore brief noise during the agent's long reflection turn. Tradeoff:
+#     a GENUINE interruption now needs ~1s of speech before the agent yields.
+#   _FALSE_INTERRUPTION_TIMEOUT (PUDDLE_FALSE_INTERRUPTION_TIMEOUT): seconds of
+#     silence after an interruption before it is classified false and the agent's
+#     speech auto-resumes. Framework default 2.0 was the audible dead-air ("quiet
+#     beat"); lowered to 0.75 to shrink it. resume_false_interruption stays on
+#     (the self-heal is the safety net), so this only trims how long the gap lasts.
+_MIN_INTERRUPTION_DURATION = 1.0
+_FALSE_INTERRUPTION_TIMEOUT = 0.75
 
 # Agent speech rate as a multiple of natural pace. gpt-realtime allows 0.25–1.5
 # (1.5 is the MAX). 1.2 = ~20% faster than the 1.0 default — 1.5 sounded rushed,
@@ -100,9 +122,10 @@ def build_realtime_model(model: str) -> Any:
     from openai.types.realtime import AudioTranscription
     from openai.types.realtime.realtime_audio_input_turn_detection import SemanticVad
 
+    eagerness = os.environ.get("PUDDLE_VAD_EAGERNESS", _VAD_EAGERNESS)
     turn_detection = SemanticVad(
         type="semantic_vad",
-        eagerness=_VAD_EAGERNESS,
+        eagerness=eagerness,
         create_response=True,
         interrupt_response=True,
     )
@@ -118,11 +141,86 @@ def build_realtime_model(model: str) -> Any:
         extra={
             "model": model,
             "voice": _VOICE,
-            "turn_detection": f"semantic_vad/{_VAD_EAGERNESS}",
+            "turn_detection": f"semantic_vad/{eagerness}",
             "speed": _SPEECH_SPEED,
         },
     )
     return realtime_model
+
+
+def build_agent_session(llm: Any) -> Any:  # pragma: no cover - vendor I/O
+    """Build the `AgentSession` with shared interruption turn-handling.
+
+    Shared by the LiveKit worker AND the local console harness so both run a
+    byte-identical bot — same barge-in behavior, not just the same voice/model.
+    The ``interruption`` knobs gate when candidate audio counts as a barge-in
+    that cuts the agent off; defaults match the framework (= current prod) and
+    are env-overridable per run (read here at call time so the harness's
+    ``.env.local`` is honored). A partial ``interruption`` dict is intentional —
+    unspecified keys (``enabled``, ``resume_false_interruption``, …) inherit the
+    framework defaults.
+    """
+    from livekit.agents import AgentSession
+
+    min_duration = float(
+        os.environ.get("PUDDLE_MIN_INTERRUPTION_DURATION", str(_MIN_INTERRUPTION_DURATION))
+    )
+    false_interruption_timeout = float(
+        os.environ.get("PUDDLE_FALSE_INTERRUPTION_TIMEOUT", str(_FALSE_INTERRUPTION_TIMEOUT))
+    )
+    session = AgentSession(
+        llm=llm,
+        turn_handling={
+            "interruption": {
+                "min_duration": min_duration,
+                "false_interruption_timeout": false_interruption_timeout,
+            }
+        },
+    )
+    logger.info(
+        "agent session configured",
+        extra={
+            "min_interruption_duration": min_duration,
+            "false_interruption_timeout": false_interruption_timeout,
+        },
+    )
+    return session
+
+
+def attach_interruption_logging(session: Any) -> None:  # pragma: no cover - vendor I/O
+    """Log the barge-in / false-interruption timeline. Diagnostic, non-behavioral.
+
+    Pins down the mid-reflection stop-and-resume: semantic VAD trips on candidate
+    noise and cuts the agent off, then the agent auto-resumes when no real turn
+    materializes. The decisive line is
+    ``[BARGE-IN] agent_false_interruption resumed=…`` — one per confirmed false
+    interruption; count them per harness session to compare VAD settings. The
+    surrounding state lines show the stop (agent speaking→listening) and resume.
+    """
+
+    def _on_agent_state(ev: Any) -> None:
+        logger.info(
+            "[BARGE-IN] agent_state %s -> %s",
+            getattr(ev, "old_state", "?"),
+            getattr(ev, "new_state", "?"),
+        )
+
+    def _on_user_state(ev: Any) -> None:
+        logger.info(
+            "[BARGE-IN] user_state %s -> %s",
+            getattr(ev, "old_state", "?"),
+            getattr(ev, "new_state", "?"),
+        )
+
+    def _on_false_interruption(ev: Any) -> None:
+        logger.warning(
+            "[BARGE-IN] agent_false_interruption resumed=%s",
+            getattr(ev, "resumed", "?"),
+        )
+
+    session.on("agent_state_changed", _on_agent_state)
+    session.on("user_state_changed", _on_user_state)
+    session.on("agent_false_interruption", _on_false_interruption)
 
 
 class _EndSentinel:
@@ -223,7 +321,7 @@ class LiveKitRealtimeSession:
         Vendor I/O — not unit-tested. The pure pieces it calls into (event
         translation, queue emit, lifecycle linking) are covered separately.
         """
-        from livekit.agents import Agent, AgentSession, room_io
+        from livekit.agents import Agent, room_io
 
         realtime_model = build_realtime_model(self._model)
         logger.info(
@@ -234,7 +332,8 @@ class LiveKitRealtimeSession:
             },
         )
 
-        session = AgentSession(llm=realtime_model)
+        session = build_agent_session(realtime_model)
+        attach_interruption_logging(session)
         self._session = session
 
         # generation_created → consume the per-turn streams and translate.
