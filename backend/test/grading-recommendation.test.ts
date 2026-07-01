@@ -22,6 +22,25 @@ describe("recommendInterview", () => {
     });
   });
 
+  it("advances non-problem-solving role rubrics using an average-score rule", () => {
+    expect(
+      recommendInterview({
+        categoryScores: [
+          { category: "communication", score: 3, confidence: 0.9, evidenceQuotes: ["quote"] },
+          { category: "passion_for_sales", score: 4, confidence: 0.86, evidenceQuotes: ["quote"] },
+          { category: "agency", score: 3, confidence: 0.84, evidenceQuotes: ["quote"] },
+        ],
+        bareMinimumRule: "at_least_one_4_and_average_ge_3",
+        minimumConfidence: 0.75,
+        severeWarnings: [],
+      }),
+    ).toEqual({
+      recommendation: "advance",
+      confidence: 0.87,
+      warnings: [],
+    });
+  });
+
   it("holds when confidence is low", () => {
     expect(
       recommendInterview({

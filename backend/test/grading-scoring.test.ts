@@ -85,7 +85,128 @@ describe("grading scoring", () => {
     expect(prompt).not.toContain("CALIBRATION_EXAMPLES_JSON:");
   });
 
+  it("instructs the model to score only the selected role rubric dimensions", () => {
+    const prompt = buildScoringPrompt({
+      rubric: {
+        script_version: "job_sales-v1",
+        dimensions: [
+          {
+            key: "communication",
+            name: "Communication",
+            meaning: "Engages in conversation.",
+            anchors: { 1: "Low", 2: "Clear", 3: "Enjoyable", 4: "Clarifying" },
+          },
+          {
+            key: "passion_for_sales",
+            name: "Passion for Sales",
+            meaning: "Figures out a way to be at the top of the leaderboard.",
+            anchors: { 1: "Weak", 2: "Some", 3: "Strong", 4: "Exceptional" },
+            sub_dimensions: [
+              {
+                key: "reason_for_getting_into_sales",
+                name: "Reason for Getting Into Sales",
+                anchors: { 1: "Fell into it.", 2: "Family in sales.", 3: "Interested.", 4: "Money-motivated." },
+              },
+            ],
+          },
+          {
+            key: "agency",
+            name: "Agency",
+            meaning: "Stops at nothing.",
+            anchors: { 1: "Low", 2: "Expected", 3: "Extra", 4: "Rules hack" },
+          },
+        ],
+      },
+      transcriptTurns,
+    });
+
+    expect(prompt).toContain("ROLE_RUBRIC_SCORING_INSTRUCTIONS:");
+    expect(prompt).toContain("Score exactly these rubric dimension keys: communication, passion_for_sales, agency.");
+    expect(prompt).toContain("Do not output category scores for dimensions that are not listed in RUBRIC_JSON.dimensions.");
+    expect(prompt).toContain("For passion_for_sales, use sub_dimensions as internal evidence and return one final category score named passion_for_sales.");
+  });
+
+  it("filters legacy calibration anchors and examples for custom role rubrics", () => {
+    const calibrationExamples = [
+      {
+        id: "legacy_example",
+        summary: "Legacy engineering calibration.",
+        scores: {
+          problem_solving: 3,
+          agency: 2,
+          competitiveness: 2,
+          curious: 2,
+        },
+        missingQuestions: {},
+        scriptedRisk: "low",
+        comment: "Legacy example.",
+        totalScore: 9,
+      },
+    ];
+    const prompt = buildScoringPrompt({
+      rubric: {
+        script_version: "job_sales-v1",
+        dimensions: [
+          {
+            key: "communication",
+            name: "Communication",
+            meaning: "Engages in conversation.",
+            anchors: { 1: "Low", 2: "Clear", 3: "Enjoyable", 4: "Clarifying" },
+          },
+          {
+            key: "passion_for_sales",
+            name: "Passion for Sales",
+            meaning: "Leaderboard drive.",
+            anchors: { 1: "Weak", 2: "Some", 3: "Strong", 4: "Exceptional" },
+          },
+          {
+            key: "agency",
+            name: "Agency",
+            meaning: "Stops at nothing.",
+            anchors: { 1: "Low", 2: "Expected", 3: "Extra", 4: "Rules hack" },
+          },
+        ],
+      },
+      transcriptTurns,
+      dimensionScoreAnchors: defaultDimensionScoreAnchors(),
+      calibrationExamples,
+    });
+
+    expect(prompt).toContain('"category": "communication"');
+    expect(prompt).toContain("DIMENSION_SCORE_ANCHORS_JSON:");
+    expect(prompt).toContain('"agency"');
+    expect(prompt).not.toContain('"problem_solving": {');
+    expect(prompt).not.toContain('"competitiveness": {');
+    expect(prompt).not.toContain('"curious": {');
+    expect(prompt).not.toContain("CALIBRATION_EXAMPLES_JSON:");
+    expect(prompt).not.toContain("legacy_example");
+  });
+
   it("includes grading guide and calibration examples when provided", () => {
+    const legacyRubric = {
+      ...rubric,
+      dimensions: [
+        ...rubric.dimensions,
+        {
+          key: "agency",
+          name: "Agency",
+          meaning: "Finds ways through constraints.",
+          anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" },
+        },
+        {
+          key: "competitiveness",
+          name: "Competitiveness",
+          meaning: "Wants to win.",
+          anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" },
+        },
+        {
+          key: "curious",
+          name: "Curious",
+          meaning: "Develops niche knowledge.",
+          anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" },
+        },
+      ],
+    };
     const calibrationExamples = [
       {
         id: "example_a",
@@ -106,7 +227,7 @@ describe("grading scoring", () => {
     ];
 
     const prompt = buildScoringPrompt({
-      rubric,
+      rubric: legacyRubric,
       transcriptTurns,
       gradingGuide: "Use neutral default 2 when a calibration question was not asked.",
       calibrationExamples,
@@ -132,9 +253,9 @@ describe("grading scoring", () => {
     expect(prompt).toContain("Do not copy anchor rationales");
     expect(prompt).toContain("If a candidate's answer falls between anchors, use 0.5 increments.");
     expect(prompt).toContain('"problem_solving"');
-    expect(prompt).toContain('"agency"');
-    expect(prompt).toContain('"competitiveness"');
-    expect(prompt).toContain('"curious"');
+    expect(prompt).not.toContain('"agency": {');
+    expect(prompt).not.toContain('"competitiveness": {');
+    expect(prompt).not.toContain('"curious": {');
     expect(prompt).toContain('"1"');
     expect(prompt).toContain('"2"');
     expect(prompt).toContain('"3"');

@@ -23,12 +23,12 @@ export interface ScoringCalibrationInput {
 
 export function buildDefaultGradingGuide(): string {
   return [
-    "Grade the candidate on exactly four dimensions: problem_solving, agency, competitiveness, and curious.",
+    "Grade the candidate on exactly the dimensions provided in RUBRIC_JSON.dimensions.",
     "Scores are 1-4 for each dimension in 0.5 increments, where 2 is neutral/default signal and 4 is exceptional signal.",
     "Missing question neutral default: if a calibration question was genuinely not asked, use 2 for that dimension unless other job-related evidence directly supports a score.",
     "If the calibration question was asked but the candidate dodged it or answered a different question, score the observed answer; it can be low.",
     "Scripted/AI-answer risk should be assessed separately from the dimension scores; only reduce dimension scores when the answer reliability or evidence itself is weak.",
-    "Use only job-related answer content; do not infer ability or score from protected characteristics or proxies. Job-related means relevant to the four hiring dimensions, not limited to workplace examples; hobby, sport, gaming, craft, and personal-domain answers are rubric-relevant when they answer the scripted question.",
+    "Use only job-related answer content; do not infer ability or score from protected characteristics or proxies. Job-related means relevant to the active role rubric dimensions, not limited to workplace examples; hobby, sport, gaming, craft, and personal-domain answers are rubric-relevant when they answer the scripted question.",
     "Prefer concrete evidence and practical specificity over buzzword-heavy summaries.",
     "If the transcript appears incomplete, contains only logistics/company Q&A, or references rubric questions asked in another call, add a warning and use the missing-question neutral default instead of forcing low scores from missing evidence.",
     "Avoid score compression. This rubric is intentionally sharp: when the transcript gives concrete high-end evidence, use 3.5 or 4 rather than pulling strong candidates back toward 2 or 2.5. A score of 2 is neutral/light signal, not a safe fallback for detailed positive evidence.",

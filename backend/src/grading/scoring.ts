@@ -80,7 +80,16 @@ export interface ParsedScoringOutput {
   readonly warnings: readonly string[];
 }
 
+const legacyCalibrationDimensionKeys = new Set([
+  "problem_solving",
+  "agency",
+  "competitiveness",
+  "curious",
+]);
+
 export function buildScoringPrompt(input: ScoringInput): string {
+  const selectedDimensionKeys = selectedRubricDimensionKeys(input.rubric);
+  const exampleCategory = selectedDimensionKeys[0] ?? "problem_solving";
   const promptSections = [
     "You are Puddle's rubric scorer for a structured hiring interview.",
     "Score only job-related answer content against the provided rubric.",
@@ -103,7 +112,7 @@ export function buildScoringPrompt(input: ScoringInput): string {
       {
         category_scores: [
           {
-            category: "problem_solving",
+            category: exampleCategory,
             score: 4,
             confidence: 0.91,
             evidence_quotes: ["verbatim candidate quote from transcript"],
@@ -126,7 +135,7 @@ export function buildScoringPrompt(input: ScoringInput): string {
           confidence: "5-10%",
         },
         final_scores: {
-          dimensions: [{ category: "problem_solving", score: 4 }],
+          dimensions: [{ category: exampleCategory, score: 4 }],
           total_score: 4,
           max_score: 4,
         },
@@ -138,11 +147,25 @@ export function buildScoringPrompt(input: ScoringInput): string {
     ),
   ];
 
+  if (selectedDimensionKeys.length > 0) {
+    promptSections.push(
+      "",
+      "ROLE_RUBRIC_SCORING_INSTRUCTIONS:",
+      `Score exactly these rubric dimension keys: ${selectedDimensionKeys.join(", ")}.`,
+      "Do not output category scores for dimensions that are not listed in RUBRIC_JSON.dimensions.",
+      "final_scores.dimensions must contain the same rubric dimension keys and no extra keys.",
+      "For passion_for_sales, use sub_dimensions as internal evidence and return one final category score named passion_for_sales.",
+    );
+  }
+
   if (input.gradingGuide?.trim()) {
     promptSections.push("", "GRADING_GUIDE:", input.gradingGuide.trim());
   }
 
-  if (input.dimensionScoreAnchors && hasDimensionScoreAnchors(input.dimensionScoreAnchors)) {
+  const dimensionScoreAnchors = input.dimensionScoreAnchors
+    ? selectedAnchorPayload(input.dimensionScoreAnchors, selectedDimensionKeys)
+    : undefined;
+  if (dimensionScoreAnchors && hasDimensionScoreAnchors(dimensionScoreAnchors)) {
     promptSections.push(
       "",
       "DIMENSION_SCORE_ANCHOR_INSTRUCTIONS:",
@@ -154,11 +177,15 @@ export function buildScoringPrompt(input: ScoringInput): string {
       "If the question was genuinely not asked, apply the missing-question rule from GRADING_GUIDE instead.",
       "",
       "DIMENSION_SCORE_ANCHORS_JSON:",
-      JSON.stringify(input.dimensionScoreAnchors, null, 2),
+      JSON.stringify(dimensionScoreAnchors, null, 2),
     );
   }
 
-  if (input.calibrationExamples && input.calibrationExamples.length > 0) {
+  if (
+    input.calibrationExamples &&
+    input.calibrationExamples.length > 0 &&
+    shouldIncludeCalibrationExamples(selectedDimensionKeys)
+  ) {
     promptSections.push("", "CALIBRATION_EXAMPLES_JSON:", JSON.stringify(input.calibrationExamples, null, 2));
   }
 
@@ -174,10 +201,50 @@ export function buildScoringPrompt(input: ScoringInput): string {
   return promptSections.join("\n");
 }
 
-function hasDimensionScoreAnchors(anchors: DimensionScoreAnchors): boolean {
-  return Object.values(anchors).some((scoreAnchors) =>
-    Object.values(scoreAnchors).some((examples) => examples.length > 0),
+function selectedRubricDimensionKeys(rubric: unknown): readonly string[] {
+  if (!isRecord(rubric) || !Array.isArray(rubric.dimensions)) {
+    return [];
+  }
+  return rubric.dimensions.flatMap((dimension) => {
+    if (!isRecord(dimension)) {
+      return [];
+    }
+    const key = stringValue(dimension.key);
+    return key ? [key] : [];
+  });
+}
+
+function selectedAnchorPayload(
+  anchors: DimensionScoreAnchors,
+  selectedDimensionKeys: readonly string[],
+): Record<string, unknown> {
+  if (selectedDimensionKeys.length === 0) {
+    return anchors;
+  }
+  return Object.fromEntries(
+    selectedDimensionKeys.flatMap((key) =>
+      Object.prototype.hasOwnProperty.call(anchors, key)
+        ? [[key, anchors[key as keyof DimensionScoreAnchors]]]
+        : [],
+    ),
   );
+}
+
+function shouldIncludeCalibrationExamples(selectedDimensionKeys: readonly string[]): boolean {
+  if (selectedDimensionKeys.length === 0) {
+    return true;
+  }
+  return selectedDimensionKeys.length === legacyCalibrationDimensionKeys.size &&
+    selectedDimensionKeys.every((key) => legacyCalibrationDimensionKeys.has(key));
+}
+
+function hasDimensionScoreAnchors(anchors: Record<string, unknown>): boolean {
+  return Object.values(anchors).some((scoreAnchors) => {
+    if (!isRecord(scoreAnchors)) {
+      return false;
+    }
+    return Object.values(scoreAnchors).some((examples) => Array.isArray(examples) && examples.length > 0);
+  });
 }
 
 export function parseScoringOutput(text: string): ParsedScoringOutput {

@@ -317,6 +317,78 @@ describe("grading session recommendations", () => {
         }),
         expect.any(Object),
       );
+      expect(scoreTranscriptMock.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({
+          rubric: routeState.rubricRows[0].rubric,
+        }),
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("passes a sales role rubric through to scoring unchanged", async () => {
+    routeState.rubricRows = [
+      {
+        profile_id: "profile_sales",
+        active_rubric_version_id: "rv_sales",
+        rubric: {
+          script_version: "job_1-v1",
+          role: { organization_id: "org_1", ashby_job_id: "job_1", title: "Account Executive" },
+          dimensions: [
+            { key: "communication", name: "Communication", meaning: "Clear conversation.", anchors: { 1: "Low", 2: "Clear", 3: "Enjoyable", 4: "Clarifying" } },
+            { key: "passion_for_sales", name: "Passion for Sales", meaning: "Leaderboard drive.", anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" } },
+            { key: "agency", name: "Agency", meaning: "Stops at nothing.", anchors: { 1: "Low", 2: "Expected", 3: "Extra", 4: "Rules hack" } },
+          ],
+          bare_minimum_rule: "at_least_one_4_and_average_ge_3",
+          recommendation_thresholds: { minimum_confidence: 0.75 },
+          disallowed_signals: ["accent"],
+          generation_context: { historical_session_count: 0, matched_application_count: 0 },
+        },
+      },
+    ];
+    scoreTranscriptMock.mockResolvedValue({
+      categoryScores: [
+        { category: "communication", score: 3, confidence: 0.9, evidenceQuotes: ["quote"], rationale: "Clear." },
+        { category: "passion_for_sales", score: 4, confidence: 0.86, evidenceQuotes: ["quote"], rationale: "Driven." },
+        { category: "agency", score: 3, confidence: 0.84, evidenceQuotes: ["quote"], rationale: "Persistent." },
+      ],
+      scorecard: {
+        ...defaultScorecard,
+        dimensionScores: [
+          { category: "communication", score: 3, confidence: 0.9, notes: "Clear.", evidenceQuotes: ["quote"] },
+          { category: "passion_for_sales", score: 4, confidence: 0.86, notes: "Driven.", evidenceQuotes: ["quote"] },
+          { category: "agency", score: 3, confidence: 0.84, notes: "Persistent.", evidenceQuotes: ["quote"] },
+        ],
+        finalScores: {
+          dimensions: [
+            { category: "communication", score: 3 },
+            { category: "passion_for_sales", score: 4 },
+            { category: "agency", score: 3 },
+          ],
+          totalScore: 10,
+          maxScore: 12,
+        },
+      },
+      warnings: [],
+    });
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(scoreTranscriptMock.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ rubric: routeState.rubricRows[0].rubric }),
+      );
+      expect(res.json().recommendation).toMatchObject({
+        rubric_version_id: "rv_sales",
+        recommendation: "advance",
+      });
     } finally {
       await app.close();
     }
