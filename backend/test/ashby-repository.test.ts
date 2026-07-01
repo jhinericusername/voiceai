@@ -273,6 +273,9 @@ describe("Ashby repository statements", () => {
     expect(roles.sql).toContain("currentInterviewStage");
     expect(roles.sql).toContain("orderInInterviewPlan");
     expect(roles.sql).toContain("weave_candidate_evaluation_imports");
+    expect(roles.sql).toContain("JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id");
+    expect(roles.sql).toContain("imported_evaluation.source_evaluation_id");
+    expect(roles.sql).toContain("a.status = 'Active' OR imported_evaluation.source_evaluation_id IS NOT NULL");
     expect(roles.sql).toContain("~ '^[0-9]+$'");
     expect(roles.sql).toContain("ELSE NULL END");
     expect(roles.sql).toContain("MIN(stage_order)");

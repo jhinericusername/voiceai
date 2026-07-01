@@ -343,7 +343,15 @@ export function activePipelineRolesStatement(input: {
       `${ACTIVE_PIPELINE_STAGE_ORDER_SQL} AS stage_order, ` +
       "COALESCE(NULLIF(a.raw_payload->'job'->>'name', ''), NULLIF(a.raw_payload->'job'->>'title', '')) AS job_name " +
       "FROM ashby_applications a " +
-      "WHERE a.integration_id = $1 AND a.job_id IN (SELECT job_id FROM selected_jobs) AND a.status = 'Active'" +
+      "LEFT JOIN LATERAL (" +
+      "SELECT imp.source_evaluation_id " +
+      "FROM weave_candidate_evaluation_imports imp " +
+      "JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id " +
+      "WHERE imp.integration_id = a.integration_id AND imp.application_id = a.application_id " +
+      "ORDER BY imp.source_updated_at DESC NULLS LAST, imp.last_synced_at DESC LIMIT 1" +
+      ") imported_evaluation ON true " +
+      "WHERE a.integration_id = $1 AND a.job_id IN (SELECT job_id FROM selected_jobs) " +
+      "AND (a.status = 'Active' OR imported_evaluation.source_evaluation_id IS NOT NULL)" +
       "), stage_counts AS (" +
       "SELECT job_id, current_stage, MIN(stage_order) AS stage_order, COUNT(*)::int AS candidate_count " +
       "FROM application_rows GROUP BY job_id, current_stage" +
