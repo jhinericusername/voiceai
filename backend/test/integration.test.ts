@@ -107,6 +107,28 @@ describe("internal auth route matching", () => {
     expect(internalRouteRequiresAuth("GET", "/healthz")).toBe(false);
   });
 
+  it("exempts only the exact Weave candidate evaluation webhook path", () => {
+    expect(
+      internalRouteRequiresAuth(
+        "POST",
+        "/integrations/weave/candidate-evaluations/webhook",
+      ),
+    ).toBe(false);
+    expect(
+      internalRouteRequiresAuth(
+        "POST",
+        "/integrations/weave/candidate-evaluations/webhook/replay",
+      ),
+    ).toBe(true);
+  });
+
+  it("still requires auth for singular and plural integration POST routes", () => {
+    expect(internalRouteRequiresAuth("POST", "/integration/sessions")).toBe(true);
+    expect(
+      internalRouteRequiresAuth("POST", "/integrations/ashby/company-state"),
+    ).toBe(true);
+  });
+
   it("fails closed when production backend internal auth is missing", () => {
     expect(() =>
       internalAuthTokenFromEnv({

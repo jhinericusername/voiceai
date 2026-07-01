@@ -5,6 +5,9 @@ const PROTECTED_POST_PATHS = [
   "/integrations/",
   "/candidate/invites/",
 ] as const;
+const INTERNAL_AUTH_EXEMPT_POST_PATHS = [
+  "/integrations/weave/candidate-evaluations/webhook",
+] as const;
 
 function bearerToken(header: string | undefined): string | null {
   const prefix = "Bearer ";
@@ -17,7 +20,9 @@ function bearerToken(header: string | undefined): string | null {
 }
 
 export function internalRouteRequiresAuth(method: string, url: string): boolean {
-  if (url.startsWith("/internal/")) {
+  const path = requestPath(url);
+
+  if (path.startsWith("/internal/")) {
     return true;
   }
 
@@ -25,11 +30,19 @@ export function internalRouteRequiresAuth(method: string, url: string): boolean 
     return false;
   }
 
-  if (url === "/sessions") {
+  if (path === "/sessions") {
     return true;
   }
 
-  return PROTECTED_POST_PATHS.some((path) => url.startsWith(path));
+  if (INTERNAL_AUTH_EXEMPT_POST_PATHS.some((exemptPath) => path === exemptPath)) {
+    return false;
+  }
+
+  return PROTECTED_POST_PATHS.some((protectedPath) => path.startsWith(protectedPath));
+}
+
+function requestPath(url: string): string {
+  return url.split("?", 1)[0] ?? url;
 }
 
 function requiresInternalAuth(request: FastifyRequest): boolean {
