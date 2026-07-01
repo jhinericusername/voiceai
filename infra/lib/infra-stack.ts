@@ -47,6 +47,7 @@ interface RuntimeSecrets {
 
 interface RuntimeRoles {
   backendTaskRole: iam.Role;
+  weaveCandidateEvaluationsWorkerTaskRole: iam.Role;
   backendExecutionRole: iam.Role;
   agentTaskRole: iam.Role;
   agentExecutionRole: iam.Role;
@@ -999,6 +1000,11 @@ export class InfraStack extends cdk.Stack {
       'backend task role',
       'backend-task-role',
     );
+    const weaveCandidateEvaluationsWorkerTaskRole = this.createTaskRole(
+      'WeaveCandidateEvaluationsWorkerTaskRole',
+      'Weave candidate evaluations worker task role',
+      'weave-candidate-evaluations-worker-task-role',
+    );
     const backendExecutionRole = this.createExecutionRole(
       'BackendExecutionRole',
       'backend task execution role',
@@ -1030,7 +1036,9 @@ export class InfraStack extends cdk.Stack {
     this.grantHistoricalRecordingsRead(backendTaskRole, weaveHistoricalRecordings);
     firefliesIngestionQueue?.grantConsumeMessages(backendTaskRole);
     externalIntegrationIngressQueue?.grantSendMessages(backendTaskRole);
-    externalIntegrationIngressQueue?.grantConsumeMessages(backendTaskRole);
+    externalIntegrationIngressQueue?.grantConsumeMessages(
+      weaveCandidateEvaluationsWorkerTaskRole,
+    );
 
     grantSecretsRead(backendExecutionRole, [
       runtimeSecrets.livekitApiKey,
@@ -1068,6 +1076,7 @@ export class InfraStack extends cdk.Stack {
 
     return {
       backendTaskRole,
+      weaveCandidateEvaluationsWorkerTaskRole,
       backendExecutionRole,
       agentTaskRole,
       agentExecutionRole,
@@ -1396,7 +1405,7 @@ export class InfraStack extends cdk.Stack {
           cpuArchitecture: ecs.CpuArchitecture.ARM64,
           operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         },
-        taskRole: params.runtimeRoles.backendTaskRole,
+        taskRole: params.runtimeRoles.weaveCandidateEvaluationsWorkerTaskRole,
         executionRole: params.runtimeRoles.backendExecutionRole,
       },
     );

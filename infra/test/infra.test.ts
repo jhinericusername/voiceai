@@ -379,6 +379,12 @@ describe('InfraStack', () => {
     });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       Family: 'puddle-videoagent-weave-candidate-evaluations-worker',
+      TaskRoleArn: {
+        'Fn::GetAtt': [
+          Match.stringLikeRegexp('WeaveCandidateEvaluationsWorkerTaskRole'),
+          'Arn',
+        ],
+      },
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
           Name: 'weave-candidate-evaluations-worker',
@@ -438,27 +444,38 @@ describe('InfraStack', () => {
       template,
       'puddle-videoagent-external-integration-ingress',
     );
-    const externalQueuePolicyStatements = policyStatementsForRole(
+    const backendExternalQueueActions = policyStatementsForRole(
       template,
       'BackendTaskRole',
-    ).filter((statement) =>
-      referencesValue(statement.Resource, externalQueueLogicalId),
-    );
-    const externalQueueActions =
-      externalQueuePolicyStatements.flatMap(statementActions);
-    expect(externalQueuePolicyStatements.length).toBeGreaterThan(0);
-    expect(externalQueueActions).toEqual(
+    )
+      .filter((statement) => referencesValue(statement.Resource, externalQueueLogicalId))
+      .flatMap(statementActions);
+    const workerExternalQueueActions = policyStatementsForRole(
+      template,
+      'WeaveCandidateEvaluationsWorkerTaskRole',
+    )
+      .filter((statement) => referencesValue(statement.Resource, externalQueueLogicalId))
+      .flatMap(statementActions);
+
+    expect(backendExternalQueueActions).toContain('sqs:SendMessage');
+    expect(backendExternalQueueActions).not.toEqual(
       expect.arrayContaining([
-        'sqs:SendMessage',
         'sqs:ReceiveMessage',
         'sqs:DeleteMessage',
         'sqs:ChangeMessageVisibility',
-        'sqs:GetQueueAttributes',
-        'sqs:GetQueueUrl',
       ]),
     );
+    expect(workerExternalQueueActions).toEqual(
+      expect.arrayContaining([
+        'sqs:ReceiveMessage',
+        'sqs:DeleteMessage',
+        'sqs:ChangeMessageVisibility',
+      ]),
+    );
+    expect(workerExternalQueueActions).not.toContain('sqs:SendMessage');
     template.hasOutput('ExternalIntegrationIngressQueueUrl', {});
     template.hasOutput('ExternalIntegrationIngressDeadLetterQueueUrl', {});
+    template.hasOutput('WeaveCandidateEvaluationsWorkerTaskRoleArn', {});
     template.hasOutput('WeaveCandidateEvaluationsWorkerServiceName', {});
     template.hasOutput('WeaveCandidateEvaluationsWorkerTaskDefinitionArn', {});
   });
