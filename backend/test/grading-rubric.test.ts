@@ -49,21 +49,21 @@ describe("grading rubric", () => {
       },
       {
         key: "curious",
-        name: "Curious",
+        name: "Curiosity",
         meaning: "Needs to know the why behind everything, and acts on it.",
         anchors: {
           1: "Absence of curiosity.",
           2: "Signs of curiosity but no action.",
           3: "Very curious about something and takes action.",
-          4: "Obsessively curious — becomes an expert.",
+          4: "Obsessively curious, becomes an expert.",
         },
       },
     ]);
     expect(draft.questions.map((question) => question.verbatim_text)).toEqual([
       "Can you tell me about a technically complex problem you solved with a clever or hacky solution?",
       "Can you tell me about the time you hacked a non-computer system to your advantage?",
-      "Can you tell me about an area of your life where your competitiveness became so intense that it cost you something? Maybe it was detrimental physically, mentally, or emotionally?",
-      "Can you tell me about a niche or obscure topic that no one knows about but you are an expert in? Meaning you are in the top 1% of this thing that is extremely niche?",
+      "Can you tell me about an area of your life where your competitiveness became so intense that it cost you something?",
+      "Can you tell me about a niche or obscure topic that no one knows about but you are an expert in?",
     ]);
     expect(draft.disallowed_signals).toEqual([
       "appearance",
@@ -93,6 +93,199 @@ describe("grading rubric", () => {
     expect(validateRoleRubric(draft)).toEqual({ ok: true });
   });
 
+  it("builds a selected-dimension draft rubric with Communication and Passion for Sales", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_sales",
+      jobName: "Account Executive",
+      historicalSessionCount: 7,
+      matchedApplicationCount: 6,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+
+    expect(draft.dimensions.map((dimension) => dimension.key)).toEqual([
+      "communication",
+      "passion_for_sales",
+      "agency",
+    ]);
+    expect(draft.dimensions.find((dimension) => dimension.key === "communication")).toMatchObject({
+      name: "Communication",
+      meaning: "Engages in conversation by listening, understanding, and articulating themselves.",
+      anchors: {
+        1: "Choppy, incomprehensible, or hard to follow.",
+        2: "Articulates themselves well.",
+        3: "Enjoyable to talk to and articulates themselves well.",
+        4: "Asks clarifying questions, enjoyable to talk to, and articulates themselves clearly.",
+      },
+    });
+    expect(draft.dimensions.find((dimension) => dimension.key === "passion_for_sales")).toMatchObject({
+      name: "Passion for Sales",
+      sub_dimensions: [
+        {
+          key: "reason_for_getting_into_sales",
+          name: "Reason for Getting Into Sales",
+          anchors: {
+            1: "Fell into it.",
+            2: "Family in sales.",
+            3: "Founder-oriented or personally interested.",
+            4: "Money-motivated.",
+          },
+        },
+        {
+          key: "professional_sales_background",
+          name: "Professional Sales Background",
+          anchors: {
+            1: "No training.",
+            2: "Self-taught.",
+            3: "Formal training.",
+            4: "Self-taught plus formal training.",
+          },
+        },
+        {
+          key: "performance_as_salesperson",
+          name: "Performance as a Salesperson",
+          anchors: {
+            1: "No promotions or job hopping.",
+            2: "Some promotions or promotions due to tenure.",
+            3: "Top performer and bored.",
+            4: "Cannot be promoted.",
+          },
+        },
+      ],
+    });
+    expect(draft.questions.map((question) => question.rubric_categories)).toEqual([
+      ["communication"],
+      ["passion_for_sales"],
+      ["agency"],
+    ]);
+    expect(validateRoleRubric(draft)).toEqual({ ok: true });
+  });
+
+  it("rejects role rubrics outside the 3 to 6 dimension range", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_1",
+      jobName: "Account Executive",
+      historicalSessionCount: 1,
+      matchedApplicationCount: 1,
+      dimensionKeys: ["communication", "agency", "passion_for_sales"],
+    });
+
+    expect(validateRoleRubric({ ...draft, dimensions: draft.dimensions.slice(0, 2) })).toEqual({
+      ok: false,
+      error: "Rubric must define between 3 and 6 dimensions.",
+    });
+
+    expect(validateRoleRubric({ ...draft, dimensions: [...draft.dimensions, ...draft.dimensions, draft.dimensions[0]] })).toEqual({
+      ok: false,
+      error: "Rubric must define between 3 and 6 dimensions.",
+    });
+  });
+
+  it("rejects unknown, duplicate, and accent-based dimensions", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_1",
+      jobName: "Account Executive",
+      historicalSessionCount: 1,
+      matchedApplicationCount: 1,
+      dimensionKeys: ["communication", "agency", "passion_for_sales"],
+    });
+
+    expect(validateRoleRubric({
+      ...draft,
+      dimensions: [
+        { ...draft.dimensions[0], key: "unknown_dimension" },
+        draft.dimensions[1],
+        draft.dimensions[2],
+      ],
+    })).toEqual({
+      ok: false,
+      error: "Rubric dimension key is not in the Weave dimension library.",
+    });
+
+    expect(validateRoleRubric({
+      ...draft,
+      dimensions: [draft.dimensions[0], { ...draft.dimensions[0] }, draft.dimensions[2]],
+    })).toEqual({
+      ok: false,
+      error: "Rubric dimension keys must be unique.",
+    });
+
+    expect(validateRoleRubric({
+      ...draft,
+      dimensions: [
+        {
+          ...draft.dimensions[0],
+          anchors: { ...draft.dimensions[0].anchors, 1: "Choppy with heavy accent." },
+        },
+        draft.dimensions[1],
+        draft.dimensions[2],
+      ],
+    })).toEqual({
+      ok: false,
+      error: "Communication rubric must not score accent.",
+    });
+  });
+
+  it("rejects malformed Passion for Sales sub-dimension anchors", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_1",
+      jobName: "Account Executive",
+      historicalSessionCount: 1,
+      matchedApplicationCount: 1,
+      dimensionKeys: ["communication", "agency", "passion_for_sales"],
+    });
+    const passion = draft.dimensions.find((dimension) => dimension.key === "passion_for_sales");
+
+    expect(validateRoleRubric({
+      ...draft,
+      dimensions: draft.dimensions.map((dimension) =>
+        dimension.key === "passion_for_sales"
+          ? {
+              ...dimension,
+              sub_dimensions: [
+                {
+                  ...passion?.sub_dimensions?.[0],
+                  anchors: { 1: "Only one anchor." },
+                },
+              ],
+            }
+          : dimension,
+      ),
+    })).toEqual({
+      ok: false,
+      error: "Each rubric sub-dimension must define key, name, and anchors 1, 2, 3, and 4.",
+    });
+  });
+
+  it("rejects questions that reference dimensions not selected by the rubric", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_1",
+      jobName: "Account Executive",
+      historicalSessionCount: 1,
+      matchedApplicationCount: 1,
+      dimensionKeys: ["communication", "agency", "passion_for_sales"],
+    });
+
+    expect(validateRoleRubric({
+      ...draft,
+      questions: [
+        {
+          ...draft.questions[0],
+          rubric_categories: ["problem_solving"],
+        },
+        draft.questions[1],
+        draft.questions[2],
+      ],
+    })).toEqual({
+      ok: false,
+      error: "Rubric questions must reference selected dimensions.",
+    });
+  });
+
   it("rejects rubrics without anchors", () => {
     const draft = buildDraftRubric({
       organizationId: "org_1",
@@ -103,7 +296,7 @@ describe("grading rubric", () => {
     });
     const invalid = {
       ...draft,
-      dimensions: [{ ...draft.dimensions[0], anchors: { 1: "Only one" } }],
+      dimensions: [{ ...draft.dimensions[0], anchors: { 1: "Only one" } }, ...draft.dimensions.slice(1)],
     };
 
     expect(validateRoleRubric(invalid)).toEqual({
