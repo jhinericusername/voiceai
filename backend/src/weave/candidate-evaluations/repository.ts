@@ -71,15 +71,15 @@ export function importedApplicationUpsertStatement(input: ImportedApplicationInp
       "(application_id, integration_id, candidate_id, candidate_name, candidate_email, job_id, current_stage, source, status, ashby_updated_at, raw_payload) " +
       "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::jsonb) " +
       "ON CONFLICT (integration_id, application_id) DO UPDATE SET " +
-      "candidate_id = EXCLUDED.candidate_id, " +
-      "candidate_name = EXCLUDED.candidate_name, " +
-      "candidate_email = EXCLUDED.candidate_email, " +
+      "candidate_id = COALESCE(NULLIF(ashby_applications.candidate_id, ''), EXCLUDED.candidate_id), " +
+      "candidate_name = COALESCE(NULLIF(ashby_applications.candidate_name, ''), EXCLUDED.candidate_name), " +
+      "candidate_email = COALESCE(ashby_applications.candidate_email, EXCLUDED.candidate_email), " +
       "job_id = EXCLUDED.job_id, " +
-      "current_stage = EXCLUDED.current_stage, " +
-      "source = EXCLUDED.source, " +
+      "current_stage = COALESCE(ashby_applications.current_stage, EXCLUDED.current_stage), " +
+      "source = COALESCE(ashby_applications.source, EXCLUDED.source), " +
       "status = CASE WHEN ashby_applications.status = 'Active' THEN ashby_applications.status ELSE EXCLUDED.status END, " +
-      "ashby_updated_at = EXCLUDED.ashby_updated_at, " +
-      "raw_payload = EXCLUDED.raw_payload, " +
+      "ashby_updated_at = GREATEST(COALESCE(ashby_applications.ashby_updated_at, EXCLUDED.ashby_updated_at), EXCLUDED.ashby_updated_at), " +
+      "raw_payload = ashby_applications.raw_payload || jsonb_build_object('weaveCandidateEvaluation', EXCLUDED.raw_payload), " +
       "updated_at = now() " +
       "RETURNING application_id",
     params: [
@@ -202,6 +202,15 @@ export function provenanceUpsertStatement(input: ProvenanceInput): SqlStatement 
   };
 }
 
+export function existingImportForUpdateStatement(sourceEvaluationId: string): SqlStatement {
+  return {
+    sql:
+      "SELECT source_updated_at, score_id, application_id FROM weave_candidate_evaluation_imports " +
+      "WHERE source_evaluation_id = $1 FOR UPDATE",
+    params: [sourceEvaluationId],
+  };
+}
+
 export function importedEvaluationForApplicationStatement(
   integrationId: string,
   applicationId: string,
@@ -251,11 +260,9 @@ export function importedEvaluationForSessionStatement(
       "sc.agency, sc.competitiveness, sc.curiosity, " +
       "sc.total_score AS \"totalScore\", sc.comments " +
       "FROM sessions sess " +
-      "JOIN ashby_company_integrations integ ON integ.organization_id = sess.org_id " +
-      "JOIN ashby_applications app ON app.integration_id = integ.integration_id " +
-      "AND lower(app.candidate_email) = lower(sess.candidate_email) " +
-      "JOIN weave_candidate_evaluation_imports imp ON imp.integration_id = app.integration_id " +
-      "AND imp.application_id = app.application_id " +
+      "JOIN weave_candidate_evaluation_imports imp ON imp.organization_id = sess.org_id " +
+      "AND (imp.source_evaluation_id = NULLIF(sess.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '') " +
+      "OR imp.application_id = NULLIF(sess.source_metadata #>> '{ashby,selected,applicationId}', '')) " +
       "JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id " +
       "WHERE sess.session_id = $1 AND sess.org_id = $2 " +
       "ORDER BY imp.source_updated_at DESC NULLS LAST, imp.last_synced_at DESC LIMIT 1",

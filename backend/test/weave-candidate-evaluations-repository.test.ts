@@ -5,6 +5,7 @@ import {
   importedEvaluationForApplicationStatement,
   importedEvaluationForSessionStatement,
   importedScoreUpsertStatement,
+  existingImportForUpdateStatement,
   provenanceUpsertStatement,
   weaveIntegrationForOrganizationStatement,
   weaveRoleProfileUpsertStatement,
@@ -36,6 +37,25 @@ describe("Weave candidate evaluation repository statements", () => {
     expect(stmt.sql).toContain("ON CONFLICT (integration_id, application_id)");
     expect(stmt.sql).toContain(
       "status = CASE WHEN ashby_applications.status = 'Active' THEN ashby_applications.status ELSE EXCLUDED.status END",
+    );
+    expect(stmt.sql).toContain(
+      "candidate_id = COALESCE(NULLIF(ashby_applications.candidate_id, ''), EXCLUDED.candidate_id)",
+    );
+    expect(stmt.sql).toContain(
+      "candidate_name = COALESCE(NULLIF(ashby_applications.candidate_name, ''), EXCLUDED.candidate_name)",
+    );
+    expect(stmt.sql).toContain(
+      "candidate_email = COALESCE(ashby_applications.candidate_email, EXCLUDED.candidate_email)",
+    );
+    expect(stmt.sql).toContain(
+      "current_stage = COALESCE(ashby_applications.current_stage, EXCLUDED.current_stage)",
+    );
+    expect(stmt.sql).toContain("source = COALESCE(ashby_applications.source, EXCLUDED.source)");
+    expect(stmt.sql).toContain(
+      "ashby_updated_at = GREATEST(COALESCE(ashby_applications.ashby_updated_at, EXCLUDED.ashby_updated_at), EXCLUDED.ashby_updated_at)",
+    );
+    expect(stmt.sql).toContain(
+      "raw_payload = ashby_applications.raw_payload || jsonb_build_object('weaveCandidateEvaluation', EXCLUDED.raw_payload)",
     );
     expect(stmt.params).toEqual([
       "app_1",
@@ -129,6 +149,16 @@ describe("Weave candidate evaluation repository statements", () => {
     expect(stmt.sql).toContain("WHERE weave_candidate_evaluation_imports.source_updated_at IS NULL");
   });
 
+  it("locks existing provenance before mutating imported rows", () => {
+    const stmt = existingImportForUpdateStatement("eval_1");
+
+    expect(stmt.sql).toContain(
+      "SELECT source_updated_at, score_id, application_id FROM weave_candidate_evaluation_imports",
+    );
+    expect(stmt.sql).toContain("WHERE source_evaluation_id = $1 FOR UPDATE");
+    expect(stmt.params).toEqual(["eval_1"]);
+  });
+
   it("reads latest imported evaluations by application", () => {
     const stmt = importedEvaluationForApplicationStatement("int_1", "app_1");
 
@@ -140,6 +170,18 @@ describe("Weave candidate evaluation repository statements", () => {
     const stmt = importedEvaluationForSessionStatement("sess_1", "org_1");
 
     expect(stmt.sql).toContain("candidateEvaluationId");
+    expect(stmt.sql).toContain("FROM sessions sess");
+    expect(stmt.sql).toContain("JOIN weave_candidate_evaluation_imports imp");
+    expect(stmt.sql).toContain("imp.organization_id = sess.org_id");
+    expect(stmt.sql).toContain(
+      "imp.source_evaluation_id = NULLIF(sess.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '')",
+    );
+    expect(stmt.sql).toContain(
+      "imp.application_id = NULLIF(sess.source_metadata #>> '{ashby,selected,applicationId}', '')",
+    );
+    expect(stmt.sql).toContain("JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id");
+    expect(stmt.sql).not.toContain("candidate_email");
+    expect(stmt.sql).not.toContain("lower(app.candidate_email)");
     expect(stmt.params).toEqual(["sess_1", "org_1"]);
   });
 });

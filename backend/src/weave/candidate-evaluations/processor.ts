@@ -5,6 +5,7 @@ import {
   type WeaveCandidateEvaluationEvent,
 } from "./payload.js";
 import {
+  existingImportForUpdateStatement,
   importedApplicationUpsertStatement,
   importedScoreUpsertStatement,
   provenanceUpsertStatement,
@@ -45,6 +46,22 @@ export async function processWeaveCandidateEvaluationEvent(
       throw new Error(`No Ashby integration found for organization ${input.organizationId}`);
     }
 
+    const scoreId = stableTargetId("score", evaluation.sourceEvaluationId);
+    const existingImport = await queryOne(
+      client,
+      existingImportForUpdateStatement(evaluation.sourceEvaluationId),
+    );
+    if (isExistingImportNewer(existingImport?.source_updated_at, evaluation.sourceUpdatedAt)) {
+      await client.query("COMMIT");
+      return {
+        status: "synced",
+        sourceEvaluationId: evaluation.sourceEvaluationId,
+        applicationId:
+          stringValue(existingImport?.application_id) ?? evaluation.ashbyApplicationId,
+        scoreId: stringValue(existingImport?.score_id) ?? scoreId,
+      };
+    }
+
     await queryOne(
       client,
       importedApplicationUpsertStatement({
@@ -73,7 +90,6 @@ export async function processWeaveCandidateEvaluationEvent(
       }),
     );
 
-    const scoreId = stableTargetId("score", evaluation.sourceEvaluationId);
     const score = await queryOne(
       client,
       importedScoreUpsertStatement({
@@ -120,7 +136,11 @@ export async function processWeaveCandidateEvaluationEvent(
       scoreId: resolvedScoreId,
     };
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original processing error.
+    }
     throw error;
   } finally {
     client.release();
@@ -137,4 +157,16 @@ async function queryOne(
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function isExistingImportNewer(existingUpdatedAt: unknown, incomingUpdatedAt: unknown): boolean {
+  const existingMillis = dateMillis(existingUpdatedAt);
+  const incomingMillis = dateMillis(incomingUpdatedAt);
+  return existingMillis !== null && incomingMillis !== null && existingMillis > incomingMillis;
+}
+
+function dateMillis(value: unknown): number | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
