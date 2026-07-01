@@ -16,10 +16,7 @@ describe("grading evaluation calibration", () => {
   it("builds the default grading guide with explicit calibration rules", () => {
     const guide = buildDefaultGradingGuide();
 
-    expect(guide).toContain("problem_solving");
-    expect(guide).toContain("agency");
-    expect(guide).toContain("competitiveness");
-    expect(guide).toContain("curious");
+    expect(guide).toContain("Grade the candidate on exactly the dimensions provided in RUBRIC_JSON.dimensions.");
     expect(guide).toContain("Scores are 1-4");
     expect(guide).toContain("0.5 increments");
     expect(guide).toContain("use 2 for that dimension");
@@ -27,7 +24,7 @@ describe("grading evaluation calibration", () => {
     expect(guide).toContain("Scripted/AI-answer risk");
     expect(guide).toContain("protected characteristics");
     expect(guide).toContain("concrete evidence and practical specificity");
-    expect(guide).toContain("Job-related means relevant to the four hiring dimensions");
+    expect(guide).toContain("Job-related means relevant to the active role rubric dimensions");
     expect(guide).toContain("not limited to workplace examples");
   });
 

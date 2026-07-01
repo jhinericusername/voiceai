@@ -121,9 +121,9 @@ export function buildScoringPrompt(input: ScoringInput): string {
         ],
         missing_questions: [
           {
-            question: "Hacked a non-computer system",
+            question: "Example rubric question",
             asked: "no",
-            notes: "The question was not asked, so the neutral default applies.",
+            notes: "The question was not asked, so the rubric missing-question rule applies.",
           },
         ],
         scripted_answer_detection: {
@@ -158,14 +158,17 @@ export function buildScoringPrompt(input: ScoringInput): string {
     );
   }
 
-  if (input.gradingGuide?.trim()) {
+  const includeLegacyCalibrationPayload = shouldIncludeLegacyCalibrationPayload(selectedDimensionKeys);
+
+  if (input.gradingGuide?.trim() && includeLegacyCalibrationPayload) {
     promptSections.push("", "GRADING_GUIDE:", input.gradingGuide.trim());
   }
 
-  const dimensionScoreAnchors = input.dimensionScoreAnchors
-    ? selectedAnchorPayload(input.dimensionScoreAnchors, selectedDimensionKeys)
-    : undefined;
-  if (dimensionScoreAnchors && hasDimensionScoreAnchors(dimensionScoreAnchors)) {
+  if (
+    input.dimensionScoreAnchors &&
+    includeLegacyCalibrationPayload &&
+    hasDimensionScoreAnchors(input.dimensionScoreAnchors)
+  ) {
     promptSections.push(
       "",
       "DIMENSION_SCORE_ANCHOR_INSTRUCTIONS:",
@@ -177,14 +180,14 @@ export function buildScoringPrompt(input: ScoringInput): string {
       "If the question was genuinely not asked, apply the missing-question rule from GRADING_GUIDE instead.",
       "",
       "DIMENSION_SCORE_ANCHORS_JSON:",
-      JSON.stringify(dimensionScoreAnchors, null, 2),
+      JSON.stringify(input.dimensionScoreAnchors, null, 2),
     );
   }
 
   if (
     input.calibrationExamples &&
     input.calibrationExamples.length > 0 &&
-    shouldIncludeCalibrationExamples(selectedDimensionKeys)
+    includeLegacyCalibrationPayload
   ) {
     promptSections.push("", "CALIBRATION_EXAMPLES_JSON:", JSON.stringify(input.calibrationExamples, null, 2));
   }
@@ -214,23 +217,7 @@ function selectedRubricDimensionKeys(rubric: unknown): readonly string[] {
   });
 }
 
-function selectedAnchorPayload(
-  anchors: DimensionScoreAnchors,
-  selectedDimensionKeys: readonly string[],
-): Record<string, unknown> {
-  if (selectedDimensionKeys.length === 0) {
-    return anchors;
-  }
-  return Object.fromEntries(
-    selectedDimensionKeys.flatMap((key) =>
-      Object.prototype.hasOwnProperty.call(anchors, key)
-        ? [[key, anchors[key as keyof DimensionScoreAnchors]]]
-        : [],
-    ),
-  );
-}
-
-function shouldIncludeCalibrationExamples(selectedDimensionKeys: readonly string[]): boolean {
+function shouldIncludeLegacyCalibrationPayload(selectedDimensionKeys: readonly string[]): boolean {
   if (selectedDimensionKeys.length === 0) {
     return true;
   }

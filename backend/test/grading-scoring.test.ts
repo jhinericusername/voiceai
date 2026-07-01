@@ -143,6 +143,13 @@ describe("grading scoring", () => {
         totalScore: 9,
       },
     ];
+    const gradingGuide = [
+      "Grade the candidate on exactly the dimensions provided in RUBRIC_JSON.dimensions.",
+      "Problem solving calibration: legacy text.",
+      "Agency calibration: legacy text.",
+      "Competitiveness calibration: legacy text.",
+      "Curious calibration: legacy text.",
+    ].join("\n");
     const prompt = buildScoringPrompt({
       rubric: {
         script_version: "job_sales-v1",
@@ -168,21 +175,28 @@ describe("grading scoring", () => {
         ],
       },
       transcriptTurns,
+      gradingGuide,
       dimensionScoreAnchors: defaultDimensionScoreAnchors(),
       calibrationExamples,
     });
 
     expect(prompt).toContain('"category": "communication"');
-    expect(prompt).toContain("DIMENSION_SCORE_ANCHORS_JSON:");
-    expect(prompt).toContain('"agency"');
+    expect(prompt).not.toContain("GRADING_GUIDE:");
+    expect(prompt).not.toContain("DIMENSION_SCORE_ANCHORS_JSON:");
     expect(prompt).not.toContain('"problem_solving": {');
+    expect(prompt).not.toContain('"agency": {');
     expect(prompt).not.toContain('"competitiveness": {');
     expect(prompt).not.toContain('"curious": {');
     expect(prompt).not.toContain("CALIBRATION_EXAMPLES_JSON:");
     expect(prompt).not.toContain("legacy_example");
+    expect(prompt).not.toContain("Hacked a non-computer system");
+    expect(prompt).not.toContain("Problem solving calibration");
+    expect(prompt).not.toContain("Agency calibration");
+    expect(prompt).not.toContain("Competitiveness calibration");
+    expect(prompt).not.toContain("Curious calibration");
   });
 
-  it("includes grading guide and calibration examples when provided", () => {
+  it("includes grading guide, calibration examples, and anchors for legacy four-dimension rubrics", () => {
     const legacyRubric = {
       ...rubric,
       dimensions: [
@@ -230,38 +244,38 @@ describe("grading scoring", () => {
       rubric: legacyRubric,
       transcriptTurns,
       gradingGuide: "Use neutral default 2 when a calibration question was not asked.",
+      dimensionScoreAnchors: defaultDimensionScoreAnchors(),
       calibrationExamples,
     });
 
     expect(prompt).toContain("GRADING_GUIDE:");
     expect(prompt).toContain("Use neutral default 2");
+    expect(prompt).toContain("DIMENSION_SCORE_ANCHORS_JSON:");
     expect(prompt).toContain("CALIBRATION_EXAMPLES_JSON:");
     expect(prompt).toContain('"id": "example_a"');
     expect(prompt).toContain('"totalScore": 7.5');
     expect(prompt).toContain('"problem_solving": 2.5');
+    expect(prompt).toContain('"problem_solving": {');
+    expect(prompt).toContain('"agency": {');
+    expect(prompt).toContain('"competitiveness": {');
+    expect(prompt).toContain('"curious": {');
   });
 
-  it("includes dimension score anchors with anti-copying instructions when provided", () => {
+  it("omits legacy dimension score anchors for non-legacy selected dimensions", () => {
     const prompt = buildScoringPrompt({
       rubric,
       transcriptTurns,
       dimensionScoreAnchors: defaultDimensionScoreAnchors(),
     });
 
-    expect(prompt).toContain("DIMENSION_SCORE_ANCHORS_JSON:");
-    expect(prompt).toContain("Use DIMENSION_SCORE_ANCHORS_JSON as calibration examples for the score scale.");
-    expect(prompt).toContain("Do not copy anchor rationales");
-    expect(prompt).toContain("If a candidate's answer falls between anchors, use 0.5 increments.");
-    expect(prompt).toContain('"problem_solving"');
+    expect(prompt).not.toContain("DIMENSION_SCORE_ANCHORS_JSON:");
+    expect(prompt).not.toContain("Use DIMENSION_SCORE_ANCHORS_JSON as calibration examples for the score scale.");
+    expect(prompt).not.toContain('"problem_solving": {');
     expect(prompt).not.toContain('"agency": {');
     expect(prompt).not.toContain('"competitiveness": {');
     expect(prompt).not.toContain('"curious": {');
-    expect(prompt).toContain('"1"');
-    expect(prompt).toContain('"2"');
-    expect(prompt).toContain('"3"');
-    expect(prompt).toContain('"4"');
-    expect(prompt).toContain('"answerExcerpt"');
-    expect(prompt).toContain('"whyThisScore"');
+    expect(prompt).not.toContain('"answerExcerpt"');
+    expect(prompt).not.toContain('"whyThisScore"');
   });
 
   it("omits calibration examples when the provided array is empty", () => {
