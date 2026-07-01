@@ -38,6 +38,7 @@ interface RuntimeSecrets {
   ashbyIntegrationSecretKey: secretsmanager.ISecret;
   platformAuthSecret: secretsmanager.ISecret;
   ashbyWebhookSecret: secretsmanager.ISecret;
+  externalIntegrationWebhookSecret: secretsmanager.ISecret;
   workosApiKey: secretsmanager.ISecret;
   workosClientId: secretsmanager.ISecret;
   weaveDatabaseCredentials: secretsmanager.ISecret;
@@ -69,6 +70,8 @@ interface BackendDeployment {
   migrationTaskDefinition: ecs.FargateTaskDefinition;
   firefliesIngestionWorkerService: ecs.FargateService;
   firefliesIngestionWorkerTaskDefinition: ecs.FargateTaskDefinition;
+  weaveCandidateEvaluationsWorkerService: ecs.FargateService;
+  weaveCandidateEvaluationsWorkerTaskDefinition: ecs.FargateTaskDefinition;
   loadBalancer: elbv2.ApplicationLoadBalancer;
   listener: elbv2.ApplicationListener;
 }
@@ -95,6 +98,11 @@ interface FirefliesIngestionQueueReference {
   queueUrl: string;
 }
 
+interface ExternalIntegrationIngressQueue {
+  queue: sqs.Queue;
+  deadLetterQueue: sqs.Queue;
+}
+
 const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   livekitApiKey: 'livekit/api-key',
   livekitApiSecret: 'livekit/api-secret',
@@ -107,6 +115,7 @@ const RUNTIME_SECRET_PATHS: Record<keyof RuntimeSecrets, string> = {
   ashbyIntegrationSecretKey: 'integrations/ashby/secret-key',
   platformAuthSecret: 'platform/auth-secret',
   ashbyWebhookSecret: 'integrations/ashby/webhook-secret',
+  externalIntegrationWebhookSecret: 'integrations/external/webhook-secret',
   workosApiKey: 'platform/workos-api-key',
   workosClientId: 'platform/workos-client-id',
   weaveDatabaseCredentials: 'weave/database/credentials',
@@ -153,6 +162,9 @@ export class InfraStack extends cdk.Stack {
     const firefliesIngestionQueue = this.cfg.backend.deployService
       ? this.importFirefliesIngestionQueue()
       : undefined;
+    const externalIntegrationIngressQueue = this.cfg.backend.deployService
+      ? this.createExternalIntegrationIngressQueue(removalPolicy)
+      : undefined;
 
     const vpc = this.createVpc();
     const securityGroups = this.createSecurityGroups(vpc);
@@ -170,6 +182,7 @@ export class InfraStack extends cdk.Stack {
       weaveHistoricalRecordings,
       database,
       firefliesIngestionQueue?.queue,
+      externalIntegrationIngressQueue?.queue,
     );
     const githubCiRole = this.createGithubCiRole(repositories, webBuckets);
     const backendDeployment = this.createBackendDeployment({
@@ -184,6 +197,7 @@ export class InfraStack extends cdk.Stack {
       artifactsBucket,
       weaveHistoricalRecordingsBucket: weaveHistoricalRecordings.bucket,
       firefliesIngestionQueue,
+      externalIntegrationIngressQueue,
     });
     const agentDeployment = this.createAgentDeployment({
       vpc,
@@ -227,6 +241,7 @@ export class InfraStack extends cdk.Stack {
       platformDeployment,
       devTunnelDeployment,
       firefliesIngestionQueue,
+      externalIntegrationIngressQueue,
     });
   }
 
@@ -695,6 +710,36 @@ export class InfraStack extends cdk.Stack {
     };
   }
 
+  private createExternalIntegrationIngressQueue(
+    removalPolicy: cdk.RemovalPolicy,
+  ): ExternalIntegrationIngressQueue {
+    const deadLetterQueue = new sqs.Queue(
+      this,
+      'ExternalIntegrationIngressDeadLetterQueue',
+      {
+        queueName: this.name('external-integration-ingress-dlq'),
+        encryption: sqs.QueueEncryption.SQS_MANAGED,
+        enforceSSL: true,
+        retentionPeriod: cdk.Duration.days(14),
+        removalPolicy,
+      },
+    );
+    const queue = new sqs.Queue(this, 'ExternalIntegrationIngressQueue', {
+      queueName: this.name('external-integration-ingress'),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: cdk.Duration.days(4),
+      visibilityTimeout: cdk.Duration.minutes(15),
+      deadLetterQueue: {
+        queue: deadLetterQueue,
+        maxReceiveCount: 10,
+      },
+      removalPolicy,
+    });
+
+    return { queue, deadLetterQueue };
+  }
+
   private firefliesIngestionQueueArn(): string {
     return [
       'arn',
@@ -874,6 +919,11 @@ export class InfraStack extends cdk.Stack {
         RUNTIME_SECRET_PATHS.ashbyWebhookSecret,
         removalPolicy,
       ),
+      externalIntegrationWebhookSecret: this.createSecret(
+        'ExternalIntegrationWebhookSecret',
+        RUNTIME_SECRET_PATHS.externalIntegrationWebhookSecret,
+        removalPolicy,
+      ),
       workosApiKey: secretsmanager.Secret.fromSecretNameV2(
         this,
         'WorkosApiKey',
@@ -942,6 +992,7 @@ export class InfraStack extends cdk.Stack {
     weaveHistoricalRecordings: HistoricalRecordingsSource,
     database: rds.DatabaseInstance | undefined,
     firefliesIngestionQueue: sqs.IQueue | undefined,
+    externalIntegrationIngressQueue: sqs.IQueue | undefined,
   ): RuntimeRoles {
     const backendTaskRole = this.createTaskRole(
       'BackendTaskRole',
@@ -978,12 +1029,15 @@ export class InfraStack extends cdk.Stack {
     artifactsBucket.grantRead(platformTaskRole);
     this.grantHistoricalRecordingsRead(backendTaskRole, weaveHistoricalRecordings);
     firefliesIngestionQueue?.grantConsumeMessages(backendTaskRole);
+    externalIntegrationIngressQueue?.grantSendMessages(backendTaskRole);
+    externalIntegrationIngressQueue?.grantConsumeMessages(backendTaskRole);
 
     grantSecretsRead(backendExecutionRole, [
       runtimeSecrets.livekitApiKey,
       runtimeSecrets.livekitApiSecret,
       runtimeSecrets.backendInternalToken,
       runtimeSecrets.ashbyIntegrationSecretKey,
+      runtimeSecrets.externalIntegrationWebhookSecret,
       runtimeSecrets.openaiApiKey,
       ...(runtimeSecrets.livekitEgressS3Credentials
         ? [runtimeSecrets.livekitEgressS3Credentials]
@@ -1097,6 +1151,7 @@ export class InfraStack extends cdk.Stack {
     artifactsBucket: s3.IBucket;
     weaveHistoricalRecordingsBucket: s3.IBucket;
     firefliesIngestionQueue?: FirefliesIngestionQueueReference;
+    externalIntegrationIngressQueue?: ExternalIntegrationIngressQueue;
   }): BackendDeployment | undefined {
     if (!this.cfg.backend.deployService) {
       return undefined;
@@ -1113,6 +1168,11 @@ export class InfraStack extends cdk.Stack {
     }
     if (!params.firefliesIngestionQueue) {
       throw new Error('Backend service deployment requires a Fireflies ingestion queue.');
+    }
+    if (!params.externalIntegrationIngressQueue) {
+      throw new Error(
+        'Backend service deployment requires an external integration ingress queue.',
+      );
     }
 
     const backendImage = ecs.ContainerImage.fromEcrRepository(
@@ -1167,6 +1227,9 @@ export class InfraStack extends cdk.Stack {
         params.weaveHistoricalRecordingsBucket.bucketName,
       WEAVE_HISTORICAL_RECORDINGS_REGION: WEAVE_HISTORICAL_RECORDINGS_BUCKET_REGION,
       WEAVE_HISTORICAL_RECORDINGS_PREFIX: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
+      WEAVE_CANDIDATE_EVALUATION_QUEUE_URL:
+        params.externalIntegrationIngressQueue.queue.queueUrl,
+      WEAVE_CANDIDATE_EVALUATION_ORG_ID: WEAVE_WORKOS_ORG_ID,
       PUDDLE_GRADING_MODEL_PROVIDER: 'openai',
       PUDDLE_GRADING_MODEL_ID: 'gpt-5.5',
       PUDDLE_GRADING_OPENAI_REASONING_EFFORT: 'high',
@@ -1182,6 +1245,9 @@ export class InfraStack extends cdk.Stack {
       ),
       PUDDLE_INTEGRATION_SECRET_KEY: ecs.Secret.fromSecretsManager(
         params.runtimeSecrets.ashbyIntegrationSecretKey,
+      ),
+      WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(
+        params.runtimeSecrets.externalIntegrationWebhookSecret,
       ),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(params.runtimeSecrets.openaiApiKey),
       ...(recordingsEnabled && params.runtimeSecrets.livekitEgressS3Credentials
@@ -1301,6 +1367,41 @@ export class InfraStack extends cdk.Stack {
       },
     );
 
+    const weaveCandidateEvaluationsWorkerTaskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      'WeaveCandidateEvaluationsWorkerTaskDefinition',
+      {
+        family: this.name('weave-candidate-evaluations-worker'),
+        cpu: this.cfg.backend.cpu,
+        memoryLimitMiB: this.cfg.backend.memoryMiB,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+        taskRole: params.runtimeRoles.backendTaskRole,
+        executionRole: params.runtimeRoles.backendExecutionRole,
+      },
+    );
+    weaveCandidateEvaluationsWorkerTaskDefinition.addContainer(
+      'WeaveCandidateEvaluationsWorkerContainer',
+      {
+        containerName: 'weave-candidate-evaluations-worker',
+        image: backendImage,
+        command: ['node', 'dist/weave/candidate-evaluations/worker.js'],
+        environment: {
+          ...containerEnvironment,
+          WEAVE_CANDIDATE_EVALUATION_QUEUE_URL:
+            params.externalIntegrationIngressQueue.queue.queueUrl,
+          WEAVE_CANDIDATE_EVALUATION_ORG_ID: WEAVE_WORKOS_ORG_ID,
+        },
+        secrets: containerSecrets,
+        logging: ecs.LogDrivers.awsLogs({
+          logGroup: params.logGroups.backend,
+          streamPrefix: 'weave-candidate-evaluations',
+        }),
+      },
+    );
+
     const loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'BackendLoadBalancer', {
       vpc: params.vpc,
       internetFacing: false,
@@ -1368,12 +1469,35 @@ export class InfraStack extends cdk.Stack {
       },
     );
 
+    const weaveCandidateEvaluationsWorkerService = new ecs.FargateService(
+      this,
+      'WeaveCandidateEvaluationsWorkerService',
+      {
+        cluster: params.cluster,
+        serviceName: this.name('weave-candidate-evaluations-worker-service'),
+        taskDefinition: weaveCandidateEvaluationsWorkerTaskDefinition,
+        desiredCount: this.cfg.backend.desiredCount,
+        assignPublicIp: false,
+        securityGroups: [params.securityGroups.backendTasks],
+        vpcSubnets: {
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+        },
+        circuitBreaker: {
+          rollback: true,
+        },
+        minHealthyPercent: 100,
+        maxHealthyPercent: 200,
+      },
+    );
+
     return {
       service,
       taskDefinition,
       migrationTaskDefinition,
       firefliesIngestionWorkerService,
       firefliesIngestionWorkerTaskDefinition,
+      weaveCandidateEvaluationsWorkerService,
+      weaveCandidateEvaluationsWorkerTaskDefinition,
       loadBalancer,
       listener,
     };
@@ -1732,6 +1856,7 @@ export class InfraStack extends cdk.Stack {
     platformDeployment?: PlatformDeployment;
     devTunnelDeployment?: DevTunnelDeployment;
     firefliesIngestionQueue?: FirefliesIngestionQueueReference;
+    externalIntegrationIngressQueue?: ExternalIntegrationIngressQueue;
   }): void {
     new cdk.CfnOutput(this, 'EnvironmentName', {
       value: this.cfg.envName,
@@ -1855,6 +1980,14 @@ export class InfraStack extends cdk.Stack {
         value:
           values.backendDeployment.firefliesIngestionWorkerTaskDefinition.taskDefinitionArn,
       });
+      new cdk.CfnOutput(this, 'WeaveCandidateEvaluationsWorkerServiceName', {
+        value: values.backendDeployment.weaveCandidateEvaluationsWorkerService.serviceName,
+      });
+      new cdk.CfnOutput(this, 'WeaveCandidateEvaluationsWorkerTaskDefinitionArn', {
+        value:
+          values.backendDeployment.weaveCandidateEvaluationsWorkerTaskDefinition
+            .taskDefinitionArn,
+      });
       new cdk.CfnOutput(this, 'BackendLoadBalancerDnsName', {
         value: values.backendDeployment.loadBalancer.loadBalancerDnsName,
       });
@@ -1896,6 +2029,15 @@ export class InfraStack extends cdk.Stack {
     if (values.firefliesIngestionQueue) {
       new cdk.CfnOutput(this, 'FirefliesIngestionQueueUrl', {
         value: values.firefliesIngestionQueue.queueUrl,
+      });
+    }
+
+    if (values.externalIntegrationIngressQueue) {
+      new cdk.CfnOutput(this, 'ExternalIntegrationIngressQueueUrl', {
+        value: values.externalIntegrationIngressQueue.queue.queueUrl,
+      });
+      new cdk.CfnOutput(this, 'ExternalIntegrationIngressDeadLetterQueueUrl', {
+        value: values.externalIntegrationIngressQueue.deadLetterQueue.queueUrl,
       });
     }
   }

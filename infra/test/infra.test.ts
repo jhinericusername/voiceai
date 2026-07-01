@@ -21,7 +21,7 @@ describe('InfraStack', () => {
     template.resourceCountIs('AWS::ECS::Cluster', 1);
     template.resourceCountIs('AWS::ECR::Repository', 3);
     template.resourceCountIs('AWS::S3::Bucket', 5);
-    template.resourceCountIs('AWS::SecretsManager::Secret', 12);
+    template.resourceCountIs('AWS::SecretsManager::Secret', 13);
     template.resourceCountIs('AWS::Logs::LogGroup', 4);
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.resourceCountIs('AWS::RDS::DBSubnetGroup', 1);
@@ -214,8 +214,8 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 2);
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 3);
+    template.resourceCountIs('AWS::ECS::Service', 3);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 4);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 1);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::TargetGroup', 1);
@@ -276,6 +276,13 @@ describe('InfraStack', () => {
               Name: 'WEAVE_HISTORICAL_RECORDINGS_PREFIX',
               Value: WEAVE_HISTORICAL_RECORDINGS_PREFIX,
             }),
+            Match.objectLike({
+              Name: 'WEAVE_CANDIDATE_EVALUATION_QUEUE_URL',
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_CANDIDATE_EVALUATION_ORG_ID',
+              Value: 'org_01KV4FF7KX24B76H7Q57QVB5CT',
+            }),
           ]),
           Secrets: Match.arrayWith([
             Match.objectLike({
@@ -301,10 +308,16 @@ describe('InfraStack', () => {
       ]),
     });
     expect(taskSecretNames(template, 'puddle-videoagent-backend', 'backend')).toEqual(
-      expect.arrayContaining(['PUDDLE_INTEGRATION_SECRET_KEY']),
+      expect.arrayContaining([
+        'PUDDLE_INTEGRATION_SECRET_KEY',
+        'WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET',
+      ]),
     );
     expect(taskSecretNames(template, 'puddle-videoagent-backend-migrations', 'backend-migrations')).toEqual(
-      expect.arrayContaining(['PUDDLE_INTEGRATION_SECRET_KEY']),
+      expect.arrayContaining([
+        'PUDDLE_INTEGRATION_SECRET_KEY',
+        'WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET',
+      ]),
     );
     expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'AshbyIntegrationSecretKey')).toBe(
       true,
@@ -312,7 +325,90 @@ describe('InfraStack', () => {
     expect(executionRolePolicyAllowsSecret(template, 'BackendExecutionRole', 'OpenaiApiKey')).toBe(
       true,
     );
+    expect(
+      executionRolePolicyAllowsSecret(
+        template,
+        'BackendExecutionRole',
+        'ExternalIntegrationWebhookSecret',
+      ),
+    ).toBe(true);
     template.resourceCountIs('AWS::IAM::User', 0);
+  });
+
+  test('wires generic external integration ingress to the Weave candidate evaluations worker', () => {
+    const stack = createStack({
+      backend: {
+        ...defaultConfig().backend,
+        deployService: true,
+        imageTag: 'test',
+      },
+      liveKit: {
+        recordingsEnabled: false,
+        url: 'wss://livekit.example',
+      },
+    });
+    const template = Template.fromStack(stack);
+
+    template.resourceCountIs('AWS::SQS::Queue', 2);
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'puddle-videoagent-external-integration-ingress',
+      SqsManagedSseEnabled: true,
+      RedrivePolicy: Match.objectLike({
+        maxReceiveCount: 10,
+      }),
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'puddle-videoagent-external-integration-ingress-dlq',
+      SqsManagedSseEnabled: true,
+    });
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: Match.stringLikeRegexp('/integrations/external/webhook-secret$'),
+    });
+    template.hasOutput('ExternalIntegrationWebhookSecretSecretName', {
+      Value: Match.stringLikeRegexp('/integrations/external/webhook-secret$'),
+    });
+    template.hasResourceProperties('AWS::ECS::Service', {
+      ServiceName: 'puddle-videoagent-weave-candidate-evaluations-worker-service',
+      DesiredCount: 1,
+    });
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'puddle-videoagent-weave-candidate-evaluations-worker',
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: 'weave-candidate-evaluations-worker',
+          Command: ['node', 'dist/weave/candidate-evaluations/worker.js'],
+          Environment: Match.arrayWith([
+            Match.objectLike({
+              Name: 'WEAVE_CANDIDATE_EVALUATION_QUEUE_URL',
+            }),
+            Match.objectLike({
+              Name: 'WEAVE_CANDIDATE_EVALUATION_ORG_ID',
+              Value: 'org_01KV4FF7KX24B76H7Q57QVB5CT',
+            }),
+          ]),
+          Secrets: Match.arrayWith([
+            Match.objectLike({
+              Name: 'WEAVE_CANDIDATE_EVALUATION_WEBHOOK_SECRET',
+            }),
+          ]),
+          LogConfiguration: Match.objectLike({
+            Options: Match.objectLike({
+              'awslogs-stream-prefix': 'weave-candidate-evaluations',
+            }),
+          }),
+        }),
+      ]),
+    });
+
+    const templateJson = JSON.stringify(template.toJSON());
+    expect(templateJson).toContain('sqs:SendMessage');
+    expect(templateJson).toContain('sqs:ReceiveMessage');
+    expect(templateJson).toContain('sqs:DeleteMessage');
+    expect(templateJson).toContain('puddle-videoagent-external-integration-ingress');
+    template.hasOutput('ExternalIntegrationIngressQueueUrl', {});
+    template.hasOutput('ExternalIntegrationIngressDeadLetterQueueUrl', {});
+    template.hasOutput('WeaveCandidateEvaluationsWorkerServiceName', {});
+    template.hasOutput('WeaveCandidateEvaluationsWorkerTaskDefinitionArn', {});
   });
 
   test('injects backend-only and model-provider secrets into the right runtime tasks', () => {
@@ -501,9 +597,9 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::SQS::Queue', 0);
-    template.resourceCountIs('AWS::ECS::Service', 2);
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 3);
+    template.resourceCountIs('AWS::SQS::Queue', 2);
+    template.resourceCountIs('AWS::ECS::Service', 3);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 4);
     template.hasResourceProperties('AWS::ECS::Service', {
       ServiceName: 'puddle-videoagent-fireflies-ingestion-worker-service',
       DesiredCount: 1,
@@ -678,8 +774,8 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 3);
-    template.resourceCountIs('AWS::ECS::TaskDefinition', 4);
+    template.resourceCountIs('AWS::ECS::Service', 4);
+    template.resourceCountIs('AWS::ECS::TaskDefinition', 5);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
 
     template.hasResourceProperties('AWS::ECS::Service', {
@@ -811,7 +907,7 @@ describe('InfraStack', () => {
     });
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::ECS::Service', 3);
+    template.resourceCountIs('AWS::ECS::Service', 4);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 2);
     template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 3);
 
