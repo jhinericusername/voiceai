@@ -24,7 +24,12 @@ from pathlib import Path
 from agent.config import REALTIME
 from agent.controller.realtime.plan_builder import build_interview_plan
 from agent.rubric_loader import load_rubric
-from agent.voice.realtime.livekit_adapter import _OPENER_NUDGE, build_realtime_model
+from agent.voice.realtime.livekit_adapter import (
+    _OPENER_NUDGE,
+    attach_interruption_logging,
+    build_agent_session,
+    build_realtime_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +58,11 @@ async def entrypoint(ctx) -> None:  # pragma: no cover - vendor console I/O
     rubric = load_rubric(_REPO_ROOT / "rubric" / f"{_SCRIPT_VERSION}.yaml")
     plan = build_interview_plan(rubric, include_tools=False)
 
-    from livekit.agents import Agent, AgentSession
+    from livekit.agents import Agent
 
     await ctx.connect()
-    session = AgentSession(llm=build_realtime_model(REALTIME.model))
+    session = build_agent_session(build_realtime_model(REALTIME.model))
+    attach_interruption_logging(session)
     await session.start(Agent(instructions=plan.instructions), room=ctx.room)
     # Kick off the scripted opener — without this the model waits silently for
     # the candidate to speak first (semantic VAD only fires on a candidate turn).
