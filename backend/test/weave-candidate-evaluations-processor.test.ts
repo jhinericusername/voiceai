@@ -105,7 +105,7 @@ describe("Weave candidate evaluation processor", () => {
       {
         rows: [
           {
-            source_updated_at: "2026-07-02T00:00:00.000Z",
+            source_updated_at: new Date("2026-07-02T00:00:00.000Z"),
             application_id: "app_existing",
             score_id: "score_existing",
           },

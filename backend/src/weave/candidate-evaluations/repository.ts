@@ -262,7 +262,8 @@ export function importedEvaluationForSessionStatement(
       "FROM sessions sess " +
       "JOIN weave_candidate_evaluation_imports imp ON imp.organization_id = sess.org_id " +
       "AND (imp.source_evaluation_id = NULLIF(sess.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '') " +
-      "OR imp.application_id = NULLIF(sess.source_metadata #>> '{ashby,selected,applicationId}', '')) " +
+      "OR (NULLIF(sess.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '') IS NULL " +
+      "AND imp.application_id = NULLIF(sess.source_metadata #>> '{ashby,selected,applicationId}', ''))) " +
       "JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id " +
       "WHERE sess.session_id = $1 AND sess.org_id = $2 " +
       "ORDER BY imp.source_updated_at DESC NULLS LAST, imp.last_synced_at DESC LIMIT 1",

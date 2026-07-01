@@ -166,6 +166,10 @@ function isExistingImportNewer(existingUpdatedAt: unknown, incomingUpdatedAt: un
 }
 
 function dateMillis(value: unknown): number | null {
+  if (value instanceof Date) {
+    const millis = value.getTime();
+    return Number.isFinite(millis) ? millis : null;
+  }
   if (typeof value !== "string" || value.length === 0) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;

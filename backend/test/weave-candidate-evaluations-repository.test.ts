@@ -177,7 +177,8 @@ describe("Weave candidate evaluation repository statements", () => {
       "imp.source_evaluation_id = NULLIF(sess.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '')",
     );
     expect(stmt.sql).toContain(
-      "imp.application_id = NULLIF(sess.source_metadata #>> '{ashby,selected,applicationId}', '')",
+      "NULLIF(sess.source_metadata #>> '{ashby,selected,candidateEvaluationId}', '') IS NULL " +
+        "AND imp.application_id = NULLIF(sess.source_metadata #>> '{ashby,selected,applicationId}', '')",
     );
     expect(stmt.sql).toContain("JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id");
     expect(stmt.sql).not.toContain("candidate_email");
