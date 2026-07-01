@@ -183,6 +183,87 @@ describe("grading routes", () => {
     }
   });
 
+  it("stores a submitted rubric as the current draft version", async () => {
+    const rubric = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_1",
+      jobName: "Account Executive",
+      historicalSessionCount: 3,
+      matchedApplicationCount: 2,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+    const editedRubric = {
+      ...rubric,
+      dimensions: rubric.dimensions.map((dimension) =>
+        dimension.key === "communication"
+          ? {
+              ...dimension,
+              anchors: { ...dimension.anchors, 2: "Clearly articulates themselves." },
+            }
+          : dimension,
+      ),
+    };
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/profiles/profile_1/draft",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_1",
+          actorEmail: "reviewer@example.com",
+          jobName: "Account Executive",
+          rubric: editedRubric,
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({
+        rubricVersionId: expect.any(String),
+        rubric: editedRubric,
+      });
+      const insertCall = queryCalls.find((call) => call.sql.includes("INSERT INTO role_rubric_versions"));
+      expect(insertCall?.params[7]).toBe(JSON.stringify(editedRubric));
+      expect(insertCall?.params[8]).toBe(JSON.stringify({
+        source: "dashboard_rubric_editor",
+        jobName: "Account Executive",
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects submitted draft rubrics that do not match the locked profile role", async () => {
+    const rubric = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_other",
+      jobName: "Other Role",
+      historicalSessionCount: 1,
+      matchedApplicationCount: 1,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/profiles/profile_1/draft",
+        headers: { "content-type": "application/json" },
+        payload: {
+          organizationId: "org_1",
+          actorEmail: "reviewer@example.com",
+          jobName: "Other Role",
+          rubric,
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: "rubric role must match the grading profile" });
+      expect(sqlCalls).toContain("ROLLBACK");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("approves a draft rubric and activates recommendations", async () => {
     const rubric = buildDraftRubric({
       organizationId: "org_1",
