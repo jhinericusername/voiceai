@@ -270,6 +270,35 @@ describe("database migrations", () => {
     );
   });
 
+  it("adds Weave candidate evaluation import provenance after interviewer AI control migrations", () => {
+    const files = readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort();
+    const aiEndedIndex = files.indexOf("018_interviewer_ai_control_ended_state.sql");
+    const weaveImportIndex = files.indexOf("019_weave_candidate_evaluation_imports.sql");
+
+    expect(aiEndedIndex).toBeGreaterThanOrEqual(0);
+    expect(weaveImportIndex).toBeGreaterThan(aiEndedIndex);
+
+    const migration = readFileSync(
+      join(migrationsDir, "019_weave_candidate_evaluation_imports.sql"),
+      "utf-8",
+    );
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS weave_candidate_evaluation_imports");
+    expect(migration).toContain("source_evaluation_id TEXT PRIMARY KEY");
+    expect(migration).toContain("organization_id TEXT NOT NULL");
+    expect(migration).toContain("integration_id TEXT NOT NULL");
+    expect(migration).toContain("application_id TEXT NOT NULL");
+    expect(migration).toContain("score_id TEXT");
+    expect(migration).toContain("source_payload_hash TEXT NOT NULL");
+    expect(migration).toContain("sync_status TEXT NOT NULL");
+    expect(migration).toContain("sync_status IN ('synced', 'failed')");
+    expect(migration).toContain("FOREIGN KEY (integration_id, application_id)");
+    expect(migration).toContain("REFERENCES ashby_applications(integration_id, application_id)");
+    expect(migration).toContain("FOREIGN KEY (score_id)");
+    expect(migration).toContain("REFERENCES ashby_candidate_scores(score_id)");
+    expect(migration).toContain("weave_candidate_evaluation_imports_org_job_idx");
+    expect(migration).toContain("weave_candidate_evaluation_imports_application_idx");
+  });
+
   it("defines the Weave Fireflies reconciliation tables separately from app migrations", () => {
     const files = readdirSync(weaveMigrationsDir).filter((file) => file.endsWith(".sql")).sort();
 

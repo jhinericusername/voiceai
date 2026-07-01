@@ -333,16 +333,28 @@ export function activePipelineRolesStatement(input: {
   const selectedJobIds = input.selectedJobIds?.length ? [...input.selectedJobIds] : null;
   return {
     sql:
-      "WITH application_rows AS (" +
+      "WITH imported_jobs AS (" +
+      "SELECT DISTINCT imp.ashby_job_id AS job_id FROM weave_candidate_evaluation_imports imp " +
+      "WHERE imp.integration_id = $1" +
+      "), application_rows AS (" +
       "SELECT a.job_id, " +
       `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
       `${ACTIVE_PIPELINE_STAGE_ORDER_SQL} AS stage_order, ` +
       "COALESCE(NULLIF(a.raw_payload->'job'->>'name', ''), NULLIF(a.raw_payload->'job'->>'title', '')) AS job_name " +
       "FROM ashby_applications a " +
-      "WHERE a.integration_id = $1 AND a.status = 'Active' " +
-      "AND ($2::text[] IS NULL OR a.job_id = ANY($2::text[]))" +
+      "LEFT JOIN LATERAL (" +
+      "SELECT imp.source_evaluation_id " +
+      "FROM weave_candidate_evaluation_imports imp " +
+      "JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id " +
+      "WHERE imp.integration_id = a.integration_id AND imp.application_id = a.application_id " +
+      "ORDER BY imp.source_updated_at DESC NULLS LAST, imp.last_synced_at DESC LIMIT 1" +
+      ") imported_evaluation ON true " +
+      "WHERE a.integration_id = $1 " +
+      "AND ($2::text[] IS NULL OR a.job_id = ANY($2::text[]) OR a.job_id IN (SELECT job_id FROM imported_jobs)) " +
+      "AND (a.status = 'Active' OR imported_evaluation.source_evaluation_id IS NOT NULL)" +
       "), selected_jobs AS (" +
       "SELECT unnest($2::text[]) AS job_id WHERE $2::text[] IS NOT NULL " +
+      "UNION SELECT job_id FROM imported_jobs " +
       "UNION SELECT DISTINCT job_id FROM application_rows WHERE $2::text[] IS NULL" +
       "), stage_counts AS (" +
       "SELECT job_id, current_stage, MIN(stage_order) AS stage_order, COUNT(*)::int AS candidate_count " +
@@ -375,12 +387,37 @@ export function activePipelineApplicationsStatement(input: {
   const selectedJobIds = input.selectedJobIds?.length ? [...input.selectedJobIds] : null;
   return {
     sql:
+      "WITH imported_jobs AS (" +
+      "SELECT DISTINCT imp.ashby_job_id AS job_id FROM weave_candidate_evaluation_imports imp " +
+      "WHERE imp.integration_id = $1" +
+      "), selected_jobs AS (" +
+      "SELECT unnest($2::text[]) AS job_id WHERE $2::text[] IS NOT NULL " +
+      "UNION SELECT job_id FROM imported_jobs" +
+      ") " +
       "SELECT application_id, candidate_id, candidate_name, candidate_email, job_id, " +
       `${ACTIVE_PIPELINE_STAGE_SQL} AS current_stage, ` +
-      "source, status, ashby_updated_at, updated_at, raw_payload " +
+      "source, status, ashby_updated_at, updated_at, raw_payload, " +
+      "imported_evaluation.item AS latest_imported_evaluation " +
       "FROM ashby_applications a " +
-      "WHERE integration_id = $1 AND status = 'Active' " +
-      "AND ($2::text[] IS NULL OR job_id = ANY($2::text[])) " +
+      "LEFT JOIN LATERAL (" +
+      "SELECT imp.source_evaluation_id, jsonb_build_object(" +
+      "'sourceEvaluationId', imp.source_evaluation_id, " +
+      "'sourceUpdatedAt', imp.source_updated_at, " +
+      "'problemSolving', sc.problem_solving, " +
+      "'agency', sc.agency, " +
+      "'competitiveness', sc.competitiveness, " +
+      "'curiosity', sc.curiosity, " +
+      "'totalScore', sc.total_score, " +
+      "'comments', sc.comments" +
+      ") AS item " +
+      "FROM weave_candidate_evaluation_imports imp " +
+      "JOIN ashby_candidate_scores sc ON sc.score_id = imp.score_id " +
+      "WHERE imp.integration_id = a.integration_id AND imp.application_id = a.application_id " +
+      "ORDER BY imp.source_updated_at DESC NULLS LAST, imp.last_synced_at DESC LIMIT 1" +
+      ") imported_evaluation ON true " +
+      "WHERE a.integration_id = $1 " +
+      "AND ($2::text[] IS NULL OR a.job_id IN (SELECT job_id FROM selected_jobs)) " +
+      "AND (a.status = 'Active' OR imported_evaluation.source_evaluation_id IS NOT NULL) " +
       "ORDER BY COALESCE(ashby_updated_at, updated_at) DESC, updated_at DESC LIMIT $3",
     params: [input.integrationId, selectedJobIds, input.limit],
   };

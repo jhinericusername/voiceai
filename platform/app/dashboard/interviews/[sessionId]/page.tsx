@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   dashboardOrgId,
   getRealInterview,
+  type ImportedWeaveEvaluation,
   type RealInterviewDetail,
 } from "../../backend-data";
 import { requireDashboardUser } from "../../auth";
@@ -143,6 +144,10 @@ function RealInterviewDetailView({
         transcriptTurns={transcriptTurns}
         startedAt={completedAt}
       >
+          {realInterview.imported_evaluation ? (
+            <ImportedWeaveEvaluationPanel evaluation={realInterview.imported_evaluation} />
+          ) : null}
+
           <SectionPanel
             title="AI recommendation"
             eyebrow="Generated scorecard"
@@ -288,6 +293,61 @@ function formatBackendStatus(value: string | null | undefined, fallback: string)
 
 function formatNullableDate(value: string | null): string {
   return value ? formatDateTime(value) : "Not set";
+}
+
+const IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN = /^[-+]?(?:\d+|\d*\.\d+)$/;
+const IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN = /^([-+]?(?:\d+|\d*\.\d+))\s*\/\s*([-+]?(?:\d+|\d*\.\d+))$/;
+const NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS = new Set(["nan", "infinity", "+infinity", "-infinity"]);
+
+function normalizedImportedWeaveScoreNumber(value: number): string {
+  return String(value).replace(/\.0$/, "");
+}
+
+function formatImportedWeaveNumericScore(value: string | number | null): string | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? normalizedImportedWeaveScoreNumber(value) : null;
+  }
+
+  const trimmed = value?.trim();
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  if (!IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? normalizedImportedWeaveScoreNumber(numeric) : null;
+}
+
+function formatImportedWeaveSuffixedScore(value: string | number | null): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  const match = trimmed.match(IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const score = Number(match[1]);
+  const maxScore = Number(match[2]);
+  if (!Number.isFinite(score) || !Number.isFinite(maxScore)) {
+    return null;
+  }
+
+  return `${normalizedImportedWeaveScoreNumber(score)}/${normalizedImportedWeaveScoreNumber(maxScore)}`;
+}
+
+function formatImportedWeaveScore(value: string | number | null, suffix: string): string {
+  const numericScore = formatImportedWeaveNumericScore(value);
+  return numericScore ? `${numericScore}${suffix}` : formatImportedWeaveSuffixedScore(value) ?? "Not scored";
 }
 
 function scoreValue(value: unknown): string | null {
@@ -1071,6 +1131,39 @@ function PacketMetaRow({
       <dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</dt>
       <dd className="mt-1 break-words text-sm leading-6 text-slate-700">{value}</dd>
     </div>
+  );
+}
+
+function ImportedWeaveEvaluationPanel({
+  evaluation,
+}: {
+  readonly evaluation: ImportedWeaveEvaluation;
+}) {
+  return (
+    <SectionPanel
+      title="Imported Weave evaluation"
+      eyebrow="Weave"
+      action={<StatusPill status={formatImportedWeaveScore(evaluation.totalScore, "/16")} />}
+    >
+      <div className="grid gap-4">
+        <dl className="grid gap-3 sm:grid-cols-2">
+          <PacketMetaRow label="Total score" value={formatImportedWeaveScore(evaluation.totalScore, "/16")} />
+          <PacketMetaRow label="Problem solving" value={formatImportedWeaveScore(evaluation.problemSolving, "/4")} />
+          <PacketMetaRow label="Agency" value={formatImportedWeaveScore(evaluation.agency, "/4")} />
+          <PacketMetaRow label="Competitiveness" value={formatImportedWeaveScore(evaluation.competitiveness, "/4")} />
+          <PacketMetaRow label="Curiosity" value={formatImportedWeaveScore(evaluation.curiosity, "/4")} />
+          <PacketMetaRow label="Source updated" value={formatNullableDate(evaluation.sourceUpdatedAt)} />
+        </dl>
+        {evaluation.comments?.trim() ? (
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Comments</div>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+              {evaluation.comments.trim()}
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </SectionPanel>
   );
 }
 

@@ -46,6 +46,7 @@ ARTIFACTS_BUCKET_NAME="${PUDDLE_ARTIFACTS_BUCKET:-puddle-videoagent-artifacts-$A
 PARTICIPANT_RECONNECT_GRACE_SECONDS="${PARTICIPANT_RECONNECT_GRACE_SECONDS:-${PUDDLE_PARTICIPANT_RECONNECT_GRACE_SECONDS:-300}}"
 export PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS="${PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS:-${PUDDLE_ASHBY_ONBOARDING_ADMIN_EMAILS:-}}"
 DOCKER_PLATFORM="${DOCKER_PLATFORM:-linux/arm64}"
+APPROVE_CDK_DEPLOY="${APPROVE_CDK_DEPLOY:-false}"
 
 if [[ -z "${LIVEKIT_URL:-}" ]]; then
   echo "LIVEKIT_URL is required. Add it to .env.local or export it before running." >&2
@@ -74,6 +75,7 @@ echo "  artifacts:     $ARTIFACTS_BUCKET_NAME"
 echo "  reconnect:     ${PARTICIPANT_RECONNECT_GRACE_SECONDS}s"
 echo "  ashby admins:  $([[ -n "$PLATFORM_ASHBY_ONBOARDING_ADMIN_EMAILS" ]] && echo configured || echo unset)"
 echo "  docker target: $DOCKER_PLATFORM"
+echo "  cdk deploy:    $([[ "$APPROVE_CDK_DEPLOY" == "true" ]] && echo approved || echo requires APPROVE_CDK_DEPLOY=true)"
 
 CDK_CONTEXT_ARGS=(
   -c envName=dev
@@ -104,6 +106,20 @@ if [[ -n "${LIVEKIT_EGRESS_ASSUME_ROLE_EXTERNAL_ID:-}" ]]; then
   )
 fi
 
+echo
+echo "Running CDK diff before image push or deploy..."
+(
+  cd "$ROOT_DIR/infra"
+  npm run cdk -- diff --all "${CDK_CONTEXT_ARGS[@]}"
+)
+
+if [[ "$APPROVE_CDK_DEPLOY" != "true" ]]; then
+  echo
+  echo "CDK diff complete. Refusing to continue before image push or CDK deploy." >&2
+  echo "Review the diff, then rerun with APPROVE_CDK_DEPLOY=true to build images and deploy." >&2
+  exit 1
+fi
+
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 
@@ -118,3 +134,17 @@ docker push "$AGENT_REPO:$AGENT_IMAGE_TAG"
 
 cd "$ROOT_DIR/infra"
 npm run cdk -- deploy --all --require-approval never "${CDK_CONTEXT_ARGS[@]}"
+
+cat <<'EOF'
+
+Manual post-deploy gates still required:
+1. Run the backend migration ECS task and verify it exits 0.
+2. Write or rotate the external integration webhook secret in AWS Secrets Manager.
+3. Force a new backend and Weave candidate evaluation worker ECS deployment after the secret write.
+4. Apply supabase/weave_candidate_evaluation_hooks.sql in the Weave Supabase project.
+5. Smoke test one approved event, then check SQS, worker logs, and DLQ.
+6. Run the JSONL backfill dry-run before approved apply.
+
+These steps are intentionally not automated by deploy-platform.sh.
+Use docs/runbooks/weave-candidate-evaluation-sync.md for the exact commands.
+EOF

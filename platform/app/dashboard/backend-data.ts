@@ -60,8 +60,20 @@ export interface RealRoomRecordingListItem {
   readonly transcript_turn_count: number;
 }
 
+export interface ImportedWeaveEvaluation {
+  readonly sourceEvaluationId: string;
+  readonly sourceUpdatedAt: string | null;
+  readonly problemSolving: string | number | null;
+  readonly agency: string | number | null;
+  readonly competitiveness: string | number | null;
+  readonly curiosity: string | number | null;
+  readonly totalScore: string | number | null;
+  readonly comments: string | null;
+}
+
 export interface RealInterviewDetail extends RealInterviewListItem {
   readonly error_message: string | null;
+  readonly imported_evaluation: ImportedWeaveEvaluation | null;
   readonly recommendation_packet: {
     readonly recommendationId: string;
     readonly recommendation: "advance" | "hold" | "pass";

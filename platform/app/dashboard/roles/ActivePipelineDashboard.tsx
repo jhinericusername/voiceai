@@ -4,11 +4,22 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { DocumentIcon } from "../dashboard-icons";
-import { cx, EmptyState } from "../dashboard-ui";
+import { cx, EmptyState, StatusPill } from "../dashboard-ui";
 
 interface ActivePipelineStage {
   readonly name: string;
   readonly count: number;
+}
+
+interface ImportedWeaveEvaluation {
+  readonly sourceEvaluationId: string;
+  readonly sourceUpdatedAt: string | null;
+  readonly problemSolving: string | number | null;
+  readonly agency: string | number | null;
+  readonly competitiveness: string | number | null;
+  readonly curiosity: string | number | null;
+  readonly totalScore: string | number | null;
+  readonly comments: string | null;
 }
 
 interface ActivePipelineCandidate {
@@ -23,6 +34,7 @@ interface ActivePipelineCandidate {
   readonly ashbyUrl?: string | null;
   readonly linkedInUrl?: string | null;
   readonly resumeUrl?: string | null;
+  readonly latestImportedEvaluation: ImportedWeaveEvaluation | null;
 }
 
 interface ActivePipelineRole {
@@ -134,6 +146,62 @@ function QuickCandidateLink({
       {children}
     </a>
   );
+}
+
+const IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN = /^[-+]?(?:\d+|\d*\.\d+)$/;
+const IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN = /^([-+]?(?:\d+|\d*\.\d+))\s*\/\s*([-+]?(?:\d+|\d*\.\d+))$/;
+const NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS = new Set(["nan", "infinity", "+infinity", "-infinity"]);
+
+function normalizedImportedWeaveScoreNumber(value: number): string {
+  return String(value).replace(/\.0$/, "");
+}
+
+function formatImportedWeaveNumericScore(value: string | number | null | undefined): string | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? normalizedImportedWeaveScoreNumber(value) : null;
+  }
+
+  const trimmed = value?.trim();
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  if (!IMPORTED_WEAVE_NUMERIC_SCORE_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? normalizedImportedWeaveScoreNumber(numeric) : null;
+}
+
+function formatImportedWeaveSuffixedScore(value: string | number | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || NON_FINITE_IMPORTED_WEAVE_SCORE_LABELS.has(trimmed.toLowerCase())) {
+    return null;
+  }
+
+  const match = trimmed.match(IMPORTED_WEAVE_SUFFIXED_SCORE_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const score = Number(match[1]);
+  const maxScore = Number(match[2]);
+  if (!Number.isFinite(score) || !Number.isFinite(maxScore)) {
+    return null;
+  }
+
+  return `${normalizedImportedWeaveScoreNumber(score)}/${normalizedImportedWeaveScoreNumber(maxScore)}`;
+}
+
+function importedWeaveStatus(evaluation: ImportedWeaveEvaluation): string {
+  const numericScore = formatImportedWeaveNumericScore(evaluation.totalScore);
+  const score = numericScore ? `${numericScore}/16` : formatImportedWeaveSuffixedScore(evaluation.totalScore);
+  return score ? `Weave ${score}` : "Imported Weave evaluation";
 }
 
 export function ActivePipelineDashboard({
@@ -271,10 +339,13 @@ export function ActivePipelineDashboard({
                       <div className="flex gap-2 overflow-x-auto pb-1">
                         {selectedCandidates.map((candidate) => {
                           const dateLabel = formatCandidateDate(candidate.updatedAt);
+                          const weaveLabel = candidate.latestImportedEvaluation
+                            ? importedWeaveStatus(candidate.latestImportedEvaluation)
+                            : null;
                           return (
                             <article
                               key={candidate.applicationId}
-                              className="grid h-[100px] w-[220px] shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] rounded-md border border-slate-200 bg-white px-3 py-2 shadow-[0_1px_1px_rgba(15,23,42,0.03)]"
+                              className="grid h-[112px] w-[220px] shrink-0 grid-rows-[auto_minmax(0,1fr)_auto] rounded-md border border-slate-200 bg-white px-3 py-2 shadow-[0_1px_1px_rgba(15,23,42,0.03)]"
                               data-candidate-mini-card
                             >
                               <div className="flex min-w-0 items-start justify-between gap-2">
@@ -323,11 +394,16 @@ export function ActivePipelineDashboard({
                                 )}
                               </div>
 
-                              {dateLabel ? (
-                                <div className="mt-1">
-                                  <span className="inline-flex min-h-5 items-center rounded-full border border-slate-200 bg-slate-50 px-2 text-xs font-medium text-slate-600">
-                                    {dateLabel}
-                                  </span>
+                              {dateLabel || weaveLabel ? (
+                                <div className="mt-1 flex min-w-0 flex-wrap gap-1">
+                                  {dateLabel ? (
+                                    <span className="inline-flex min-h-5 items-center rounded-full border border-slate-200 bg-slate-50 px-2 text-xs font-medium text-slate-600">
+                                      {dateLabel}
+                                    </span>
+                                  ) : null}
+                                  {weaveLabel ? (
+                                    <StatusPill status={weaveLabel} className="max-w-[160px] truncate" />
+                                  ) : null}
                                 </div>
                               ) : null}
                             </article>

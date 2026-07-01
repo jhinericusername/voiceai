@@ -45,6 +45,17 @@ export interface AshbyActivePipelineStage {
   readonly count: number;
 }
 
+export interface ImportedWeaveEvaluation {
+  readonly sourceEvaluationId: string;
+  readonly sourceUpdatedAt: string | null;
+  readonly problemSolving: string | number | null;
+  readonly agency: string | number | null;
+  readonly competitiveness: string | number | null;
+  readonly curiosity: string | number | null;
+  readonly totalScore: string | number | null;
+  readonly comments: string | null;
+}
+
 export interface AshbyActivePipelineCandidate {
   readonly applicationId: string;
   readonly candidateId: string;
@@ -57,6 +68,7 @@ export interface AshbyActivePipelineCandidate {
   readonly ashbyUrl?: string | null;
   readonly linkedInUrl?: string | null;
   readonly resumeUrl?: string | null;
+  readonly latestImportedEvaluation: ImportedWeaveEvaluation | null;
 }
 
 export interface AshbyActivePipelineRole {

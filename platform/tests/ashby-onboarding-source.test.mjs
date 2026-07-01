@@ -360,6 +360,29 @@ test("deploy-platform keeps recording artifacts enabled by default", () => {
   assert.match(deployPlatformScript, /-c enableLiveKitRecordings="\$ENABLE_LIVEKIT_RECORDINGS"/);
 });
 
+test("deploy-platform gates CDK deploy and prints manual Weave sync follow-up gates", () => {
+  assert.match(deployPlatformScript, /APPROVE_CDK_DEPLOY="\$\{APPROVE_CDK_DEPLOY:-false\}"/);
+  assert.match(deployPlatformScript, /npm run cdk -- diff --all "\$\{CDK_CONTEXT_ARGS\[@\]\}"/);
+  assert.match(deployPlatformScript, /APPROVE_CDK_DEPLOY=true/);
+  assert.match(deployPlatformScript, /Refusing to continue before image push or CDK deploy/);
+  assert.match(deployPlatformScript, /Manual post-deploy gates still required/);
+  assert.match(deployPlatformScript, /Run the backend migration ECS task/);
+  assert.match(deployPlatformScript, /Write or rotate the external integration webhook secret/);
+  assert.match(deployPlatformScript, /Apply supabase\/weave_candidate_evaluation_hooks\.sql/);
+  assert.match(deployPlatformScript, /Run the JSONL backfill dry-run before approved apply/);
+
+  assert.ok(
+    deployPlatformScript.indexOf("npm run cdk -- diff --all") <
+      deployPlatformScript.indexOf("aws ecr get-login-password"),
+    "cdk diff should run before image push side effects",
+  );
+  assert.ok(
+    deployPlatformScript.indexOf("APPROVE_CDK_DEPLOY") <
+      deployPlatformScript.indexOf("npm run cdk -- deploy --all"),
+    "approval gate should appear before cdk deploy",
+  );
+});
+
 test("Ashby webhook proxy forwards raw body and signature to backend", () => {
   assert.match(webhookRoute, /request\.text\(\)/);
   assert.match(webhookRoute, /request\.headers\.get\("ashby-signature"\)/);

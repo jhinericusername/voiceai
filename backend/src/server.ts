@@ -26,6 +26,7 @@ import { registerInternalAuth } from "./integration/internal-auth.js";
 import { registerAshbyRoutes } from "./ashby/routes.js";
 import { registerGradingRoutes } from "./grading/routes.js";
 import { backendLoggerOptions } from "./logging/redaction.js";
+import { registerWeaveCandidateEvaluationRoutes } from "./weave/candidate-evaluations/routes.js";
 
 // Reads the LiveKit credentials the room-provisioning code needs from the env.
 // Throws if any are missing — the server must never start half-configured.
@@ -103,6 +104,7 @@ export function buildServer(liveKitConfig: LiveKitConfig): FastifyInstance {
   registerLiveKitWebhookRoutes(app, liveKitConfig);
   registerAshbyRoutes(app);
   registerGradingRoutes(app);
+  registerWeaveCandidateEvaluationRoutes(app);
   return app;
 }
 
