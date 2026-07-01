@@ -258,6 +258,10 @@ test("role-scoped dashboard pages use real Ashby role names instead of ordinal p
 
   assert.match(roleTabsSource, /readonly selectedRole: AshbyJobReference/);
   assert.match(roleTabsSource, /selectedRole\.name/);
+  assert.match(roleDetailSource, /getGradingCompanyState/);
+  assert.match(roleDetailSource, /selectedGradingProfile/);
+  assert.match(roleTabsSource, /RoleRubricEditor/);
+  assert.match(roleTabsSource, /gradingProfile/);
   assert.match(scoreTabSource, /availableJobs/);
   assert.match(scoreTabSource, /ashbyJob\.name/);
   assert.doesNotMatch(scoreTabSource, /Ashby job \$\{index \+ 1\}/);

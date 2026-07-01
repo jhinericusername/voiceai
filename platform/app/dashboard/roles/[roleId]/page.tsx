@@ -4,6 +4,7 @@ import { companyIdentityFromUser, getAshbyActivePipeline } from "@/lib/ashby/ser
 import { requireDashboardUser } from "../../auth";
 import { RoleWorkspaceTabs } from "./RoleWorkspaceTabs";
 import { ashbyJobReferences } from "../ashby-role-labels";
+import { getGradingCompanyState } from "../../backend-data";
 import {
   SectionPanel,
   StatusPill,
@@ -19,15 +20,19 @@ export function generateStaticParams() {
 export default async function RoleDetailPage({ params }: { readonly params: Promise<{ roleId: string }> }) {
   const { roleId } = await params;
   const { user, organizationId } = await requireDashboardUser(`/dashboard/roles/${roleId}`);
-  const pipeline = await getAshbyActivePipeline(
-    companyIdentityFromUser({ email: user.email, organizationId }),
-  );
+  const companyIdentity = companyIdentityFromUser({ email: user.email, organizationId });
+  const [pipeline, gradingProfiles] = await Promise.all([
+    getAshbyActivePipeline(companyIdentity),
+    getGradingCompanyState({ orgId: organizationId }),
+  ]);
   const ashbyJobs = ashbyJobReferences(pipeline.roles);
   const selectedRole = ashbyJobs.find((role) => role.jobId === roleId.trim());
 
   if (!selectedRole) {
     notFound();
   }
+  const selectedGradingProfile =
+    gradingProfiles.find((profile) => profile.ashby_job_id === selectedRole.jobId) ?? null;
 
   return (
     <div className="mx-auto grid min-w-0 max-w-6xl gap-5">
@@ -52,7 +57,12 @@ export default async function RoleDetailPage({ params }: { readonly params: Prom
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
-          <RoleWorkspaceTabs selectedRole={selectedRole} ashbyJobs={ashbyJobs} />
+          <RoleWorkspaceTabs
+            selectedRole={selectedRole}
+            ashbyJobs={ashbyJobs}
+            gradingProfile={selectedGradingProfile}
+            organizationId={organizationId}
+          />
         </div>
 
         <aside className="grid min-w-0 gap-5 xl:content-start">
