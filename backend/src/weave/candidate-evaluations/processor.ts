@@ -10,6 +10,7 @@ import {
   importedScoreUpsertStatement,
   provenanceUpsertStatement,
   stableTargetId,
+  weaveEvaluationImportLockStatement,
   weaveIntegrationForOrganizationStatement,
   weaveRoleProfileUpsertStatement,
 } from "./repository.js";
@@ -47,11 +48,13 @@ export async function processWeaveCandidateEvaluationEvent(
     }
 
     const scoreId = stableTargetId("score", evaluation.sourceEvaluationId);
+    await queryOne(client, weaveEvaluationImportLockStatement(evaluation.sourceEvaluationId));
+
     const existingImport = await queryOne(
       client,
       existingImportForUpdateStatement(evaluation.sourceEvaluationId),
     );
-    if (isExistingImportNewer(existingImport?.source_updated_at, evaluation.sourceUpdatedAt)) {
+    if (isIncomingImportStale(existingImport?.source_updated_at, evaluation.sourceUpdatedAt)) {
       await client.query("COMMIT");
       return {
         status: "synced",
@@ -107,7 +110,7 @@ export async function processWeaveCandidateEvaluationEvent(
     );
     const resolvedScoreId = stringValue(score?.score_id) ?? scoreId;
 
-    await queryOne(
+    const provenance = await queryOne(
       client,
       provenanceUpsertStatement({
         sourceEvaluationId: evaluation.sourceEvaluationId,
@@ -126,6 +129,16 @@ export async function processWeaveCandidateEvaluationEvent(
         syncError: null,
       }),
     );
+    if (!provenance) {
+      await client.query("ROLLBACK");
+      return {
+        status: "synced",
+        sourceEvaluationId: evaluation.sourceEvaluationId,
+        applicationId:
+          stringValue(existingImport?.application_id) ?? evaluation.ashbyApplicationId,
+        scoreId: stringValue(existingImport?.score_id) ?? resolvedScoreId,
+      };
+    }
 
     await client.query("COMMIT");
 
@@ -159,10 +172,12 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function isExistingImportNewer(existingUpdatedAt: unknown, incomingUpdatedAt: unknown): boolean {
+function isIncomingImportStale(existingUpdatedAt: unknown, incomingUpdatedAt: unknown): boolean {
   const existingMillis = dateMillis(existingUpdatedAt);
   const incomingMillis = dateMillis(incomingUpdatedAt);
-  return existingMillis !== null && incomingMillis !== null && existingMillis > incomingMillis;
+  if (existingMillis === null) return false;
+  if (incomingMillis === null) return true;
+  return existingMillis > incomingMillis;
 }
 
 function dateMillis(value: unknown): number | null {

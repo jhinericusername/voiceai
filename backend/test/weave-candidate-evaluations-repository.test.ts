@@ -7,6 +7,7 @@ import {
   importedScoreUpsertStatement,
   existingImportForUpdateStatement,
   provenanceUpsertStatement,
+  weaveEvaluationImportLockStatement,
   weaveIntegrationForOrganizationStatement,
   weaveRoleProfileUpsertStatement,
 } from "../src/weave/candidate-evaluations/repository.js";
@@ -147,6 +148,19 @@ describe("Weave candidate evaluation repository statements", () => {
     expect(stmt.sql).toContain("INSERT INTO weave_candidate_evaluation_imports");
     expect(stmt.sql).toContain("ON CONFLICT (source_evaluation_id) DO UPDATE SET");
     expect(stmt.sql).toContain("WHERE weave_candidate_evaluation_imports.source_updated_at IS NULL");
+    expect(stmt.sql).toContain("EXCLUDED.source_updated_at IS NOT NULL");
+    expect(stmt.sql).toContain(
+      "EXCLUDED.source_updated_at >= weave_candidate_evaluation_imports.source_updated_at",
+    );
+    expect(stmt.sql).not.toContain("OR EXCLUDED.source_updated_at IS NULL");
+  });
+
+  it("builds a transaction-scoped source evaluation advisory lock", () => {
+    const stmt = weaveEvaluationImportLockStatement("eval_1");
+
+    expect(stmt.sql).toContain("pg_advisory_xact_lock");
+    expect(stmt.sql).toContain("hashtextextended");
+    expect(stmt.params).toEqual(["eval_1"]);
   });
 
   it("locks existing provenance before mutating imported rows", () => {

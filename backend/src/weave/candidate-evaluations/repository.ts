@@ -64,6 +64,13 @@ export function weaveIntegrationForOrganizationStatement(organizationId: string)
   };
 }
 
+export function weaveEvaluationImportLockStatement(sourceEvaluationId: string): SqlStatement {
+  return {
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended($1, 2))",
+    params: [sourceEvaluationId],
+  };
+}
+
 export function importedApplicationUpsertStatement(input: ImportedApplicationInput): SqlStatement {
   return {
     sql:
@@ -180,8 +187,8 @@ export function provenanceUpsertStatement(input: ProvenanceInput): SqlStatement 
       "sync_error = EXCLUDED.sync_error, " +
       "updated_at = now() " +
       "WHERE weave_candidate_evaluation_imports.source_updated_at IS NULL " +
-      "OR EXCLUDED.source_updated_at IS NULL " +
-      "OR EXCLUDED.source_updated_at >= weave_candidate_evaluation_imports.source_updated_at " +
+      "OR (EXCLUDED.source_updated_at IS NOT NULL " +
+      "AND EXCLUDED.source_updated_at >= weave_candidate_evaluation_imports.source_updated_at) " +
       "RETURNING source_evaluation_id",
     params: [
       input.sourceEvaluationId,

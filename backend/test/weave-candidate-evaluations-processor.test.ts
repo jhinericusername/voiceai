@@ -4,7 +4,9 @@ import type { WeaveCandidateEvaluationEvent } from "../src/weave/candidate-evalu
 
 type QueryCall = readonly [sql: string, params?: readonly unknown[]];
 
-function eventFixture(): WeaveCandidateEvaluationEvent {
+function eventFixture(
+  overrides: Partial<WeaveCandidateEvaluationEvent["evaluation"]> = {},
+): WeaveCandidateEvaluationEvent {
   const rawRecord = {
     id: "eval_1",
     candidate_name: "Maya Chen",
@@ -40,7 +42,14 @@ function eventFixture(): WeaveCandidateEvaluationEvent {
       ashbyJobId: "job_1",
       sourceCreatedAt: "2026-06-30T00:00:00.000Z",
       sourceUpdatedAt: "2026-07-01T00:00:00.000Z",
-      rawRecord,
+      rawRecord: {
+        ...rawRecord,
+        updated_at:
+          overrides.sourceUpdatedAt === undefined
+            ? rawRecord.updated_at
+            : overrides.sourceUpdatedAt,
+      },
+      ...overrides,
     },
   };
 }
@@ -66,6 +75,7 @@ describe("Weave candidate evaluation processor", () => {
   it("syncs one event inside a transaction", async () => {
     const { pool, client, calls } = fakePoolWithRows([
       { rows: [{ integration_id: "int_1" }] },
+      { rows: [{ locked: null }] },
       { rows: [] },
       { rows: [{ application_id: "app_1" }] },
       { rows: [{ profile_id: "role_1" }] },
@@ -88,6 +98,7 @@ describe("Weave candidate evaluation processor", () => {
     expect(calls.map(([sql]) => sql)).toEqual([
       "BEGIN",
       expect.stringContaining("FROM ashby_company_integrations"),
+      expect.stringContaining("pg_advisory_xact_lock"),
       expect.stringContaining("FROM weave_candidate_evaluation_imports"),
       expect.stringContaining("INSERT INTO ashby_applications"),
       expect.stringContaining("INSERT INTO role_grading_profiles"),
@@ -102,6 +113,7 @@ describe("Weave candidate evaluation processor", () => {
   it("commits without upserts when existing provenance is newer", async () => {
     const { pool, client, calls } = fakePoolWithRows([
       { rows: [{ integration_id: "int_1" }] },
+      { rows: [{ locked: null }] },
       {
         rows: [
           {
@@ -128,6 +140,7 @@ describe("Weave candidate evaluation processor", () => {
     expect(calls.map(([sql]) => sql)).toEqual([
       "BEGIN",
       expect.stringContaining("FROM ashby_company_integrations"),
+      expect.stringContaining("pg_advisory_xact_lock"),
       expect.stringContaining("FROM weave_candidate_evaluation_imports"),
       "COMMIT",
     ]);
@@ -137,6 +150,90 @@ describe("Weave candidate evaluation processor", () => {
     expect(sqlText).not.toContain("INSERT INTO ashby_candidate_scores");
     expect(sqlText).not.toContain("INSERT INTO weave_candidate_evaluation_imports");
     expect(calls.some(([sql]) => sql === "ROLLBACK")).toBe(false);
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes freshness before rejecting an out-of-order stale event", async () => {
+    const { pool, client, calls } = fakePoolWithRows([
+      { rows: [{ integration_id: "int_1" }] },
+      { rows: [{ locked: null }] },
+      {
+        rows: [
+          {
+            source_updated_at: new Date("2026-07-02T00:00:00.000Z"),
+            application_id: "app_existing",
+            score_id: "score_existing",
+          },
+        ],
+      },
+    ]);
+
+    const result = await processWeaveCandidateEvaluationEvent({
+      pool,
+      organizationId: "org_1",
+      event: eventFixture({ sourceUpdatedAt: "2026-07-01T00:00:00.000Z" }),
+    });
+
+    expect(result).toEqual({
+      status: "synced",
+      sourceEvaluationId: "eval_1",
+      applicationId: "app_existing",
+      scoreId: "score_existing",
+    });
+    expect(calls.map(([sql]) => sql)).toEqual([
+      "BEGIN",
+      expect.stringContaining("FROM ashby_company_integrations"),
+      expect.stringContaining("pg_advisory_xact_lock"),
+      expect.stringContaining("FROM weave_candidate_evaluation_imports"),
+      "COMMIT",
+    ]);
+    const sqlText = calls.map(([sql]) => sql).join("\n");
+    expect(sqlText).not.toContain("INSERT INTO ashby_applications");
+    expect(sqlText).not.toContain("INSERT INTO role_grading_profiles");
+    expect(sqlText).not.toContain("INSERT INTO ashby_candidate_scores");
+    expect(sqlText).not.toContain("INSERT INTO weave_candidate_evaluation_imports");
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a null incoming sourceUpdatedAt when existing provenance has a timestamp", async () => {
+    const { pool, client, calls } = fakePoolWithRows([
+      { rows: [{ integration_id: "int_1" }] },
+      { rows: [{ locked: null }] },
+      {
+        rows: [
+          {
+            source_updated_at: new Date("2026-07-01T00:00:00.000Z"),
+            application_id: "app_existing",
+            score_id: "score_existing",
+          },
+        ],
+      },
+    ]);
+
+    const result = await processWeaveCandidateEvaluationEvent({
+      pool,
+      organizationId: "org_1",
+      event: eventFixture({ sourceUpdatedAt: null }),
+    });
+
+    expect(result).toEqual({
+      status: "synced",
+      sourceEvaluationId: "eval_1",
+      applicationId: "app_existing",
+      scoreId: "score_existing",
+    });
+    expect(calls.map(([sql]) => sql)).toEqual([
+      "BEGIN",
+      expect.stringContaining("FROM ashby_company_integrations"),
+      expect.stringContaining("pg_advisory_xact_lock"),
+      expect.stringContaining("FROM weave_candidate_evaluation_imports"),
+      "COMMIT",
+    ]);
+    const sqlText = calls.map(([sql]) => sql).join("\n");
+    expect(sqlText).not.toContain("INSERT INTO ashby_applications");
+    expect(sqlText).not.toContain("INSERT INTO role_grading_profiles");
+    expect(sqlText).not.toContain("INSERT INTO ashby_candidate_scores");
+    expect(sqlText).not.toContain("INSERT INTO weave_candidate_evaluation_imports");
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
