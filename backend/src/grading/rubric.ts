@@ -49,6 +49,12 @@ export interface RoleRubric {
   };
 }
 
+const PASSION_FOR_SALES_REQUIRED_SUB_DIMENSION_KEYS = [
+  "reason_for_getting_into_sales",
+  "professional_sales_background",
+  "performance_as_salesperson",
+] as const;
+
 export function buildDraftRubric(input: {
   readonly organizationId: string;
   readonly ashbyJobId: string;
@@ -137,6 +143,9 @@ export function validateRoleRubric(value: unknown): { ok: true } | { ok: false; 
         }
       }
     }
+    if (key === "passion_for_sales" && !hasRequiredPassionForSalesSubDimensions(subDimensions)) {
+      return { ok: false, error: "Passion for Sales must define its three required sub-dimensions." };
+    }
     if (containsAccentLanguage({ key, meaning, anchors, sub_dimensions: subDimensions })) {
       return { ok: false, error: "Communication rubric must not score accent." };
     }
@@ -162,6 +171,12 @@ export function validateRoleRubric(value: unknown): { ok: true } | { ok: false; 
     value.bare_minimum_rule !== "at_least_one_4_and_average_ge_3"
   ) {
     return { ok: false, error: "Rubric bare minimum rule is invalid." };
+  }
+  const expectedBareMinimumRule = seenDimensionKeys.has("problem_solving")
+    ? "at_least_one_4_and_problem_solving_ge_3"
+    : "at_least_one_4_and_average_ge_3";
+  if (value.bare_minimum_rule !== expectedBareMinimumRule) {
+    return { ok: false, error: "Rubric bare minimum rule must match selected dimensions." };
   }
   if (!isRecord(value.recommendation_thresholds) || typeof value.recommendation_thresholds.minimum_confidence !== "number") {
     return { ok: false, error: "Rubric recommendation thresholds must define minimum_confidence." };
@@ -194,6 +209,22 @@ function hasStringFields(value: Record<string, unknown>, fields: readonly string
 
 function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function hasRequiredPassionForSalesSubDimensions(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== PASSION_FOR_SALES_REQUIRED_SUB_DIMENSION_KEYS.length) {
+    return false;
+  }
+
+  const keys = value.flatMap((subDimension) => {
+    if (!isRecord(subDimension) || typeof subDimension.key !== "string") {
+      return [];
+    }
+    return [subDimension.key];
+  });
+  const keySet = new Set(keys);
+  return keys.length === PASSION_FOR_SALES_REQUIRED_SUB_DIMENSION_KEYS.length &&
+    PASSION_FOR_SALES_REQUIRED_SUB_DIMENSION_KEYS.every((key) => keySet.has(key));
 }
 
 const DEFAULT_DIMENSION_KEYS: readonly WeaveDimensionKey[] = [

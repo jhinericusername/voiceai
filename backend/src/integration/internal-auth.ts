@@ -4,6 +4,7 @@ const PROTECTED_POST_PATHS = [
   "/integration/",
   "/integrations/",
   "/candidate/invites/",
+  "/grading/",
 ] as const;
 
 function bearerToken(header: string | undefined): string | null {

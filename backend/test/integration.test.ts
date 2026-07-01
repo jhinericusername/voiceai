@@ -104,6 +104,8 @@ describe("internal auth route matching", () => {
   it("requires auth for all internal routes regardless of method", () => {
     expect(internalRouteRequiresAuth("GET", "/internal/interviews")).toBe(true);
     expect(internalRouteRequiresAuth("POST", "/internal/sessions/sess1/finalize")).toBe(true);
+    expect(internalRouteRequiresAuth("POST", "/grading/company-state")).toBe(true);
+    expect(internalRouteRequiresAuth("GET", "/grading/company-state")).toBe(false);
     expect(internalRouteRequiresAuth("GET", "/healthz")).toBe(false);
   });
 

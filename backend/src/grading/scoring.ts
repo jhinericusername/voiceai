@@ -86,6 +86,8 @@ const legacyCalibrationDimensionKeys = new Set([
   "competitiveness",
   "curious",
 ]);
+const UNSELECTED_RUBRIC_CATEGORY_WARNING = "ignored_unselected_rubric_categories";
+const MISSING_SELECTED_RUBRIC_CATEGORY_WARNING = "missing_selected_rubric_categories";
 
 export function buildScoringPrompt(input: ScoringInput): string {
   const selectedDimensionKeys = selectedRubricDimensionKeys(input.rubric);
@@ -307,6 +309,63 @@ export function parseScoringOutput(text: string): ParsedScoringOutput {
     },
     warnings,
   };
+}
+
+export function restrictScoringOutputToRubricDimensions(
+  parsed: ParsedScoringOutput,
+  rubric: unknown,
+): ParsedScoringOutput {
+  const selectedDimensionKeys = selectedRubricDimensionKeys(rubric);
+  if (selectedDimensionKeys.length === 0) {
+    return parsed;
+  }
+
+  const selectedDimensionKeySet = new Set(selectedDimensionKeys);
+  const categoryScores = parsed.categoryScores.filter((score) => selectedDimensionKeySet.has(score.category));
+  const dimensionScores = parsed.scorecard.dimensionScores.filter((score) => selectedDimensionKeySet.has(score.category));
+  const finalDimensions = parsed.scorecard.finalScores.dimensions.filter((score) =>
+    selectedDimensionKeySet.has(score.category),
+  );
+  const removedUnselectedCategories =
+    categoryScores.length !== parsed.categoryScores.length ||
+    dimensionScores.length !== parsed.scorecard.dimensionScores.length ||
+    finalDimensions.length !== parsed.scorecard.finalScores.dimensions.length;
+  const missingSelectedCategories =
+    missesSelectedDimension(selectedDimensionKeys, categoryScores) ||
+    missesSelectedDimension(selectedDimensionKeys, dimensionScores) ||
+    missesSelectedDimension(selectedDimensionKeys, finalDimensions);
+  const warnings = [
+    ...parsed.warnings,
+    ...(removedUnselectedCategories && !parsed.warnings.includes(UNSELECTED_RUBRIC_CATEGORY_WARNING)
+      ? [UNSELECTED_RUBRIC_CATEGORY_WARNING]
+      : []),
+    ...(missingSelectedCategories && !parsed.warnings.includes(MISSING_SELECTED_RUBRIC_CATEGORY_WARNING)
+      ? [MISSING_SELECTED_RUBRIC_CATEGORY_WARNING]
+      : []),
+  ];
+
+  return {
+    ...parsed,
+    categoryScores,
+    scorecard: {
+      ...parsed.scorecard,
+      dimensionScores,
+      finalScores: {
+        dimensions: finalDimensions,
+        totalScore: finalDimensions.reduce((total, dimension) => total + dimension.score, 0),
+        maxScore: finalDimensions.length * 4,
+      },
+    },
+    warnings,
+  };
+}
+
+function missesSelectedDimension(
+  selectedDimensionKeys: readonly string[],
+  scores: readonly { readonly category: string }[],
+): boolean {
+  const categories = new Set(scores.map((score) => score.category));
+  return selectedDimensionKeys.some((key) => !categories.has(key));
 }
 
 export async function scoreTranscript(input: ScoringInput, model: GradingModel): Promise<ParsedScoringOutput> {

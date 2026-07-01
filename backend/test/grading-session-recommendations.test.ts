@@ -169,9 +169,13 @@ vi.mock("../src/db/pool.js", () => ({
   getPool: () => ({ query: queryMock }),
 }));
 
-vi.mock("../src/grading/scoring.js", () => ({
-  scoreTranscript: scoreTranscriptMock,
-}));
+vi.mock("../src/grading/scoring.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/grading/scoring.js")>();
+  return {
+    ...actual,
+    scoreTranscript: scoreTranscriptMock,
+  };
+});
 
 vi.mock("../src/grading/bedrock.js", () => ({
   BedrockGradingModel: class FakeBedrockGradingModel {
@@ -389,6 +393,158 @@ describe("grading session recommendations", () => {
         rubric_version_id: "rv_sales",
         recommendation: "advance",
       });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("filters unselected scorer output before recommendation storage", async () => {
+    routeState.rubricRows = [
+      {
+        profile_id: "profile_sales",
+        active_rubric_version_id: "rv_sales",
+        rubric: {
+          script_version: "job_1-v1",
+          role: { organization_id: "org_1", ashby_job_id: "job_1", title: "Account Executive" },
+          dimensions: [
+            { key: "communication", name: "Communication", meaning: "Clear conversation.", anchors: { 1: "Low", 2: "Clear", 3: "Enjoyable", 4: "Clarifying" } },
+            { key: "passion_for_sales", name: "Passion for Sales", meaning: "Leaderboard drive.", anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" } },
+            { key: "agency", name: "Agency", meaning: "Stops at nothing.", anchors: { 1: "Low", 2: "Expected", 3: "Extra", 4: "Rules hack" } },
+          ],
+          bare_minimum_rule: "at_least_one_4_and_average_ge_3",
+          recommendation_thresholds: { minimum_confidence: 0.75 },
+          disallowed_signals: ["accent"],
+          generation_context: { historical_session_count: 0, matched_application_count: 0 },
+        },
+      },
+    ];
+    scoreTranscriptMock.mockResolvedValue({
+      categoryScores: [
+        { category: "communication", score: 2, confidence: 0.9, evidenceQuotes: ["quote"], rationale: "Uneven." },
+        { category: "passion_for_sales", score: 4, confidence: 0.9, evidenceQuotes: ["quote"], rationale: "Driven." },
+        { category: "agency", score: 2.5, confidence: 0.9, evidenceQuotes: ["quote"], rationale: "Some persistence." },
+        { category: "problem_solving", score: 4, confidence: 0.9, evidenceQuotes: ["quote"], rationale: "Injected extra." },
+      ],
+      scorecard: {
+        ...defaultScorecard,
+        dimensionScores: [
+          { category: "communication", score: 2, confidence: 0.9, notes: "Uneven.", evidenceQuotes: ["quote"] },
+          { category: "passion_for_sales", score: 4, confidence: 0.9, notes: "Driven.", evidenceQuotes: ["quote"] },
+          { category: "agency", score: 2.5, confidence: 0.9, notes: "Some persistence.", evidenceQuotes: ["quote"] },
+          { category: "problem_solving", score: 4, confidence: 0.9, notes: "Injected extra.", evidenceQuotes: ["quote"] },
+        ],
+        finalScores: {
+          dimensions: [
+            { category: "communication", score: 2 },
+            { category: "passion_for_sales", score: 4 },
+            { category: "agency", score: 2.5 },
+            { category: "problem_solving", score: 4 },
+          ],
+          totalScore: 12.5,
+          maxScore: 16,
+        },
+      },
+      warnings: [],
+    });
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().recommendation).toMatchObject({
+        rubric_version_id: "rv_sales",
+        recommendation: "hold",
+        warnings: ["ignored_unselected_rubric_categories"],
+      });
+      const insertCall = queryCalls.find((call) => call.sql.includes("INSERT INTO interview_recommendations"));
+      expect(JSON.parse(String(insertCall?.params[8])).map((score: { category: string }) => score.category)).toEqual([
+        "communication",
+        "passion_for_sales",
+        "agency",
+      ]);
+      expect(JSON.parse(String(insertCall?.params[10])).dimensionScores.map((score: { category: string }) => score.category)).toEqual([
+        "communication",
+        "passion_for_sales",
+        "agency",
+      ]);
+      expect(JSON.parse(String(insertCall?.params[10])).finalScores).toEqual({
+        dimensions: [
+          { category: "communication", score: 2 },
+          { category: "passion_for_sales", score: 4 },
+          { category: "agency", score: 2.5 },
+        ],
+        totalScore: 8.5,
+        maxScore: 12,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("holds recommendations when scorer output is missing selected rubric dimensions", async () => {
+    routeState.rubricRows = [
+      {
+        profile_id: "profile_sales",
+        active_rubric_version_id: "rv_sales",
+        rubric: {
+          script_version: "job_1-v1",
+          role: { organization_id: "org_1", ashby_job_id: "job_1", title: "Account Executive" },
+          dimensions: [
+            { key: "communication", name: "Communication", meaning: "Clear conversation.", anchors: { 1: "Low", 2: "Clear", 3: "Enjoyable", 4: "Clarifying" } },
+            { key: "passion_for_sales", name: "Passion for Sales", meaning: "Leaderboard drive.", anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" } },
+            { key: "agency", name: "Agency", meaning: "Stops at nothing.", anchors: { 1: "Low", 2: "Expected", 3: "Extra", 4: "Rules hack" } },
+          ],
+          bare_minimum_rule: "at_least_one_4_and_average_ge_3",
+          recommendation_thresholds: { minimum_confidence: 0.75 },
+          disallowed_signals: ["accent"],
+          generation_context: { historical_session_count: 0, matched_application_count: 0 },
+        },
+      },
+    ];
+    scoreTranscriptMock.mockResolvedValue({
+      categoryScores: [
+        { category: "passion_for_sales", score: 4, confidence: 0.9, evidenceQuotes: ["quote"], rationale: "Driven." },
+      ],
+      scorecard: {
+        ...defaultScorecard,
+        dimensionScores: [
+          { category: "passion_for_sales", score: 4, confidence: 0.9, notes: "Driven.", evidenceQuotes: ["quote"] },
+        ],
+        finalScores: {
+          dimensions: [
+            { category: "passion_for_sales", score: 4 },
+          ],
+          totalScore: 4,
+          maxScore: 4,
+        },
+      },
+      warnings: [],
+    });
+    const app = buildServer(FAKE_LK);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/grading/recommendations/session/sess_1",
+        headers: { "content-type": "application/json" },
+        payload: { organizationId: "org_1" },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().recommendation).toMatchObject({
+        rubric_version_id: "rv_sales",
+        recommendation: "hold",
+        warnings: ["missing_selected_rubric_categories"],
+      });
+      const insertCall = queryCalls.find((call) => call.sql.includes("INSERT INTO interview_recommendations"));
+      expect(JSON.parse(String(insertCall?.params[8])).map((score: { category: string }) => score.category)).toEqual([
+        "passion_for_sales",
+      ]);
+      expect(JSON.parse(String(insertCall?.params[11]))).toEqual(["missing_selected_rubric_categories"]);
     } finally {
       await app.close();
     }

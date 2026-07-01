@@ -5,7 +5,7 @@ import { buildScoringCalibrationInput } from "./evaluation/calibration.js";
 import { createGradingModelSelection } from "./modelProvider.js";
 import { recommendInterview } from "./recommendation.js";
 import { buildDraftRubric, validateRoleRubric } from "./rubric.js";
-import { scoreTranscript } from "./scoring.js";
+import { restrictScoringOutputToRubricDimensions, scoreTranscript } from "./scoring.js";
 import {
   activeRubricForJobStatement,
   gradingProfileActivateStatement,
@@ -360,9 +360,14 @@ export function registerGradingRoutes(app: FastifyInstance): void {
       const profileStmt = gradingProfileByIdForUpdateStatement(request.params.profileId, organizationId);
       const profileResult = await client.query(profileStmt.sql, [...profileStmt.params]);
       const profile = profileResult.rows[0] as Record<string, unknown> | undefined;
-      if (!profile) {
+      const ashbyJobId = stringValue(profile?.ashby_job_id);
+      if (!profile || !ashbyJobId) {
         await client.query("ROLLBACK");
         return reply.code(404).send({ error: "grading profile not found" });
+      }
+      if (!roleRubricMatchesProfile(rubric, { organizationId, ashbyJobId })) {
+        await client.query("ROLLBACK");
+        return reply.code(400).send({ error: "rubric role must match the grading profile" });
       }
       if (stringValue(profile.draft_rubric_version_id) !== rubricVersionId) {
         await client.query("ROLLBACK");
@@ -436,15 +441,18 @@ export function registerGradingRoutes(app: FastifyInstance): void {
 
     const scoringCalibration = buildScoringCalibrationInput();
     const modelSelection = createGradingModelSelection();
-    const parsed = await scoreTranscript(
-      {
-        rubric: activeRubric.rubric,
-        transcriptTurns: transcriptResult.rows,
-        gradingGuide: scoringCalibration.gradingGuide,
-        dimensionScoreAnchors: scoringCalibration.dimensionScoreAnchors,
-        calibrationExamples: scoringCalibration.calibrationExamples,
-      },
-      modelSelection.model,
+    const parsed = restrictScoringOutputToRubricDimensions(
+      await scoreTranscript(
+        {
+          rubric: activeRubric.rubric,
+          transcriptTurns: transcriptResult.rows,
+          gradingGuide: scoringCalibration.gradingGuide,
+          dimensionScoreAnchors: scoringCalibration.dimensionScoreAnchors,
+          calibrationExamples: scoringCalibration.calibrationExamples,
+        },
+        modelSelection.model,
+      ),
+      activeRubric.rubric,
     );
     const categoryScoresForRecommendation = parsed.categoryScores.map((categoryScore) => ({
       category: categoryScore.category,

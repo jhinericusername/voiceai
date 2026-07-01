@@ -161,6 +161,99 @@ describe("grading rubric", () => {
     expect(validateRoleRubric(draft)).toEqual({ ok: true });
   });
 
+  it("rejects no-problem-solving rubrics with the legacy problem-solving bare minimum rule", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_sales",
+      jobName: "Account Executive",
+      historicalSessionCount: 7,
+      matchedApplicationCount: 6,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+
+    expect(validateRoleRubric({
+      ...draft,
+      bare_minimum_rule: "at_least_one_4_and_problem_solving_ge_3",
+    })).toEqual({
+      ok: false,
+      error: "Rubric bare minimum rule must match selected dimensions.",
+    });
+  });
+
+  it("rejects Passion for Sales rubrics without sub-dimensions", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_sales",
+      jobName: "Account Executive",
+      historicalSessionCount: 7,
+      matchedApplicationCount: 6,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+
+    expect(validateRoleRubric({
+      ...draft,
+      dimensions: draft.dimensions.map((dimension) => {
+        if (dimension.key !== "passion_for_sales") {
+          return dimension;
+        }
+        const { sub_dimensions: _subDimensions, ...withoutSubDimensions } = dimension;
+        return withoutSubDimensions;
+      }),
+    })).toEqual({
+      ok: false,
+      error: "Passion for Sales must define its three required sub-dimensions.",
+    });
+  });
+
+  it("rejects Passion for Sales rubrics with extra or wrong sub-dimension keys", () => {
+    const draft = buildDraftRubric({
+      organizationId: "org_1",
+      ashbyJobId: "job_sales",
+      jobName: "Account Executive",
+      historicalSessionCount: 7,
+      matchedApplicationCount: 6,
+      dimensionKeys: ["communication", "passion_for_sales", "agency"],
+    });
+    const passion = draft.dimensions.find((dimension) => dimension.key === "passion_for_sales");
+    const extraSubDimension = {
+      key: "sales_style",
+      name: "Sales Style",
+      anchors: { 1: "Low", 2: "Some", 3: "Strong", 4: "Exceptional" },
+    };
+
+    expect(validateRoleRubric({
+      ...draft,
+      dimensions: draft.dimensions.map((dimension) =>
+        dimension.key === "passion_for_sales"
+          ? {
+              ...dimension,
+              sub_dimensions: [...(passion?.sub_dimensions ?? []), extraSubDimension],
+            }
+          : dimension,
+      ),
+    })).toEqual({
+      ok: false,
+      error: "Passion for Sales must define its three required sub-dimensions.",
+    });
+
+    expect(validateRoleRubric({
+      ...draft,
+      dimensions: draft.dimensions.map((dimension) =>
+        dimension.key === "passion_for_sales"
+          ? {
+              ...dimension,
+              sub_dimensions: (passion?.sub_dimensions ?? []).map((subDimension, index) =>
+                index === 0 ? { ...subDimension, key: "sales_style" } : subDimension,
+              ),
+            }
+          : dimension,
+      ),
+    })).toEqual({
+      ok: false,
+      error: "Passion for Sales must define its three required sub-dimensions.",
+    });
+  });
+
   it("rejects role rubrics outside the 3 to 6 dimension range", () => {
     const draft = buildDraftRubric({
       organizationId: "org_1",

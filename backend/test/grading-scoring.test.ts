@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { BedrockGradingModel } from "../src/grading/bedrock.js";
 import { OpenAIGradingModel } from "../src/grading/openai.js";
-import { buildScoringPrompt, parseScoringOutput, scoreTranscript } from "../src/grading/scoring.js";
+import {
+  buildScoringPrompt,
+  parseScoringOutput,
+  restrictScoringOutputToRubricDimensions,
+  scoreTranscript,
+} from "../src/grading/scoring.js";
 import { defaultDimensionScoreAnchors } from "../src/grading/prompts/dimension-score-anchors.js";
 
 const rubric = {
@@ -387,6 +392,130 @@ ${JSON.stringify(validScoringPayload)}
 `);
 
     expect(parsed.categoryScores[0].evidenceQuotes).toEqual(["cut runtime by 90%"]);
+  });
+
+  it("restricts parsed scoring output to selected rubric dimensions and recomputes final totals", () => {
+    const parsed = parseScoringOutput(JSON.stringify({
+      ...validScoringPayload,
+      category_scores: [
+        {
+          category: "communication",
+          score: 3,
+          confidence: 0.91,
+          evidence_quotes: ["clear answer"],
+          rationale: "Clear and concise.",
+        },
+        {
+          category: "passion_for_sales",
+          score: 4,
+          confidence: 0.9,
+          evidence_quotes: ["top performer"],
+          rationale: "Strong sales drive.",
+        },
+        {
+          category: "agency",
+          score: 3,
+          confidence: 0.88,
+          evidence_quotes: ["found a workaround"],
+          rationale: "Persistent.",
+        },
+        {
+          category: "problem_solving",
+          score: 4,
+          confidence: 0.93,
+          evidence_quotes: ["cut runtime"],
+          rationale: "Extra unselected dimension.",
+        },
+      ],
+      final_scores: {
+        dimensions: [
+          { category: "communication", score: 3 },
+          { category: "passion_for_sales", score: 4 },
+          { category: "agency", score: 3 },
+          { category: "problem_solving", score: 4 },
+        ],
+        total_score: 14,
+        max_score: 16,
+      },
+      warnings: ["model_warning"],
+    }));
+
+    const restricted = restrictScoringOutputToRubricDimensions(parsed, {
+      dimensions: [
+        { key: "communication" },
+        { key: "passion_for_sales" },
+        { key: "agency" },
+      ],
+    });
+
+    expect(restricted.categoryScores.map((score) => score.category)).toEqual([
+      "communication",
+      "passion_for_sales",
+      "agency",
+    ]);
+    expect(restricted.scorecard.dimensionScores.map((score) => score.category)).toEqual([
+      "communication",
+      "passion_for_sales",
+      "agency",
+    ]);
+    expect(restricted.scorecard.finalScores).toEqual({
+      dimensions: [
+        { category: "communication", score: 3 },
+        { category: "passion_for_sales", score: 4 },
+        { category: "agency", score: 3 },
+      ],
+      totalScore: 10,
+      maxScore: 12,
+    });
+    expect(restricted.warnings).toEqual([
+      "model_warning",
+      "ignored_unselected_rubric_categories",
+    ]);
+  });
+
+  it("warns when scorer output is missing selected rubric dimensions", () => {
+    const parsed = parseScoringOutput(JSON.stringify({
+      ...validScoringPayload,
+      category_scores: [
+        {
+          category: "passion_for_sales",
+          score: 4,
+          confidence: 0.9,
+          evidence_quotes: ["top performer"],
+          rationale: "Strong sales drive.",
+        },
+      ],
+      final_scores: {
+        dimensions: [
+          { category: "passion_for_sales", score: 4 },
+        ],
+        total_score: 4,
+        max_score: 4,
+      },
+      warnings: ["model_warning"],
+    }));
+
+    const restricted = restrictScoringOutputToRubricDimensions(parsed, {
+      dimensions: [
+        { key: "communication" },
+        { key: "passion_for_sales" },
+        { key: "agency" },
+      ],
+    });
+
+    expect(restricted.categoryScores.map((score) => score.category)).toEqual(["passion_for_sales"]);
+    expect(restricted.scorecard.dimensionScores.map((score) => score.category)).toEqual(["passion_for_sales"]);
+    expect(restricted.scorecard.finalScores).toEqual({
+      dimensions: [
+        { category: "passion_for_sales", score: 4 },
+      ],
+      totalScore: 4,
+      maxScore: 4,
+    });
+    expect(restricted.warnings).toEqual([
+      "model_warning",
+      "missing_selected_rubric_categories",
+    ]);
   });
 
   it("throws when evidence_quotes is missing, malformed, or contains non-strings", () => {
