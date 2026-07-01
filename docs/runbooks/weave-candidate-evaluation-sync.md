@@ -95,7 +95,7 @@ Capture outputs:
 ```sh
 aws cloudformation describe-stacks \
   --stack-name "${PUDDLE_STACK_NAME}" \
-  --query "Stacks[0].Outputs[?OutputKey=='ExternalIntegrationWebhookSecretSecretName' || OutputKey=='ExternalIntegrationIngressQueueUrl' || OutputKey=='ExternalIntegrationIngressDeadLetterQueueUrl' || OutputKey=='WeaveCandidateEvaluationsWorkerServiceName' || OutputKey=='BackendMigrationTaskDefinitionArn' || OutputKey=='BackendTasksSecurityGroupId' || OutputKey=='PrivateSubnetIds' || OutputKey=='ClusterName' || OutputKey=='BackendInternalBaseUrl'].[OutputKey,OutputValue]" \
+  --query "Stacks[0].Outputs[?OutputKey=='ExternalIntegrationWebhookSecretSecretName' || OutputKey=='ExternalIntegrationIngressQueueUrl' || OutputKey=='ExternalIntegrationIngressDeadLetterQueueUrl' || OutputKey=='WeaveCandidateEvaluationsWorkerServiceName' || OutputKey=='BackendMigrationTaskDefinitionArn' || OutputKey=='BackendTasksSecurityGroupId' || OutputKey=='PrivateSubnetIds' || OutputKey=='ClusterName' || OutputKey=='BackendInternalBaseUrl' || OutputKey=='BackendLogGroupName'].[OutputKey,OutputValue]" \
   --output table
 ```
 
@@ -214,7 +214,9 @@ Manual approval gate: do not run a full Supabase backfill without approval. Star
 select public.puddle_backfill_candidate_evaluations_v1(10) as emitted_count;
 ```
 
-For approved larger batches, repeat with an explicit batch size and observe queue/worker health between batches:
+The Supabase emitter is not a stateful batch runner: it does not store a cursor, mark emitted rows, or accept a range predicate. Repeated calls with the same `batch_limit` can re-select and re-emit the same first ordered rows. For full controlled migrations, prefer the JSONL backfill path above. If operators choose a Supabase-driven full backfill, first modify the SQL backfill function in a reviewed change to add explicit range predicates or cursor tracking, then run approved non-overlapping ranges while observing queue/worker health.
+
+Do not run this as a repeated full-backfill loop unless that external tracking or reviewed SQL range control exists:
 
 ```sql
 select public.puddle_backfill_candidate_evaluations_v1(500) as emitted_count;
@@ -227,6 +229,7 @@ Check queue depth:
 ```sh
 export EXTERNAL_QUEUE_URL="<ExternalIntegrationIngressQueueUrl>"
 export EXTERNAL_DLQ_URL="<ExternalIntegrationIngressDeadLetterQueueUrl>"
+export BACKEND_LOG_GROUP_NAME="<BackendLogGroupName>"
 
 aws sqs get-queue-attributes \
   --queue-url "${EXTERNAL_QUEUE_URL}" \
@@ -241,11 +244,13 @@ Check worker logs:
 
 ```sh
 aws logs filter-log-events \
-  --log-group-name "<WeaveCandidateEvaluationsWorkerLogGroupName>" \
+  --log-group-name "${BACKEND_LOG_GROUP_NAME}" \
+  --log-stream-name-prefix "weave-candidate-evaluations" \
   --filter-pattern "status=failed"
 
 aws logs filter-log-events \
-  --log-group-name "<WeaveCandidateEvaluationsWorkerLogGroupName>" \
+  --log-group-name "${BACKEND_LOG_GROUP_NAME}" \
+  --log-stream-name-prefix "weave-candidate-evaluations" \
   --filter-pattern "status=processed"
 ```
 
