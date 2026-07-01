@@ -47,8 +47,11 @@ interface RuntimeSecrets {
 
 interface RuntimeRoles {
   backendTaskRole: iam.Role;
+  backendMigrationTaskRole: iam.Role;
+  firefliesIngestionWorkerTaskRole: iam.Role;
   weaveCandidateEvaluationsWorkerTaskRole: iam.Role;
   backendExecutionRole: iam.Role;
+  weaveCandidateEvaluationsWorkerExecutionRole: iam.Role;
   agentTaskRole: iam.Role;
   agentExecutionRole: iam.Role;
   platformTaskRole: iam.Role;
@@ -1000,6 +1003,16 @@ export class InfraStack extends cdk.Stack {
       'backend task role',
       'backend-task-role',
     );
+    const backendMigrationTaskRole = this.createTaskRole(
+      'BackendMigrationTaskRole',
+      'backend migration task role',
+      'backend-migrations-task-role',
+    );
+    const firefliesIngestionWorkerTaskRole = this.createTaskRole(
+      'FirefliesIngestionWorkerTaskRole',
+      'Fireflies ingestion worker task role',
+      'fireflies-ingestion-worker-task-role',
+    );
     const weaveCandidateEvaluationsWorkerTaskRole = this.createTaskRole(
       'WeaveCandidateEvaluationsWorkerTaskRole',
       'Weave candidate evaluations worker task role',
@@ -1009,6 +1022,11 @@ export class InfraStack extends cdk.Stack {
       'BackendExecutionRole',
       'backend task execution role',
       'backend-execution-role',
+    );
+    const weaveCandidateEvaluationsWorkerExecutionRole = this.createExecutionRole(
+      'WeaveCandidateEvaluationsWorkerExecutionRole',
+      'Weave candidate evaluations worker task execution role',
+      'weave-candidate-evals-worker-exec-role',
     );
     const agentTaskRole = this.createTaskRole(
       'AgentTaskRole',
@@ -1031,10 +1049,16 @@ export class InfraStack extends cdk.Stack {
       'platform-execution-role',
     );
     artifactsBucket.grantReadWrite(backendTaskRole);
+    artifactsBucket.grantReadWrite(backendMigrationTaskRole);
+    artifactsBucket.grantReadWrite(firefliesIngestionWorkerTaskRole);
     artifactsBucket.grantReadWrite(agentTaskRole);
     artifactsBucket.grantRead(platformTaskRole);
     this.grantHistoricalRecordingsRead(backendTaskRole, weaveHistoricalRecordings);
-    firefliesIngestionQueue?.grantConsumeMessages(backendTaskRole);
+    this.grantHistoricalRecordingsRead(
+      firefliesIngestionWorkerTaskRole,
+      weaveHistoricalRecordings,
+    );
+    firefliesIngestionQueue?.grantConsumeMessages(firefliesIngestionWorkerTaskRole);
     externalIntegrationIngressQueue?.grantSendMessages(backendTaskRole);
     externalIntegrationIngressQueue?.grantConsumeMessages(
       weaveCandidateEvaluationsWorkerTaskRole,
@@ -1070,14 +1094,18 @@ export class InfraStack extends cdk.Stack {
 
     if (database?.secret) {
       database.secret.grantRead(backendExecutionRole);
+      database.secret.grantRead(weaveCandidateEvaluationsWorkerExecutionRole);
       database.secret.grantRead(agentExecutionRole);
     }
     runtimeSecrets.weaveDatabaseCredentials.grantRead(backendExecutionRole);
 
     return {
       backendTaskRole,
+      backendMigrationTaskRole,
+      firefliesIngestionWorkerTaskRole,
       weaveCandidateEvaluationsWorkerTaskRole,
       backendExecutionRole,
+      weaveCandidateEvaluationsWorkerExecutionRole,
       agentTaskRole,
       agentExecutionRole,
       platformTaskRole,
@@ -1342,7 +1370,7 @@ export class InfraStack extends cdk.Stack {
           cpuArchitecture: ecs.CpuArchitecture.ARM64,
           operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         },
-        taskRole: params.runtimeRoles.backendTaskRole,
+        taskRole: params.runtimeRoles.backendMigrationTaskRole,
         executionRole: params.runtimeRoles.backendExecutionRole,
       },
     );
@@ -1369,7 +1397,7 @@ export class InfraStack extends cdk.Stack {
           cpuArchitecture: ecs.CpuArchitecture.ARM64,
           operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         },
-        taskRole: params.runtimeRoles.backendTaskRole,
+        taskRole: params.runtimeRoles.firefliesIngestionWorkerTaskRole,
         executionRole: params.runtimeRoles.backendExecutionRole,
       },
     );
@@ -1406,7 +1434,7 @@ export class InfraStack extends cdk.Stack {
           operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         },
         taskRole: params.runtimeRoles.weaveCandidateEvaluationsWorkerTaskRole,
-        executionRole: params.runtimeRoles.backendExecutionRole,
+        executionRole: params.runtimeRoles.weaveCandidateEvaluationsWorkerExecutionRole,
       },
     );
     weaveCandidateEvaluationsWorkerTaskDefinition.addContainer(

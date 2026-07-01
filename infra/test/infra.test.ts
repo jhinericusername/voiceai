@@ -385,6 +385,12 @@ describe('InfraStack', () => {
           'Arn',
         ],
       },
+      ExecutionRoleArn: {
+        'Fn::GetAtt': [
+          Match.stringLikeRegexp('WeaveCandidateEvaluationsWorkerExecutionRole'),
+          'Arn',
+        ],
+      },
       ContainerDefinitions: Match.arrayWith([
         Match.objectLike({
           Name: 'weave-candidate-evaluations-worker',
@@ -439,23 +445,49 @@ describe('InfraStack', () => {
         'weave-candidate-evaluations-worker',
       ).sort(),
     ).toEqual(['DATABASE_PASSWORD', 'DATABASE_USER']);
+    expect(taskRoleLogicalId(template, 'puddle-videoagent-backend')).toContain(
+      'BackendTaskRole',
+    );
+    expect(taskRoleLogicalId(template, 'puddle-videoagent-backend-migrations')).toContain(
+      'BackendMigrationTaskRole',
+    );
+    expect(
+      taskRoleLogicalId(template, 'puddle-videoagent-fireflies-ingestion-worker'),
+    ).toContain('FirefliesIngestionWorkerTaskRole');
+    expect(
+      taskRoleLogicalId(template, 'puddle-videoagent-weave-candidate-evaluations-worker'),
+    ).toContain('WeaveCandidateEvaluationsWorkerTaskRole');
+    expect(
+      taskExecutionRoleLogicalId(
+        template,
+        'puddle-videoagent-weave-candidate-evaluations-worker',
+      ),
+    ).toContain('WeaveCandidateEvaluationsWorkerExecutionRole');
 
     const externalQueueLogicalId = queueLogicalId(
       template,
       'puddle-videoagent-external-integration-ingress',
     );
-    const backendExternalQueueActions = policyStatementsForRole(
+    const backendExternalQueueActions = queueActionsForRole(
       template,
       'BackendTaskRole',
-    )
-      .filter((statement) => referencesValue(statement.Resource, externalQueueLogicalId))
-      .flatMap(statementActions);
-    const workerExternalQueueActions = policyStatementsForRole(
+      externalQueueLogicalId,
+    );
+    const migrationExternalQueueActions = queueActionsForRole(
+      template,
+      'BackendMigrationTaskRole',
+      externalQueueLogicalId,
+    );
+    const firefliesExternalQueueActions = queueActionsForRole(
+      template,
+      'FirefliesIngestionWorkerTaskRole',
+      externalQueueLogicalId,
+    );
+    const workerExternalQueueActions = queueActionsForRole(
       template,
       'WeaveCandidateEvaluationsWorkerTaskRole',
-    )
-      .filter((statement) => referencesValue(statement.Resource, externalQueueLogicalId))
-      .flatMap(statementActions);
+      externalQueueLogicalId,
+    );
 
     expect(backendExternalQueueActions).toContain('sqs:SendMessage');
     expect(backendExternalQueueActions).not.toEqual(
@@ -473,9 +505,49 @@ describe('InfraStack', () => {
       ]),
     );
     expect(workerExternalQueueActions).not.toContain('sqs:SendMessage');
+    expect(migrationExternalQueueActions).toEqual([]);
+    expect(firefliesExternalQueueActions).toEqual([]);
+    expect(
+      executionRolePolicyAllowsSecret(
+        template,
+        'WeaveCandidateEvaluationsWorkerExecutionRole',
+        'PostgresDatabaseSecret',
+      ),
+    ).toBe(true);
+    expect(
+      executionRolePolicyAllowsSecret(
+        template,
+        'WeaveCandidateEvaluationsWorkerExecutionRole',
+        'ExternalIntegrationWebhookSecret',
+      ),
+    ).toBe(false);
+    expect(
+      executionRolePolicyAllowsSecret(
+        template,
+        'WeaveCandidateEvaluationsWorkerExecutionRole',
+        'OpenaiApiKey',
+      ),
+    ).toBe(false);
+    expect(
+      executionRolePolicyAllowsSecret(
+        template,
+        'WeaveCandidateEvaluationsWorkerExecutionRole',
+        'LiveKitApiKey',
+      ),
+    ).toBe(false);
+    expect(
+      executionRolePolicyAllowsSecret(
+        template,
+        'WeaveCandidateEvaluationsWorkerExecutionRole',
+        'AshbyIntegrationSecretKey',
+      ),
+    ).toBe(false);
     template.hasOutput('ExternalIntegrationIngressQueueUrl', {});
     template.hasOutput('ExternalIntegrationIngressDeadLetterQueueUrl', {});
+    template.hasOutput('BackendMigrationTaskRoleArn', {});
+    template.hasOutput('FirefliesIngestionWorkerTaskRoleArn', {});
     template.hasOutput('WeaveCandidateEvaluationsWorkerTaskRoleArn', {});
+    template.hasOutput('WeaveCandidateEvaluationsWorkerExecutionRoleArn', {});
     template.hasOutput('WeaveCandidateEvaluationsWorkerServiceName', {});
     template.hasOutput('WeaveCandidateEvaluationsWorkerTaskDefinitionArn', {});
   });
@@ -1141,12 +1213,44 @@ function taskContainerDefinition(
   family: string,
   containerName: string,
 ): SynthContainerDefinition | undefined {
+  const task = taskDefinitionResource(template, family);
+  const containers = task?.Properties?.ContainerDefinitions as SynthContainerDefinition[] | undefined;
+  return containers?.find((candidate) => candidate.Name === containerName);
+}
+
+function taskDefinitionResource(
+  template: Template,
+  family: string,
+): SynthResource | undefined {
   const task = Object.values(synthResources(template)).find(
     (resource) =>
       resource.Type === 'AWS::ECS::TaskDefinition' && resource.Properties?.Family === family,
   );
-  const containers = task?.Properties?.ContainerDefinitions as SynthContainerDefinition[] | undefined;
-  return containers?.find((candidate) => candidate.Name === containerName);
+  return task;
+}
+
+function taskRoleLogicalId(template: Template, family: string): string {
+  return taskRoleArnLogicalId(template, family, 'TaskRoleArn');
+}
+
+function taskExecutionRoleLogicalId(template: Template, family: string): string {
+  return taskRoleArnLogicalId(template, family, 'ExecutionRoleArn');
+}
+
+function taskRoleArnLogicalId(
+  template: Template,
+  family: string,
+  propertyName: 'TaskRoleArn' | 'ExecutionRoleArn',
+): string {
+  const arn = taskDefinitionResource(template, family)?.Properties?.[propertyName];
+  const getAtt = (arn as { readonly 'Fn::GetAtt'?: readonly string[] } | undefined)?.[
+    'Fn::GetAtt'
+  ];
+  if (getAtt?.[0]) {
+    return getAtt[0];
+  }
+
+  throw new Error(`${propertyName} not found for task family: ${family}`);
 }
 
 function taskEnvironmentNames(template: Template, family: string, containerName: string): string[] {
@@ -1170,19 +1274,20 @@ function executionRolePolicyAllowsSecret(
   const roleId = Object.entries(resources).find(
     ([id, resource]) => resource.Type === 'AWS::IAM::Role' && id.includes(roleLogicalIdPart),
   )?.[0];
-  const secretId = Object.entries(resources).find(
-    ([id, resource]) =>
-      resource.Type === 'AWS::SecretsManager::Secret' && id.includes(secretLogicalIdPart),
-  )?.[0];
+  const secretIds = Object.entries(resources)
+    .filter(([id]) => id.includes(secretLogicalIdPart))
+    .map(([id]) => id);
 
   return Object.values(resources).some((resource) => {
-    if (resource.Type !== 'AWS::IAM::Policy' || !roleId || !secretId) {
+    if (resource.Type !== 'AWS::IAM::Policy' || !roleId || secretIds.length === 0) {
       return false;
     }
 
     return (
       referencesValue(resource.Properties?.Roles, roleId) &&
-      referencesValue(resource.Properties?.PolicyDocument, secretId) &&
+      secretIds.some((secretId) =>
+        referencesValue(resource.Properties?.PolicyDocument, secretId),
+      ) &&
       referencesValue(resource.Properties?.PolicyDocument, 'secretsmanager:GetSecretValue')
     );
   });
@@ -1232,6 +1337,16 @@ function policyStatementsForRole(
       ? [...document.Statement]
       : [document.Statement];
   });
+}
+
+function queueActionsForRole(
+  template: Template,
+  roleLogicalIdPart: string,
+  queueLogicalId: string,
+): string[] {
+  return policyStatementsForRole(template, roleLogicalIdPart)
+    .filter((statement) => referencesValue(statement.Resource, queueLogicalId))
+    .flatMap(statementActions);
 }
 
 function queueLogicalId(template: Template, queueName: string): string {
